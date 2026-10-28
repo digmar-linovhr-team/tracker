@@ -1,24 +1,26 @@
 :root {
   color-scheme: light;
-  --bg: #f6f7f5;
+  --bg: #f5f7f9;
   --surface: #ffffff;
-  --surface-2: #f1f2ef;
-  --border: #e3e4df;
-  --text: #17181a;
-  --text-2: #55575c;
-  --muted: #8a8c90;
-  --accent: #0f766e;
+  --surface-2: #eef2f5;
+  --border: #e1e6eb;
+  --text: #262626;
+  --text-2: #545a61;
+  --muted: #858c94;
+  --accent: #255473;        /* navy LinovHR — tombol utama */
   --accent-ink: #ffffff;
-  --accent-soft: #e2f1ef;
+  --accent-soft: #e5edf3;
+  --brand: #408bbf;         /* biru logo LinovHR — aksen & elemen besar */
+  --gold: #ddaa46;          /* emas LinovHR */
   --good: #0a8a0a;
   --good-soft: #e5f4e5;
   --warn: #b77700;
   --warn-soft: #fbf1dc;
   --bad: #c93636;
   --bad-soft: #fbe7e6;
-  --info: #2a78d6;
-  --info-soft: #e5effb;
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --info: #2f6f9e;
+  --info-soft: #e4eff7;
+  --series-1: #408bbf; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
   --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
   --shadow: 0 1px 2px rgba(20, 20, 20, .05), 0 4px 16px rgba(20, 20, 20, .04);
   --radius: 10px;
@@ -28,12 +30,13 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #131413; --surface: #1c1d1c; --surface-2: #242523; --border: #2f302e;
-    --text: #f0efec; --text-2: #c3c2b7; --muted: #8e8d86;
-    --accent: #2bb3a6; --accent-ink: #062b28; --accent-soft: #163331;
+    --bg: #11161b; --surface: #182029; --surface-2: #1f2933; --border: #2b3742;
+    --text: #eef2f5; --text-2: #b9c3cc; --muted: #84909b;
+    --accent: #6aaee0; --accent-ink: #0b2233; --accent-soft: #1b2e3d;
+    --brand: #6aaee0; --gold: #e6b95a;
     --good: #3cc23c; --good-soft: #17301a; --warn: #f0b23a; --warn-soft: #33290f;
-    --bad: #ec6b6b; --bad-soft: #3a1b1b; --info: #5c9ff0; --info-soft: #172a42;
-    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --bad: #ec6b6b; --bad-soft: #3a1b1b; --info: #7cb6e3; --info-soft: #1b2731;
+    --series-1: #5ea3d5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
     --shadow: none;
   }
@@ -261,3 +264,13 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   .toast { max-width: none; }
   input, select, textarea { font-size: 16px; } /* mencegah zoom otomatis di iOS */
 }
+
+/* ---------- identitas LinovHR ---------- */
+.brand small.org { color: var(--brand); font-weight: 700; letter-spacing: .01em; }
+.brand small.org b { display: inline; font-size: inherit; color: var(--brand); font-weight: 800; }
+nav button.active { box-shadow: inset 3px 0 0 var(--brand); }
+@media (max-width: 760px) { nav button.active { box-shadow: none; } }
+.tile .lbl .dot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent); }
+/* tombol berbentuk kapsul seperti situs LinovHR */
+.btn { border-radius: 999px; padding-left: 16px; padding-right: 16px; }
+.btn.sm { padding-left: 12px; padding-right: 12px; }

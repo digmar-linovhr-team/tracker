@@ -180,7 +180,7 @@ async function enterApp() {
   $('#me-name').textContent = S.user.name;
   $('#me-role').textContent = S.user.role === 'admin' ? 'Admin' : 'Anggota tim';
   $('#me-avatar').textContent = initials(S.user.name);
-  $('#demo-tag').textContent = S.cfg.demo ? 'Mode demo' : 'KPI & task tim';
+  $('#demo-tag').innerHTML = S.cfg.demo ? 'Mode demo' : 'Linov<b>HR</b>';
   renderNav();
   $('#view').innerHTML = '<div class="loading">Memuat data…</div>';
   await loadData();
