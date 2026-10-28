@@ -75,12 +75,12 @@ Kirim link aplikasi + username & password sementara masing-masing. Setiap orang:
 | Saluran | Kapan | Muncul walau aplikasi ditutup? |
 |---|---|---|
 | **Google Calendar** — event `▶ <task>` di jam mulai dan `⏰ Deadline: <task>` yang berakhir tepat di jam deadline | Notifikasi sesuai setelan default Google Calendar masing-masing (biasanya 10–30 menit sebelumnya) | ✅ Ya, di HP & laptop |
-| **Email** — pengingat saat deadline tinggal ≤ 24 jam, dan saat lewat deadline | Dicek tiap 15 menit, tiap email dikirim sekali | ✅ Ya |
+| **Email** — pengingat saat deadline tinggal ≤ 24 jam, dan saat lewat deadline | Dicek tiap 5 menit, tiap email dikirim sekali | ✅ Ya |
 | **Ringkasan pagi** — task terlambat, deadline hari ini, mulai hari ini | 07:00, Senin–Jumat; admin juga menerima rekap task terlambat tim | ✅ Ya |
 | **Notifikasi browser** | Jam mulai, sebelum deadline (bisa diatur di Setelan), saat lewat deadline | ❌ Hanya saat aplikasi/tab terbuka |
 
 - Event Calendar dibuat di kalender **"Project Tracker"** milik akun admin (pemilik script), dengan penanggung jawab sebagai tamu, sehingga muncul di Calendar mereka. Event otomatis **diperbarui** saat jadwal diubah dan **dihapus** saat task ditandai Done, Hold, atau dihapus.
-- Perubahan dari aplikasi langsung tersinkron; perubahan yang diketik langsung di spreadsheet tersinkron dalam ≤ 15 menit (atau menu *Sinkronkan Calendar sekarang*).
+- Perubahan dari aplikasi maupun yang diketik langsung di spreadsheet tersinkron ke Calendar dalam ≤ 5 menit (atau menu *Sinkronkan Calendar sekarang*).
 - Admin pemilik script tidak mendapat notifikasi untuk setiap event (pengingat di kalender pemilik dimatikan). Kalender "Project Tracker" bisa disembunyikan dari tampilan admin.
 - Ingin tamu menerima email undangan setiap event dibuat? Ubah `SEND_INVITES: true` di bagian atas `Code.gs`. Jam ringkasan pagi dan ambang email juga diatur di sana.
 - Pastikan setelan Google Calendar tim mengizinkan undangan otomatis masuk (*Settings → Event settings → Add invitations to my calendar*). Default Google Workspace sudah mengizinkan undangan dari dalam organisasi.

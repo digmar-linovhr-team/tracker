@@ -332,3 +332,7 @@ select.pill.st-recurring { background-color: var(--accent-soft); color: var(--ac
   .trow .t-ctrl { justify-content: flex-start; }
   .t-proj { max-width: 100%; }
 }
+
+/* sedang disimpan ke server (tampilan sudah berubah duluan) */
+.trow.is-saving .tick { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }

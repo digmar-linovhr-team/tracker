@@ -145,6 +145,14 @@ it('myTasks: tanggal "26 October" dibaca jadi ISO; Date asli juga', () => {
   assert.strictEqual(r.data.projects.find((p) => p.code === 'B5').start, '', 'TBD → kosong');
 });
 
+it('updateStatus mengembalikan task lengkap (untuk update instan di aplikasi)', () => {
+  const t0 = post({ action: 'myTasks', token: ari }).data.tasks[0];
+  const r = post({ action: 'updateStatus', token: ari, taskId: t0.id, status: 'Review' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.id, t0.id); assert.strictEqual(r.data.task.status, 'Review');
+  assert.strictEqual(r.data.task.task, t0.task); assert.strictEqual(r.data.task.endDate, t0.endDate);
+  post({ action: 'updateStatus', token: ari, taskId: t0.id, status: 'On-Progress' });
+});
+
 it('updateStatus mencatat Started At & Done At; buka lagi menghapus Done At', () => {
   const id = post({ action: 'myTasks', token: ari }).data.tasks[1].id;
   let r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' });
@@ -210,6 +218,7 @@ it('aktifkan pengingat: anggota mengisi email sendiri → event mulai & deadline
   assert.deepStrictEqual(triggers.sort(), ['runReminders', 'sendDailyDigest']);
   const r = post({ action: 'setMyEmail', token: ari, email: 'Ari@LinovHR.com', appUrl: 'https://tim.github.io/tracker/' });
   assert.ok(r.ok, r.error); assert.strictEqual(r.data.user.email, 'ari@linovhr.com');
+  sandbox.runReminders(); // trigger 5 menit
   const ev = Object.values(events).filter((e) => e.guests === 'ari@linovhr.com');
   // 3 task Ari: 1 masih Backlog/On-Progress dengan tanggal → masing-masing 2 event (mulai + deadline)
   assert.strictEqual(ev.length, 6, JSON.stringify(ev.map((e) => e.title)));
@@ -222,14 +231,18 @@ it('aktifkan pengingat: anggota mengisi email sendiri → event mulai & deadline
 it('task Done → event dihapus; dibuka lagi → event dibuat ulang', () => {
   const id = post({ action: 'myTasks', token: ari }).data.tasks[2].id;
   post({ action: 'updateStatus', token: ari, taskId: id, status: 'Done' });
+  sandbox.runReminders();
   assert.strictEqual(Object.values(events).filter((e) => e.title.includes('[A7]')).length, 0);
   post({ action: 'updateStatus', token: ari, taskId: id, status: 'Backlog' });
+  sandbox.runReminders();
   assert.strictEqual(Object.values(events).filter((e) => e.title.includes('[A7]')).length, 2);
 });
 
 it('mengubah deadline mengganti event, bukan menduplikasi', () => {
   const t = post({ action: 'getAll', token: admin }).data.tasks.find((x) => x.code === 'A7');
-  post({ action: 'saveTask', token: admin, task: Object.assign({}, t, { endTime: '15:00' }) });
+  const sv = post({ action: 'saveTask', token: admin, task: Object.assign({}, t, { endTime: '15:00' }) });
+  assert.strictEqual(sv.data.task.endTime, '15:00', 'saveTask mengembalikan task tersimpan');
+  sandbox.runReminders();
   const due = Object.values(events).filter((e) => e.title.startsWith('⏰ Deadline: [A7]'));
   assert.strictEqual(due.length, 1); assert.strictEqual(due[0].end.getHours(), 15);
 });
@@ -255,6 +268,7 @@ it('runReminders idempoten; email deadline ≤24 jam & overdue dikirim sekali', 
 it('hapus task menghapus event-nya; anggota tanpa email tidak dapat event', () => {
   const t = post({ action: 'getAll', token: admin }).data.tasks.find((x) => x.task === 'Task segera');
   post({ action: 'deleteTask', token: admin, taskId: t.id });
+  sandbox.runReminders(); // antrean hapus diproses
   assert.ok(!Object.values(events).some((e) => e.title.includes('Task segera')));
   assert.ok(!Object.values(events).some((e) => e.guests === '' || e.guests === undefined));
 });

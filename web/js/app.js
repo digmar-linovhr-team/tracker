@@ -9,6 +9,8 @@ const S = {
   all: null,
   lastSync: null,
   charts: [],
+  pending: new Set(),
+  bgTimer: null,
   f: {
     mineTab: 'active', mineQ: '',
     period: '30', person: 'all',
@@ -182,9 +184,19 @@ async function enterApp() {
   $('#me-avatar').textContent = initials(S.user.name);
   $('#demo-tag').innerHTML = S.cfg.demo ? 'Mode demo' : 'Linov<b>HR</b>';
   renderNav();
-  $('#view').innerHTML = '<div class="loading">Memuat data…</div>';
-  await loadData();
-  go(S.user.role === 'admin' && !S.user.sheetName ? 'dashboard' : 'mine');
+  const first = S.user.role === 'admin' && !S.user.sheetName ? 'dashboard' : 'mine';
+  const cached = readCache();
+  if (cached && cached.mine && (S.user.role !== 'admin' || cached.all)) {
+    S.mine = cached.mine;
+    S.all = cached.all || null;
+    setSyncInfo('Menyinkronkan…');
+    go(first);
+    if (await loadData(true)) softRender();
+  } else {
+    $('#view').innerHTML = '<div class="loading">Memuat data…</div>';
+    await loadData();
+    go(first);
+  }
 }
 
 function renderMe() {
@@ -207,20 +219,57 @@ function renderNav() {
   $$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
 }
 
+// ---------- cache lokal: aplikasi langsung tampil dengan data terakhir ----------
+const cacheKey = () => 'pt.cache.' + (S.cfg.demo ? 'demo.' : '') + S.user.username;
+function saveCache() {
+  try { localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), mine: S.mine, all: S.all })); } catch (e) { /* penyimpanan penuh/diblokir */ }
+}
+function readCache() {
+  try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
+}
+function clearCaches() {
+  try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
+}
+function setSyncInfo(text) { $('#sync-info').textContent = text; }
+
 async function loadData(quiet) {
   try {
-    const jobs = [S.user.sheetName ? api.call('myTasks') : Promise.resolve({ tasks: [], projects: [] })];
-    if (S.user.role === 'admin') jobs.push(api.call('getAll'));
-    const [mine, all] = await Promise.all(jobs);
+    let mine, all;
+    if (S.user.role === 'admin') {
+      // admin: satu panggilan getAll sudah mencakup task milik sendiri
+      all = await api.call('getAll');
+      mine = { tasks: all.tasks.filter((t) => t.owner === S.user.username), projects: all.projects };
+      if (S.user.sheetName) api.feedTasks(mine.tasks);
+    } else {
+      mine = S.user.sheetName ? await api.call('myTasks') : { tasks: [], projects: [] };
+    }
     S.mine = mine;
     const fresh = (mine && mine.me) || (all && all.users.find((u) => u.username === S.user.username));
     if (fresh) { S.user = Object.assign(S.user, fresh); renderMe(); }
     if (all) { S.all = all; if (!S.user.sheetName) S.mine.projects = all.projects; }
     S.lastSync = new Date();
-    $('#sync-info').textContent = 'Diperbarui ' + pad(S.lastSync.getHours()) + ':' + pad(S.lastSync.getMinutes());
+    setSyncInfo('Diperbarui ' + pad(S.lastSync.getHours()) + ':' + pad(S.lastSync.getMinutes()));
+    saveCache();
+    return true;
   } catch (e) {
+    setSyncInfo(S.lastSync ? 'Gagal memperbarui' : '');
     if (!quiet) toast(cleanErr(e), true);
+    return false;
   }
+}
+
+/** Gambar ulang tampilan aktif tanpa mengganggu (tidak saat form/modal terbuka atau sedang mengetik). */
+function softRender() {
+  if (!S.user || $('#modal-root').innerHTML) return;
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA') && a.type !== 'checkbox') return;
+  go(S.view);
+}
+
+/** Muat data terbaru di belakang layar, lalu perbarui tampilan. */
+function refreshInBackground(delay) {
+  clearTimeout(S.bgTimer);
+  S.bgTimer = setTimeout(async () => { if (await loadData(true)) softRender(); }, delay || 0);
 }
 
 function go(view) {
@@ -388,7 +437,7 @@ function taskRow(t) {
   const prio = String(t.priority || '').toLowerCase();
   const canStart = !done && ['Backlog', 'Hold'].includes(t.status);
   const statusSel = `<select class="pill ${ST_CLASS[t.status] || 'st-backlog'}" data-sel="${id}" aria-label="Status task">${STATUSES.map((x) => `<option ${x === t.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
-  return `<div class="trow ${done ? 'is-done' : ''} ${w.cls === 'bad' ? 'is-late' : ''} prio-${esc(prio || 'none')}" id="task-${id}">
+  return `<div class="trow ${S.pending.has(t.id) ? 'is-saving' : ''} ${done ? 'is-done' : ''} ${w.cls === 'bad' ? 'is-late' : ''} prio-${esc(prio || 'none')}" id="task-${id}">
     ${t.id ? `<button class="tick" data-st="${done ? 'On-Progress' : 'Done'}" data-id="${id}" title="${done ? 'Buka lagi' : 'Tandai selesai'}" aria-label="${done ? 'Buka lagi' : 'Tandai selesai'}">${CHECK_SVG}</button>` : '<span class="tick disabled"></span>'}
     <div class="t-main">
       <div class="t-title">${prettyTitle(t.task)}</div>
@@ -413,19 +462,41 @@ function taskRow(t) {
 
 function bindTaskRows(root) {
   $$('[data-ext]', root).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
-  $$('[data-st]', root).forEach((b) => b.onclick = () => setStatus(b.dataset.id, b.dataset.st, b));
-  $$('[data-sel]', root).forEach((s) => s.onchange = () => { if (s.value) setStatus(s.dataset.sel, s.value, s); });
+  $$('[data-st]', root).forEach((b) => b.onclick = () => setStatus(b.dataset.id, b.dataset.st));
+  $$('[data-sel]', root).forEach((s) => s.onchange = () => { if (s.value) setStatus(s.dataset.sel, s.value); });
 }
 
-async function setStatus(id, status, el) {
-  const row = document.getElementById('task-' + id);
-  if (row) row.classList.add('is-busy');
+function findTask(id) {
+  return (S.mine.tasks || []).find((x) => x.id === id) || (S.all && S.all.tasks.find((x) => x.id === id)) || null;
+}
+function patchTask(id, patch) {
+  [S.mine.tasks, S.all && S.all.tasks].forEach((list) => { if (!list) return; const t = list.find((x) => x.id === id); if (t) Object.assign(t, patch); });
+}
+
+/** Ubah status: tampilan langsung berubah, penyimpanan berjalan di belakang; dibatalkan bila gagal. */
+async function setStatus(id, status) {
+  const t = findTask(id);
+  if (!t || t.status === status) return;
+  const before = { status: t.status, startedAt: t.startedAt, doneAt: t.doneAt };
+  const nowIso = new Date().toISOString();
+  const patch = { status, doneAt: status === 'Done' ? nowIso : '' };
+  if ((status === 'On-Progress' || status === 'Review') && !t.startedAt) patch.startedAt = nowIso;
+  patchTask(id, patch);
+  S.pending.add(id);
+  softRender();
+  toast(status === 'Done' ? 'Mantap! Task ditandai selesai.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
   try {
-    await busy(el.classList.contains('start') ? el : null, () => api.call('updateStatus', { taskId: id, status }));
-    toast(status === 'Done' ? 'Mantap! Task ditandai selesai.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
-    await loadData(true);
-    go(S.view);
-  } catch (e) { if (row) row.classList.remove('is-busy'); }
+    const r = await api.call('updateStatus', { taskId: id, status });
+    if (r && r.task) patchTask(id, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt });
+    S.pending.delete(id);
+    saveCache();
+    softRender();
+  } catch (e) {
+    S.pending.delete(id);
+    patchTask(id, before);
+    softRender();
+    toast('Gagal menyimpan, status dikembalikan: ' + cleanErr(e), true);
+  }
 }
 
 function tile(label, value, sub, color) {
@@ -625,8 +696,12 @@ function renderTaskTable() {
     const t = S.all.tasks.find((x) => x.id === b.dataset.del);
     if (!t.id) return toast('Task belum punya Task ID. Jalankan Setup di spreadsheet.', true);
     if (!(await confirmBox('Hapus task?', `"${t.task}" milik ${t.ownerName} akan dihapus dari spreadsheet.`))) return;
-    await busy(null, () => api.call('deleteTask', { taskId: t.id }));
-    toast('Task dihapus'); await loadData(true); go('tasks');
+    const snapAll = S.all.tasks.slice(), snapMine = S.mine.tasks.slice();
+    S.all.tasks = S.all.tasks.filter((x) => x.id !== t.id);
+    S.mine.tasks = S.mine.tasks.filter((x) => x.id !== t.id);
+    softRender(); toast('Task dihapus');
+    try { await api.call('deleteTask', { taskId: t.id }); saveCache(); }
+    catch (e) { S.all.tasks = snapAll; S.mine.tasks = snapMine; softRender(); toast('Gagal menghapus: ' + cleanErr(e), true); }
   });
 }
 
@@ -667,8 +742,17 @@ function taskModal(t) {
         if (s && e && e < s) { $('#terr', m).innerHTML = '<div class="error">Deadline tidak boleh sebelum waktu mulai.</div>'; return; }
         if (edit) data.id = t.id;
         try {
-          await busy($('#save', m), () => api.call('saveTask', { task: data }));
-          close(); toast(edit ? 'Task diperbarui' : 'Task dibuat & dibagikan'); await loadData(true); go(S.view);
+          const r = await busy($('#save', m), () => api.call('saveTask', { task: data }));
+          close(); toast(edit ? 'Task diperbarui' : 'Task dibuat & dibagikan');
+          if (r && r.task) {
+            const owner = S.all.users.find((u) => u.username === r.task.owner);
+            const nt = Object.assign({}, r.task, { ownerName: owner ? owner.name : r.task.ownerName });
+            S.all.tasks = S.all.tasks.filter((x) => x.id !== nt.id).concat(nt);
+            S.mine.tasks = S.mine.tasks.filter((x) => x.id !== nt.id).concat(nt.owner === S.user.username ? [nt] : []);
+            saveCache();
+          }
+          softRender();
+          refreshInBackground(1500);
         } catch (err) { $('#terr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
       };
     }
@@ -694,7 +778,8 @@ function viewProjects() {
     const p = all.projects.find((x) => String(x.row) === b.dataset.pd);
     if (!(await confirmBox('Hapus project?', `${p.code} — ${p.project} akan dihapus dari tab Main Project. Task terkait tidak ikut terhapus.`))) return;
     await busy(null, () => api.call('deleteProject', { row: p.row, code: p.code }));
-    toast('Project dihapus'); await loadData(true); go('projects');
+    S.all.projects = S.all.projects.filter((x) => x.row !== p.row);
+    toast('Project dihapus'); softRender(); refreshInBackground(800);
   });
 }
 
@@ -720,7 +805,12 @@ function projectModal(p) {
         const f = $('#pf', m); if (!f.reportValidity()) return;
         const data = Object.fromEntries(new FormData(f).entries());
         if (edit) { data.row = p.row; data.originalCode = p.code; }
-        try { await busy($('#save', m), () => api.call('saveProject', { project: data })); close(); toast('Project disimpan'); await loadData(true); go('projects'); }
+        try {
+          await busy($('#save', m), () => api.call('saveProject', { project: data }));
+          close(); toast('Project disimpan');
+          if (edit) { Object.assign(S.all.projects.find((x) => x.row === p.row) || {}, data); softRender(); }
+          refreshInBackground(edit ? 800 : 0);
+        }
         catch (err) { $('#perr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
       };
     }
@@ -778,7 +868,9 @@ function userModal(u) {
           hasTasks: f.hasTasks.checked, active: edit ? f.active.checked : true, email: f.email.value.trim(), position: f.position.value.trim() };
         try {
           const r = await busy($('#save', m), () => api.call('saveUser', { user: data }));
-          close(); await loadData(true); go('users');
+          close();
+          if (r && r.user) { S.all.users = S.all.users.filter((x) => x.username !== r.user.username).concat(r.user); softRender(); }
+          refreshInBackground(800);
           if (r.password) showPassword(data.username, r.password); else toast('Pengguna disimpan');
         } catch (err) { $('#uerr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
       };
@@ -850,7 +942,7 @@ function viewSettings() {
   if ($('#perm')) $('#perm').onclick = async () => { await api.requestNotifications(); S.cfg = await api.config(); viewSettings(); };
   $('#tn').onclick = async () => { const ok = await api.testNotification(); S.cfg = await api.config(); if (!ok) toast('Notifikasi tidak diizinkan atau tidak didukung browser ini', true); };
   if ($('#inst')) $('#inst').onclick = async () => { await api.install(); S.cfg = await api.config(); viewSettings(); };
-  $('#lo').onclick = async () => { await api.logout(); S.user = null; S.cfg = await api.config(); showLogin(); };
+  $('#lo').onclick = async () => { clearCaches(); await api.logout(); S.user = null; S.all = null; S.mine = { tasks: [], projects: [] }; S.cfg = await api.config(); showLogin(); };
   if ($('#srv')) $('#srv').onclick = async () => {
     await api.logout();
     if (c.demo) await api.setConfig({ demo: false });
@@ -875,13 +967,16 @@ function viewSettings() {
 // ---------- event global ----------
 $('#btn-logout').onclick = async () => {
   if (!(await confirmBox('Keluar dari akun?', `Anda akan keluar dari akun ${S.user ? S.user.name : ''}. Login lagi untuk masuk dengan akun lain.`, 'Keluar'))) return;
-  await api.logout(); S.user = null; S.all = null; S.mine = { tasks: [], projects: [] }; S.cfg = await api.config(); showLogin();
+  clearCaches(); await api.logout(); S.user = null; S.all = null; S.mine = { tasks: [], projects: [] }; S.cfg = await api.config(); showLogin();
 };
-$('#btn-refresh').onclick = async () => { await busy($('#btn-refresh'), () => loadData()); go(S.view); };
+$('#btn-refresh').onclick = async () => { setSyncInfo('Menyinkronkan…'); await busy($('#btn-refresh'), () => loadData()); go(S.view); };
 api.on('auth:expired', () => { S.user = null; toast('Sesi berakhir, silakan login lagi', true); showLogin(); });
-api.on('tasks:refreshed', async () => {
-  if (!S.user || $('#modal-root').innerHTML) return;
-  if (S.view === 'mine' || (S.view === 'dashboard' && S.user.role !== 'admin')) { await loadData(true); go(S.view); }
+api.on('tasks:refreshed', (tasks) => {
+  if (!S.user || !Array.isArray(tasks) || S.pending.size) return;
+  S.mine.tasks = tasks;
+  if (S.all) S.all.tasks = S.all.tasks.filter((t) => t.owner !== S.user.username).concat(tasks);
+  saveCache();
+  if (S.view === 'mine' || S.view === 'dashboard') softRender();
 });
 api.on('nav:task', async (id) => {
   if (!S.user || !S.user.sheetName) return;

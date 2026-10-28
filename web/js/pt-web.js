@@ -31,7 +31,8 @@
     var token = get('token', '');
     if (get('demo', false)) {
       var session = token ? { username: token.replace(/^demo\./, '') } : null;
-      await new Promise(function (r) { setTimeout(r, 120); });
+      await new Promise(function (r) { setTimeout(r, get('demoDelay', 120)); }); // demoDelay/demoFail: hanya untuk uji
+      if (get('demoFail', false) && action === 'updateStatus') throw new Error('Simulasi server gagal');
       try { return JSON.parse(JSON.stringify(window.PTDemo.handle(action, payload, session))); }
       catch (e) { if (e.message === 'UNAUTHORIZED') unauthorized(); throw e; }
     }
@@ -112,13 +113,13 @@
       var r = await api('myTasks');
       myTasks = r.tasks || [];
       checkNotifications();
-      emit('tasks:refreshed');
+      emit('tasks:refreshed', myTasks.slice());
     } catch (e) { /* offline: coba lagi nanti */ }
   }
 
   function startScheduler() {
     stopScheduler();
-    refreshTasks();
+    // data awal sudah dimuat oleh tampilan; pengecekan berkala dimulai setelah ini
     pollTimer = setInterval(refreshTasks, POLL_MS);
     tickTimer = setInterval(checkNotifications, TICK_MS);
   }
@@ -189,9 +190,13 @@
       var r = await api(action, payload);
       if (action === 'myTasks') { myTasks = r.tasks || []; checkNotifications(); }
       if (action === 'setMyEmail' && r.user) set('user', Object.assign(get('user', {}), r.user));
-      if (['updateStatus', 'saveTask', 'deleteTask'].indexOf(action) >= 0) setTimeout(refreshTasks, 300);
+      if (action === 'updateStatus' && r.task) {
+        myTasks = myTasks.map(function (t) { return t.id === r.task.id ? Object.assign({}, t, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt }) : t; });
+        checkNotifications();
+      }
       return r;
     },
+    feedTasks: function (tasks) { myTasks = (tasks || []).slice(); checkNotifications(); },
     requestNotifications: async function () {
       if (!notifSupported()) return 'unsupported';
       var p = await Notification.requestPermission();

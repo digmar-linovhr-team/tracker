@@ -33,6 +33,11 @@ var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
 
+// Cache sederhana per eksekusi: tab Users & peta kolom cukup dibaca sekali per permintaan.
+var MEMO_ = { users: null, cols: {} };
+function resetMemo_() { MEMO_ = { users: null, cols: {} }; }
+function invalidateUsers_() { MEMO_.users = null; delete MEMO_.cols[CFG.USERS_SHEET]; }
+
 var STATUSES = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
 var PRIORITIES = ['High', 'Medium', 'Low'];
 
@@ -56,6 +61,7 @@ function onOpen() {
  * - membuat akun untuk setiap tab orang + akun admin, dengan password sementara
  */
 function setup() {
+  resetMemo_();
   var ss = SpreadsheetApp.getActive();
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('SECRET')) {
@@ -127,10 +133,12 @@ function menuResetPassword() {
 
 // ===================== HTTP =====================
 function doGet() {
-  return json_({ ok: true, app: 'project-tracker', version: 2 });
+  resetMemo_();
+  return json_({ ok: true, app: 'project-tracker', version: 3 });
 }
 
 function doPost(e) {
+  resetMemo_();
   var body;
   try {
     body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
@@ -203,6 +211,7 @@ function changePassword_(me, oldPw, newPw) {
     sh.getRange(me.row, col['salt'] + 1).setValue(salt);
     sh.getRange(me.row, col['password hash'] + 1).setValue(hash_(newPw, salt));
     sh.getRange(me.row, col['must change'] + 1).setValue(false);
+    invalidateUsers_();
   } finally { lock.releaseLock(); }
   me.mustChange = false;
   return { user: publicUser_(me) };
@@ -252,6 +261,7 @@ function tempPassword_() {
 
 // ===================== Users =====================
 function readUsers_() {
+  if (MEMO_.users) return MEMO_.users;
   var sh = sheet_(CFG.USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
   var col = colMap_(sh);
@@ -274,6 +284,7 @@ function readUsers_() {
       position: col['position'] === undefined ? '' : String(r[col['position']] || '').trim()
     });
   });
+  MEMO_.users = out;
   return out;
 }
 
@@ -293,6 +304,7 @@ function appendUser_(username, name, role, sheetName, password) {
     'password hash': hash_(password, salt), 'salt': salt, 'must change': true,
     'active': true, 'created at': new Date()
   });
+  invalidateUsers_();
 }
 
 function resetPassword_(username) {
@@ -303,6 +315,7 @@ function resetPassword_(username) {
   sh.getRange(u.row, col['salt'] + 1).setValue(salt);
   sh.getRange(u.row, col['password hash'] + 1).setValue(hash_(pw, salt));
   sh.getRange(u.row, col['must change'] + 1).setValue(true);
+  invalidateUsers_();
   CacheService.getScriptCache().remove('fail_' + u.username);
   return pw;
 }
@@ -330,8 +343,9 @@ function saveUser_(me, data) {
         var sn = ensurePersonSheet_(data.name || existing.name);
         sh.getRange(existing.row, col['sheet name'] + 1).setValue(sn);
       }
+      invalidateUsers_();
+      invalidateUsers_();
       log_(me, 'update-user', '', username);
-      afterChange_(function () { var u2 = findUser_(username); if (u2.sheetName) syncSheet_(u2); });
       return { user: publicUser_(findUser_(username)) };
     }
     var sheetName = data.hasTasks === false ? '' : ensurePersonSheet_(data.name || username);
@@ -340,6 +354,7 @@ function saveUser_(me, data) {
     var nu = findUser_(username), ucol = colMap_(sh);
     if (data.email) sh.getRange(nu.row, ucol['email'] + 1).setValue(cleanEmail_(data.email));
     if (data.position) sh.getRange(nu.row, ucol['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
+    invalidateUsers_();
     log_(me, 'create-user', '', username);
     return { user: publicUser_(findUser_(username)), password: pw };
   } finally { lock.releaseLock(); }
@@ -496,12 +511,16 @@ function updateStatus_(me, taskId, status) {
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
-    var prev = String(sh.getRange(row, col['status'] + 1).getValue());
-    sh.getRange(row, col['status'] + 1).setValue(status);
-    syncStamps_(sh, row, status, true);
+    var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+    var prev = String(r[col['status']]), now = new Date(), ch = { 'status': status };
+    if ((status === 'On-Progress' || status === 'Review') && !r[col['started at']]) ch['started at'] = now;
+    if (status === 'Done') ch['done at'] = now;
+    else if (r[col['done at']]) ch['done at'] = '';
+    writeObj_(sh, row, ch);
+    Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
     log_(me, 'status', taskId, prev + ' → ' + status);
-    afterChange_(function () { syncRow_(sh, row, loc.user); });
-    return { task: readTaskSheet_(sh, loc.user).filter(function (t) { return t.id === taskId; })[0] };
+    // Calendar diperbarui oleh trigger berkala (perubahan terdeteksi otomatis), supaya simpan tetap cepat.
+    return { task: rowTask_(r, null, col, sh, loc.user, row) };
   } finally { lock.releaseLock(); }
 }
 
@@ -533,7 +552,7 @@ function saveTask_(me, t) {
         obj['started at'] = loc.sheet.getRange(loc.row, loc.col['started at'] + 1).getValue();
         obj['done at'] = loc.sheet.getRange(loc.row, loc.col['done at'] + 1).getValue();
         obj['task id'] = id;
-        afterChange_(function () { deleteRowEvents_(loc.sheet, loc.row); });
+        trashRowEvents_(loc.sheet, loc.row);
         loc.sheet.deleteRow(loc.row);
         var nr = appendObj_(target, obj);
         formatTaskRow_(target, nr);
@@ -543,7 +562,6 @@ function saveTask_(me, t) {
       }
       syncStamps_(target, findRowById_(target, id), obj.status, false);
       log_(me, 'update-task', id, t.task + ' → ' + owner.username);
-      afterChange_(function () { syncRow_(target, findRowById_(target, id), owner); });
     } else {
       id = newId_();
       obj['task id'] = id;
@@ -552,9 +570,10 @@ function saveTask_(me, t) {
       var row = appendObj_(target, obj);
       formatTaskRow_(target, row);
       log_(me, 'create-task', id, t.task + ' → ' + owner.username);
-      afterChange_(function () { syncRow_(target, row, owner); });
     }
-    return { id: id };
+    var savedRow = findRowById_(target, id);
+    var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
+    return { id: id, task: saved };
   } finally { lock.releaseLock(); }
 }
 
@@ -588,7 +607,7 @@ function deleteTask_(me, taskId) {
   try {
     var loc = locateTask_(me, taskId);
     var title = loc.sheet.getRange(loc.row, loc.col['task'] + 1).getValue();
-    afterChange_(function () { deleteRowEvents_(loc.sheet, loc.row); });
+    trashRowEvents_(loc.sheet, loc.row);
     loc.sheet.deleteRow(loc.row);
     log_(me, 'delete-task', taskId, title);
     return { ok: true };
@@ -701,15 +720,19 @@ function ensureHeaders_(sh, headers) {
     sh.insertColumnsAfter(sh.getMaxColumns(), start + missing.length - 1 - sh.getMaxColumns());
   }
   sh.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
+  delete MEMO_.cols[sh.getName()];
 }
 
 function colMap_(sh) {
+  var name = sh.getName();
+  if (MEMO_.cols[name]) return MEMO_.cols[name];
   var row = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
   var map = {};
   row.forEach(function (h, i) {
     var k = String(h).trim().toLowerCase();
     if (k && map[k] === undefined) map[k] = i;
   });
+  MEMO_.cols[name] = map;
   return map;
 }
 
@@ -724,11 +747,19 @@ function appendObj_(sh, obj) {
   return row;
 }
 
+/** Tulis beberapa kolom dalam satu baris; kolom bersebelahan ditulis sekaligus. */
 function writeObj_(sh, row, obj) {
-  var col = colMap_(sh);
-  Object.keys(obj).forEach(function (k) {
-    if (col[k] !== undefined) sh.getRange(row, col[k] + 1).setValue(obj[k]);
-  });
+  var col = colMap_(sh), cells = {};
+  Object.keys(obj).forEach(function (k) { if (col[k] !== undefined) cells[col[k]] = obj[k]; });
+  var idx = Object.keys(cells).map(Number).sort(function (a, b) { return a - b; });
+  for (var i = 0; i < idx.length;) {
+    var j = i;
+    while (j + 1 < idx.length && idx[j + 1] === idx[j] + 1) j++;
+    var vals = [];
+    for (var k = i; k <= j; k++) vals.push(cells[idx[k]]);
+    sh.getRange(row, idx[i] + 1, 1, vals.length).setValues([vals]);
+    i = j + 1;
+  }
 }
 
 function lastDataRow_(sh) {
@@ -778,19 +809,20 @@ function afterChange_(fn) {
 }
 
 function installNotifications() {
+  resetMemo_();
   var props = PropertiesService.getScriptProperties();
   getCalendar_();
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (['runReminders', 'sendDailyDigest'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('runReminders').timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger('runReminders').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('sendDailyDigest').timeBased().atHour(CFG.DIGEST_HOUR).everyDays(1).inTimezone(tz_()).create();
   props.setProperty('NOTIF_ON', '1');
   readUsers_().forEach(function (u) { if (u.sheetName) ensureHeaders_(sheet_(u.sheetName), TASK_HEADERS); });
   runReminders();
   var missing = readUsers_().filter(function (u) { return u.sheetName && u.active && !u.email; })
     .map(function (u) { return u.name; });
-  var msg = 'Calendar & email pengingat aktif.\n\nSinkron berjalan tiap 15 menit dan setiap kali task diubah dari aplikasi. ' +
+  var msg = 'Calendar & email pengingat aktif.\n\nCalendar & email disinkronkan otomatis tiap 5 menit. ' +
     'Ringkasan pagi dikirim pukul ' + CFG.DIGEST_HOUR + ':00 (Senin–Jumat).\n\n' +
     'PENTING: Deploy ulang Web App (Deploy > Manage deployments > Edit > New version) agar izin baru berlaku.';
   if (missing.length) msg += '\n\nBelum punya email (isi di aplikasi > Pengguna, atau kolom Email di tab Users):\n• ' + missing.join('\n• ');
@@ -838,8 +870,8 @@ function setMyEmail_(me, email) {
     var sh = sheet_(CFG.USERS_SHEET);
     ensureHeaders_(sh, USER_HEADERS);
     sh.getRange(me.row, colMap_(sh)['email'] + 1).setValue(cleanEmail_(email));
+    invalidateUsers_();
     var u = findUser_(me.username);
-    afterChange_(function () { if (u.sheetName) syncSheet_(u); });
     return { user: publicUser_(u) };
   } finally { lock.releaseLock(); }
 }
@@ -918,6 +950,27 @@ function deleteEvent_(cal, id) {
   try { var ev = cal.getEventById(id); if (ev) ev.deleteEvent(); } catch (e) { /* sudah terhapus */ }
 }
 
+/** Simpan ID event dari baris yang akan dihapus; dihapus dari Calendar oleh trigger berikutnya. */
+function trashRowEvents_(sh, row) {
+  if (!calEnabled_()) return;
+  var col = colMap_(sh);
+  if (col['cal start id'] === undefined) return;
+  var ids = [sh.getRange(row, col['cal start id'] + 1).getValue(), sh.getRange(row, col['cal due id'] + 1).getValue()]
+    .map(String).filter(function (x) { return x && x !== 'undefined'; });
+  if (!ids.length) return;
+  var props = PropertiesService.getScriptProperties();
+  var list = JSON.parse(props.getProperty('CAL_TRASH') || '[]').concat(ids).slice(-300);
+  props.setProperty('CAL_TRASH', JSON.stringify(list));
+}
+
+function emptyCalTrash_(cal) {
+  var props = PropertiesService.getScriptProperties();
+  var list = JSON.parse(props.getProperty('CAL_TRASH') || '[]');
+  if (!list.length) return;
+  list.forEach(function (id) { deleteEvent_(cal, id); });
+  props.setProperty('CAL_TRASH', '[]');
+}
+
 function deleteRowEvents_(sh, row) {
   var col = colMap_(sh);
   if (col['cal start id'] === undefined) return;
@@ -928,11 +981,13 @@ function deleteRowEvents_(sh, row) {
 
 /** Trigger 15 menit: sinkron Calendar (termasuk edit langsung di sheet) + email pengingat. */
 function runReminders() {
+  resetMemo_();
   if (!calEnabled_()) return;
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return;
   try {
     var cal = getCalendar_(), now = new Date();
+    emptyCalTrash_(cal);
     personSheets_().forEach(function (p) {
       var sh = p.sheet;
       if (sh.getLastRow() < 2) return;
@@ -980,6 +1035,7 @@ function emailReminder_(sh, row, r, col, user, now) {
 
 /** Trigger harian: ringkasan pagi untuk setiap orang + rekap tim untuk admin. */
 function sendDailyDigest() {
+  resetMemo_();
   if (!calEnabled_()) return;
   var tz = tz_(), now = new Date();
   var dow = Number(Utilities.formatDate(now, tz, 'u')); // 1=Senin … 7=Minggu
