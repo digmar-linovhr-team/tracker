@@ -337,29 +337,69 @@ function renderMineList() {
     if (!list.length) return '';
     list = k === 'done' ? list.sort((a, b) => new Date(b.doneAt || 0) - new Date(a.doneAt || 0)) : list.sort(byStart);
     return `<div class="group"><div class="group-h"><span class="dot" style="background:${color}"></span>${label} <span class="n">${list.length}</span></div>
-      <div class="card">${list.map(taskRow).join('')}</div></div>`;
+      <div class="card tlist">${list.map(taskRow).join('')}</div></div>`;
   }).join('');
   $('#mlist').innerHTML = html || `<div class="card empty"><b>${f.mineTab === 'done' ? 'Belum ada task selesai' : 'Tidak ada task aktif'}</b>Task baru dari admin akan muncul di sini.</div>`;
   bindTaskRows($('#mlist'));
 }
 
+const ST_CLASS = { 'Backlog': 'st-backlog', 'On-Progress': 'st-progress', 'Review': 'st-review', 'Hold': 'st-hold', 'Done': 'st-done', 'Recurring': 'st-recurring' };
+const CHECK_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+function shortDT(d) { return d ? `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} · ${pad(d.getHours())}:${pad(d.getMinutes())}` : ''; }
+function relDur(ms) { const d = ms / 864e5; return Math.abs(d) >= 3 ? Math.round(Math.abs(d)) + ' hari' : L.humanDuration(Math.abs(ms)); }
+function sameDay(a, b) { return a && b && a.toDateString() === b.toDateString(); }
+
+/** Ringkasan waktu untuk kolom kanan: teks utama, teks kecil, warna, dan progres waktu. */
+function whenInfo(t) {
+  const e = L.evaluate(t), now = new Date();
+  const s = e.plannedStart, end = e.plannedEnd;
+  if (L.isDone(t)) {
+    const map = { over: ['good', `Lebih cepat ${relDur(e.slackMs)}`], ontime: ['info', 'Tepat waktu'], late: ['bad', `Terlambat ${relDur(-e.slackMs)}`] };
+    const [cls, main] = map[e.outcome] || ['good', 'Selesai'];
+    return { cls, main, sub: e.doneAt ? 'Done ' + shortDT(e.doneAt) : '' };
+  }
+  if (t.status === 'Recurring') return { cls: 'muted', main: 'Rutin', sub: '' };
+  if (!s && !end) return { cls: 'muted', main: 'Belum dijadwalkan', sub: [t.startRaw, t.endRaw].filter(Boolean).join(' → ') };
+  if (end && now > end) return { cls: 'bad', main: `Terlambat ${relDur(now - end)}`, sub: 'Deadline ' + shortDT(end) };
+  if (s && now < s) {
+    const range = end ? (sameDay(s, end) ? `${shortDT(s)}–${pad(end.getHours())}:${pad(end.getMinutes())}` : `${s.getDate()} ${MONTHS[s.getMonth()]} → ${end.getDate()} ${MONTHS[end.getMonth()]}`) : shortDT(s);
+    return { cls: 'muted', main: `Mulai ${relDur(s - now)} lagi`, sub: range };
+  }
+  const left = end ? end - now : null;
+  const pct = s && end && end > s ? Math.min(100, Math.max(0, ((now - s) / (end - s)) * 100)) : null;
+  return { cls: left !== null && left < 24 * 36e5 ? 'warn' : 'normal', main: end ? `${relDur(left)} lagi` : 'Sedang berjalan', sub: end ? 'Deadline ' + shortDT(end) : '', pct };
+}
+
 function taskRow(t) {
   const done = L.isDone(t);
   const pname = projectName(t.code);
-  const others = STATUSES.filter((s) => s !== t.status);
-  let actions = '';
-  if (!done && t.status !== 'On-Progress' && t.status !== 'Recurring') actions += `<button class="btn sm" data-st="On-Progress" data-id="${esc(t.id)}">▶ Mulai</button>`;
-  if (!done) actions += `<button class="btn sm done" data-st="Done" data-id="${esc(t.id)}">✓ Done</button>`;
-  else actions += `<button class="btn sm" data-st="On-Progress" data-id="${esc(t.id)}">Buka lagi</button>`;
-  actions += `<select data-sel="${esc(t.id)}" title="Ubah status"><option value="">Status…</option>${others.map((s) => `<option>${s}</option>`).join('')}</select>`;
-  return `<div class="task" id="task-${esc(t.id)}">
-    <div>
-      <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}${esc(pname)}</div>
-      <div class="task-title">${prettyTitle(t.task)}</div>
-      <div class="task-meta">${statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${timing(t)}</span>${done ? outcomeChip(t) : ''}</div>
-      ${t.notes ? `<div class="task-meta">📝 ${esc(t.notes)}</div>` : ''}
+  const showProj = pname && pname.trim().toLowerCase() !== String(t.task).trim().toLowerCase();
+  const w = whenInfo(t);
+  const id = esc(t.id);
+  const prio = String(t.priority || '').toLowerCase();
+  const canStart = !done && ['Backlog', 'Hold'].includes(t.status);
+  const statusSel = `<select class="pill ${ST_CLASS[t.status] || 'st-backlog'}" data-sel="${id}" aria-label="Status task">${STATUSES.map((x) => `<option ${x === t.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
+  return `<div class="trow ${done ? 'is-done' : ''} ${w.cls === 'bad' ? 'is-late' : ''} prio-${esc(prio || 'none')}" id="task-${id}">
+    ${t.id ? `<button class="tick" data-st="${done ? 'On-Progress' : 'Done'}" data-id="${id}" title="${done ? 'Buka lagi' : 'Tandai selesai'}" aria-label="${done ? 'Buka lagi' : 'Tandai selesai'}">${CHECK_SVG}</button>` : '<span class="tick disabled"></span>'}
+    <div class="t-main">
+      <div class="t-title">${prettyTitle(t.task)}</div>
+      <div class="t-sub">
+        ${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}
+        ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
+        ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
+        ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes)}</span>` : ''}
+      </div>
     </div>
-    <div class="task-actions">${t.id ? actions : '<span class="muted small">Belum punya Task ID — minta admin jalankan Setup</span>'}</div>
+    <div class="t-when w-${w.cls}">
+      <b>${esc(w.main)}</b>
+      ${w.sub ? `<span>${esc(w.sub)}</span>` : ''}
+      ${w.pct !== undefined && w.pct !== null ? `<i class="t-bar" title="${Math.round(w.pct)}% waktu terpakai"><i style="width:${w.pct}%"></i></i>` : ''}
+    </div>
+    <div class="t-ctrl">
+      ${canStart && t.id ? `<button class="btn sm start" data-st="On-Progress" data-id="${id}">Mulai</button>` : ''}
+      ${t.id ? statusSel : '<span class="muted small">Task ID kosong</span>'}
+    </div>
   </div>`;
 }
 
@@ -370,12 +410,14 @@ function bindTaskRows(root) {
 }
 
 async function setStatus(id, status, el) {
+  const row = document.getElementById('task-' + id);
+  if (row) row.classList.add('is-busy');
   try {
-    await busy(el.tagName === 'BUTTON' ? el : null, () => api.call('updateStatus', { taskId: id, status }));
-    toast(status === 'Done' ? 'Mantap! Task ditandai selesai.' : `Status diubah ke ${status}`);
+    await busy(el.classList.contains('start') ? el : null, () => api.call('updateStatus', { taskId: id, status }));
+    toast(status === 'Done' ? 'Mantap! Task ditandai selesai.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
     await loadData(true);
     go(S.view);
-  } catch (e) { /* toast sudah tampil */ }
+  } catch (e) { if (row) row.classList.remove('is-busy'); }
 }
 
 function tile(label, value, sub, color) {
