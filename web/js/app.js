@@ -437,7 +437,7 @@ function viewDashboard() {
 }
 
 function legendOutcome() {
-  return [['--good', 'Overperforming'], ['--info', 'Tepat waktu'], ['--bad', 'Terlambat'], ['--warn', 'Overdue'], ['--border', 'Masih berjalan']]
+  return [['--good', 'Overperforming'], ['--info', 'Tepat waktu'], ['--bad', 'Terlambat'], ['--warn', 'Overdue'], ['--muted', 'Masih berjalan']]
     .map(([c, l]) => `<span><i class="dot" style="background:${css(c)}"></i>${l}</span>`).join('');
 }
 
@@ -462,7 +462,7 @@ function chartDefaults() {
 function renderPersonChart(tasks, range) {
   chartDefaults();
   const people = L.byPerson(tasks, range).sort((a, b) => a.name.localeCompare(b.name));
-  const ds = [['over', 'Overperforming', '--good'], ['ontime', 'Tepat waktu', '--info'], ['late', 'Terlambat', '--bad'], ['overdue', 'Overdue', '--warn'], ['open', 'Masih berjalan', '--border']]
+  const ds = [['over', 'Overperforming', '--good'], ['ontime', 'Tepat waktu', '--info'], ['late', 'Terlambat', '--bad'], ['overdue', 'Overdue', '--warn'], ['open', 'Masih berjalan', '--muted']]
     .map(([k, l, c]) => ({ label: l, data: people.map((p) => p[k]), backgroundColor: css(c), borderColor: css('--surface'), borderWidth: { right: 2 }, borderRadius: 4, borderSkipped: false, barThickness: 16 }));
   S.charts.push(new Chart($('#c1'), {
     type: 'bar', data: { labels: people.map((p) => p.name), datasets: ds },
