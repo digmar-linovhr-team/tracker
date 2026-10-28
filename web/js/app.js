@@ -1,6 +1,17 @@
 /* global PTLogic, Chart */
 'use strict';
 const L = window.PTLogic;
+
+// Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
+const CSS_VERSION = '2.7.1';
+(function ensureFreshCss() {
+  const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
+  if (got === CSS_VERSION) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'styles.css?v=' + CSS_VERSION + '&t=' + Date.now();
+  document.head.appendChild(link);
+})();
 const api = window.pt;
 
 const S = {
