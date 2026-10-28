@@ -687,6 +687,14 @@ function renderHistory(sum, admin) {
   </tbody></table>`;
 }
 
+/** Filter orang ⇄ project yang saling menyesuaikan. Mengembalikan opsi yang relevan & mereset pilihan yang tidak lagi cocok. */
+function linkedFilters(tasks, people, person, code) {
+  const codesOf = (who) => [...new Set(tasks.filter((t) => t.code && (who === 'all' || t.owner === who)).map((t) => t.code))].sort();
+  const peopleIn = (c) => c === 'all' ? people : people.filter((u) => tasks.some((t) => t.owner === u.username && t.code === c));
+  if (person !== 'all' && code !== 'all' && !tasks.some((t) => t.owner === person && t.code === code)) code = 'all';
+  return { person, code, codes: codesOf(person), people: peopleIn(code) };
+}
+
 // ---------- Tim (baca-saja) ----------
 function teamData() {
   if (S.user.role === 'admin' && S.all) {
@@ -714,7 +722,9 @@ function viewTeam() {
   }
   const f = S.f, now = new Date(), week = new Date(now - 7 * 864e5);
   const users = d.users.slice().sort((a, b) => a.name.localeCompare(b.name));
-  const codes = [...new Set(d.tasks.map((t) => t.code).filter(Boolean))].sort();
+  const lf = linkedFilters(d.tasks, users, f.teamPerson, f.teamCode);
+  f.teamCode = lf.code;
+  const codes = lf.codes, involved = new Set(lf.people.map((u) => u.username));
   const stat = (u) => {
     const ts = d.tasks.filter((t) => t.owner === u.username);
     const b = (k) => ts.filter((t) => L.bucket(t, now) === k).length;
@@ -724,7 +734,7 @@ function viewTeam() {
   };
   $('#view').innerHTML = `
     <div class="wl-grid">${users.map((u) => { const st = stat(u); return `
-      <button class="card wl-card ${f.teamPerson === u.username ? 'on' : ''}" data-person="${esc(u.username)}">
+      <button class="card wl-card ${f.teamPerson === u.username ? 'on' : ''} ${involved.has(u.username) ? '' : 'dim'}" data-person="${esc(u.username)}" ${involved.has(u.username) ? '' : `title="Tidak terlibat di project ${esc(f.teamCode)}"`}>
         <div class="row" style="gap:10px"><span class="avatar">${initials(u.name)}</span>
           <div style="min-width:0;text-align:left"><b class="wl-name">${esc(u.name)}${u.username === S.user.username ? ' <span class="muted">(Anda)</span>' : ''}</b><small class="wl-pos">${esc(u.position || '—')}</small></div></div>
         <div class="wl-stats">
@@ -737,16 +747,24 @@ function viewTeam() {
     <div class="toolbar">
       <div class="seg" id="tmtab">${[['active', 'Aktif'], ['review', 'Review'], ['done', 'Selesai'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.teamTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <input type="search" id="tmq" placeholder="Cari task…" value="${esc(f.teamQ)}">
-      <select id="tmperson"><option value="all">Semua orang</option>${users.map((u) => `<option value="${esc(u.username)}" ${f.teamPerson === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
-      <select id="tmcode"><option value="all">Semua project</option>${codes.map((c) => `<option value="${esc(c)}" ${f.teamCode === c ? 'selected' : ''}>${esc(c)} — ${esc(projectName(c).slice(0, 40))}</option>`).join('')}</select>
+      <select id="tmperson"><option value="all">${f.teamCode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.teamCode)}</option>${lf.people.map((u) => `<option value="${esc(u.username)}" ${f.teamPerson === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+      <select id="tmcode"><option value="all">${f.teamPerson === 'all' ? 'Semua project' : 'Semua project ' + esc((users.find((u) => u.username === f.teamPerson) || {}).name || '')}</option>${codes.map((c) => `<option value="${esc(c)}" ${f.teamCode === c ? 'selected' : ''}>${esc(c)} — ${esc(projectName(c).slice(0, 40))}</option>`).join('')}</select>
     </div>
     <div id="tmlist"></div>
     <p class="def">Halaman ini hanya untuk melihat. Perubahan task hanya bisa dilakukan oleh pemilik task (dan admin).</p>`;
-  $$('[data-person]').forEach((b) => b.onclick = () => { f.teamPerson = f.teamPerson === b.dataset.person ? 'all' : b.dataset.person; go('team'); });
+  $$('[data-person]').forEach((b) => b.onclick = () => {
+    f.teamPerson = f.teamPerson === b.dataset.person ? 'all' : b.dataset.person;
+    if (b.classList.contains('dim')) f.teamCode = 'all'; // klik orang di luar project → tampilkan semua project-nya
+    go('team');
+  });
   $$('#tmtab button').forEach((b) => b.onclick = () => { f.teamTab = b.dataset.k; go('team'); });
   $('#tmq').oninput = (e) => { f.teamQ = e.target.value; renderTeamList(d, users); };
   $('#tmperson').onchange = (e) => { f.teamPerson = e.target.value; go('team'); };
-  $('#tmcode').onchange = (e) => { f.teamCode = e.target.value; renderTeamList(d, users); };
+  $('#tmcode').onchange = (e) => {
+    f.teamCode = e.target.value;
+    if (f.teamCode !== 'all' && f.teamPerson !== 'all' && !d.tasks.some((t) => t.owner === f.teamPerson && t.code === f.teamCode)) f.teamPerson = 'all';
+    go('team');
+  };
   renderTeamList(d, users);
 }
 
@@ -841,20 +859,28 @@ async function decideReview(id, decision, reason) {
 // ---------- Admin: Semua Task ----------
 function viewTasks() {
   const f = S.f, all = S.all;
-  const people = all.users.filter((u) => u.sheetName);
-  const codes = all.projects.filter((p) => p.code);
+  const lf = linkedFilters(all.tasks, all.users.filter((u) => u.sheetName), f.towner, f.tcode);
+  f.tcode = lf.code;
+  const people = lf.people;
+  const codes = lf.codes.map((c) => all.projects.find((p) => p.code === c) || { code: c, project: '' });
   $('#view').innerHTML = `
     <div class="toolbar">
       <input type="search" id="tq" placeholder="Cari task…" value="${esc(f.tq)}">
-      <select id="towner"><option value="all">Semua orang</option>${people.map((u) => `<option value="${esc(u.username)}" ${f.towner === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+      <select id="towner"><option value="all">${f.tcode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.tcode)}</option>${people.map((u) => `<option value="${esc(u.username)}" ${f.towner === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
       <select id="tstatus">${[['active', 'Belum selesai'], ['overdue', 'Terlambat'], ['all', 'Semua status']].concat(STATUSES.map((s) => [s, s])).map(([k, l]) => `<option value="${k}" ${f.tstatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <select id="tcode"><option value="all">Semua project</option>${codes.map((p) => `<option value="${esc(p.code)}" ${f.tcode === p.code ? 'selected' : ''}>${esc(p.code)} — ${esc(p.project.slice(0, 40))}</option>`).join('')}</select>
+      <select id="tcode"><option value="all">Semua project</option>${codes.map((p) => `<option value="${esc(p.code)}" ${f.tcode === p.code ? 'selected' : ''}>${esc(p.code)}${p.project ? ' — ' + esc(p.project.slice(0, 40)) : ''}</option>`).join('')}</select>
       <span class="spacer"></span>
       <button class="btn primary" id="newtask">+ Task baru</button>
     </div>
     <div class="card" style="overflow:auto" id="tt"></div>`;
   $('#tq').oninput = (e) => { f.tq = e.target.value; renderTaskTable(); };
-  ['towner', 'tstatus', 'tcode'].forEach((k) => $('#' + k).onchange = (e) => { f[k] = e.target.value; renderTaskTable(); });
+  $('#tstatus').onchange = (e) => { f.tstatus = e.target.value; renderTaskTable(); };
+  $('#towner').onchange = (e) => { f.towner = e.target.value; viewTasks(); };
+  $('#tcode').onchange = (e) => {
+    f.tcode = e.target.value;
+    if (f.tcode !== 'all' && f.towner !== 'all' && !S.all.tasks.some((t) => t.owner === f.towner && t.code === f.tcode)) f.towner = 'all';
+    viewTasks();
+  };
   $('#newtask').onclick = () => taskModal(null);
   renderTaskTable();
 }

@@ -378,3 +378,6 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
   .wl-card { padding: 10px 11px; }
   .wl-card .avatar { display: none; }
 }
+
+.wl-card.dim { opacity: .42; }
+.wl-card.dim:hover { opacity: .75; }
