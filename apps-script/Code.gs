@@ -27,7 +27,7 @@ var CFG = {
 
 var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
-  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded'];
+  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
@@ -134,7 +134,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 3 });
+  return json_({ ok: true, app: 'project-tracker', version: 4 });
 }
 
 function doPost(e) {
@@ -168,6 +168,7 @@ function route_(b) {
     case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me) };
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'setMyEmail': return setMyEmail_(me, b.email);
+    case 'teamTasks': return teamTasks_();
   }
 
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
@@ -179,6 +180,8 @@ function route_(b) {
     case 'deleteProject': return deleteProject_(me, b.row, b.code);
     case 'saveUser': return saveUser_(me, b.user);
     case 'resetPassword': return { password: resetPassword_(b.username) };
+    case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason);
+    case 'reviewQueue': return { tasks: allTasks_().filter(function (t) { return t.status === 'Review'; }) };
   }
   throw new Error('Aksi tidak dikenal: ' + a);
 }
@@ -480,13 +483,26 @@ function rowTask_(r, disp, col, sh, user, row) {
     priority: String(g('priority') || '').trim(),
     startedAt: normStamp_(g('started at')),
     doneAt: normStamp_(g('done at')),
+    reviewAt: normStamp_(g('review at')),
     notes: String(g('notes') || '')
   };
 }
 
-function getAll_() {
+function allTasks_() {
   var tasks = [];
   personSheets_().forEach(function (p) { tasks = tasks.concat(readTaskSheet_(p.sheet, p.user)); });
+  return tasks;
+}
+
+/** Data baca-saja untuk menu Tim: semua task + nama & jabatan (tanpa email/akun). */
+function teamTasks_() {
+  var users = readUsers_().filter(function (u) { return u.sheetName && u.active; })
+    .map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
+  return { tasks: allTasks_(), users: users, projects: readProjects_() };
+}
+
+function getAll_() {
+  var tasks = allTasks_();
   return { tasks: tasks, projects: readProjects_(), users: readUsers_().map(publicUser_),
     statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_() };
 }
@@ -513,6 +529,11 @@ function updateStatus_(me, taskId, status) {
     var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     var prev = String(r[col['status']]), now = new Date(), ch = { 'status': status };
+    if (me.role !== 'admin') {
+      if (status === 'Done') throw new Error('Hanya admin yang bisa menandai Done. Ajukan review agar diperiksa admin.');
+      if (prev === 'Done') throw new Error('Task ini sudah disetujui admin. Minta admin untuk membukanya kembali.');
+    }
+    if (status === 'Review' && prev !== 'Review') ch['review at'] = now;
     if ((status === 'On-Progress' || status === 'Review') && !r[col['started at']]) ch['started at'] = now;
     if (status === 'Done') ch['done at'] = now;
     else if (r[col['done at']]) ch['done at'] = '';
@@ -545,6 +566,7 @@ function saveTask_(me, t) {
       'notes': t.notes || ''
     };
     var id = t.id;
+    if (obj.status === 'Review' && !t.reviewAt) obj['review at'] = new Date();
     if (id) {
       var loc = locateTask_(me, id);
       if (loc.sheet.getName() !== target.getName()) {
@@ -574,6 +596,43 @@ function saveTask_(me, t) {
     var savedRow = findRowById_(target, id);
     var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
     return { id: id, task: saved };
+  } finally { lock.releaseLock(); }
+}
+
+/** Admin: setujui (Done) atau kembalikan (On-Progress + alasan di Catatan) task yang direview. */
+function reviewTask_(me, taskId, decision, reason) {
+  if (decision !== 'approve' && decision !== 'return') throw new Error('Keputusan review tidak valid');
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
+    var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+    var now = new Date(), ch = {};
+    if (decision === 'approve') {
+      ch['status'] = 'Done'; ch['done at'] = now;
+      if (!r[col['review at']]) ch['review at'] = now;
+    } else {
+      ch['status'] = 'On-Progress'; ch['done at'] = ''; ch['review at'] = '';
+      reason = String(reason || '').trim().slice(0, 500);
+      var stamp = Utilities.formatDate(now, tz_(), 'd MMM HH:mm');
+      var line = '[Dikembalikan ' + stamp + ' oleh ' + me.name + ']' + (reason ? ' ' + reason : '');
+      var old = String(r[col['notes']] || '').trim();
+      ch['notes'] = old ? old + '\n' + line : line;
+    }
+    writeObj_(sh, row, ch);
+    Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
+    log_(me, 'review-' + decision, taskId, reason || '');
+    var task = rowTask_(r, null, col, sh, loc.user, row);
+    if (decision === 'return' && loc.user.email && loc.user.active) {
+      try {
+        MailApp.sendEmail({
+          to: loc.user.email, name: 'Project Tracker',
+          subject: '↩️ Task dikembalikan: ' + shortTitle_(task.task),
+          htmlBody: emailShell_('Halo ' + esc_(loc.user.name) + ',', 'Task berikut <b>dikembalikan</b> oleh ' + esc_(me.name) +
+            ' untuk diperbaiki' + (reason ? ':<br><i>' + esc_(reason) + '</i>' : '.') + taskTableHtml_([task]))
+        });
+      } catch (e) { /* email tidak boleh menggagalkan keputusan */ }
+    }
+    return { task: task };
   } finally { lock.releaseLock(); }
 }
 
@@ -886,7 +945,7 @@ function taskTimes_(t) {
 }
 
 function wantsReminders_(t) {
-  return ['Done', 'Hold', 'Recurring'].indexOf(t.status) < 0;
+  return ['Done', 'Hold', 'Recurring', 'Review'].indexOf(t.status) < 0;
 }
 
 function syncRow_(sh, row, user) {
@@ -986,7 +1045,7 @@ function runReminders() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return;
   try {
-    var cal = getCalendar_(), now = new Date();
+    var cal = getCalendar_(), now = new Date(), newReviews = [];
     emptyCalTrash_(cal);
     personSheets_().forEach(function (p) {
       var sh = p.sheet;
@@ -998,10 +1057,36 @@ function runReminders() {
         try {
           syncValues_(sh, i + 2, r, col, p.user, cal);
           emailReminder_(sh, i + 2, r, col, p.user, now);
+          collectReview_(sh, i + 2, r, col, p.user, newReviews);
         } catch (e) { Logger.log(sh.getName() + ' baris ' + (i + 2) + ': ' + e); }
       });
     });
+    if (newReviews.length) emailReviewsToAdmins_(newReviews);
   } finally { lock.releaseLock(); }
+}
+
+/** Catat task Review yang belum diberitahukan ke admin (sekali per pengajuan). */
+function collectReview_(sh, row, r, col, user, out) {
+  if (col['reminded'] === undefined || col['review at'] === undefined) return;
+  if (String(r[col['status']]).trim() !== 'Review' || !isDate_(r[col['review at']])) return;
+  var key = 'review|' + r[col['review at']].getTime();
+  var sent = String(r[col['reminded']] || '').split(',').filter(String);
+  if (sent.indexOf(key) >= 0) return;
+  out.push(rowTask_(r, null, col, sh, user, row));
+  sent.push(key);
+  sh.getRange(row, col['reminded'] + 1).setValue(sent.slice(-6).join(','));
+}
+
+function emailReviewsToAdmins_(tasks) {
+  readUsers_().filter(function (u) { return u.role === 'admin' && u.email && u.active; }).forEach(function (a) {
+    try {
+      MailApp.sendEmail({
+        to: a.email, name: 'Project Tracker',
+        subject: '🔎 ' + tasks.length + ' task menunggu review',
+        htmlBody: emailShell_('Halo ' + esc_(a.name) + ',', 'Task berikut diajukan untuk direview. Buka menu <b>Review</b> di Project Tracker untuk menyetujui atau mengembalikan.' + taskTableHtml_(tasks, true))
+      });
+    } catch (e) { Logger.log('Email review: ' + e); }
+  });
 }
 
 function emailReminder_(sh, row, r, col, user, now) {
@@ -1087,7 +1172,7 @@ function emailShell_(greeting, body) {
   var url = appUrl_();
   return '<div style="font-family:Segoe UI,Arial,sans-serif;color:#17181a;max-width:620px">' +
     '<p style="font-size:15px">' + greeting + '</p>' + body +
-    (url ? '<p style="margin-top:22px"><a href="' + esc_(url) + '" style="background:#0f766e;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Buka Project Tracker</a></p>' : '') +
+    (url ? '<p style="margin-top:22px"><a href="' + esc_(url) + '" style="background:#255473;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Buka Project Tracker</a></p>' : '') +
     '<p style="color:#8a8c90;font-size:12px;margin-top:22px">Email otomatis dari Project Tracker.</p></div>';
 }
 

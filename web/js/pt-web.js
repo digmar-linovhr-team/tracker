@@ -68,17 +68,17 @@
   var myTasks = [], pollTimer = null, tickTimer = null;
   function notifSupported() { return 'Notification' in window; }
 
-  async function showNotification(title, body, taskId, tag) {
+  async function showNotification(title, body, taskId, tag, view) {
     if (!notifSupported() || Notification.permission !== 'granted') return false;
     body = body.length > 140 ? body.slice(0, 137) + '…' : body;
-    var opts = { body: body, tag: tag || ('pt-' + Date.now()), icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', data: { taskId: taskId } };
+    var opts = { body: body, tag: tag || ('pt-' + Date.now()), icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', data: { taskId: taskId, view: view || '' } };
     try {
       var reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
       if (reg) { await reg.showNotification(title, opts); return true; }
     } catch (e) { /* fallback */ }
     try {
       var n = new Notification(title, opts);
-      n.onclick = function () { window.focus(); if (taskId) emit('nav:task', taskId); n.close(); };
+      n.onclick = function () { window.focus(); if (view) emit('nav:view', view); else if (taskId) emit('nav:task', taskId); n.close(); };
       return true;
     } catch (e) { return false; }
   }
@@ -106,9 +106,32 @@
     document.title = (overdue ? '(' + overdue + ') ' : '') + 'Project Tracker';
   }
 
+  /** Admin: catat pengajuan review; beri notifikasi untuk yang baru (kecuali saat pertama dimuat). */
+  function handleReviews(tasks, notify) {
+    var seen = get('reviewSeen', {}), fresh = [];
+    (tasks || []).forEach(function (t) {
+      var k = t.id + '|' + (t.reviewAt || '');
+      if (!seen[k]) { seen[k] = Date.now(); fresh.push(t); }
+    });
+    var cutoff = Date.now() - 30 * 864e5;
+    Object.keys(seen).forEach(function (k) { if (seen[k] < cutoff) delete seen[k]; });
+    set('reviewSeen', seen);
+    if (notify && fresh.length) {
+      showNotification(fresh.length === 1 ? 'Task menunggu review' : fresh.length + ' task menunggu review',
+        fresh.map(function (t) { return t.ownerName + ': ' + t.task; }).join(' · '), null, 'pt-review', 'review');
+    }
+    emit('reviews:refreshed', tasks || []);
+  }
+
+  async function refreshReviews() {
+    try { var r = await api('reviewQueue'); handleReviews(r.tasks, true); } catch (e) { /* coba lagi nanti */ }
+  }
+
   async function refreshTasks() {
     var u = get('user', null);
-    if (!get('token', '') || !u || u.mustChange || !u.sheetName) return;
+    if (!get('token', '') || !u || u.mustChange) return;
+    if (u.role === 'admin') refreshReviews();
+    if (!u.sheetName) return;
     try {
       var r = await api('myTasks');
       myTasks = r.tasks || [];
@@ -136,7 +159,9 @@
   // klik notifikasi dari service worker
   if (navigator.serviceWorker) {
     navigator.serviceWorker.addEventListener('message', function (e) {
-      if (e.data && e.data.type === 'nav' && e.data.taskId) emit('nav:task', e.data.taskId);
+      if (!e.data || e.data.type !== 'nav') return;
+      if (e.data.view) emit('nav:view', e.data.view);
+      else if (e.data.taskId) emit('nav:task', e.data.taskId);
     });
   }
   var qs = new URLSearchParams(location.search);
@@ -185,7 +210,7 @@
       startScheduler();
       return r.user;
     },
-    logout: async function () { set('token', ''); set('user', null); stopScheduler(); return true; },
+    logout: async function () { set('token', ''); set('user', null); set('reviewBaseline', false); stopScheduler(); return true; },
     call: async function (action, payload) {
       var r = await api(action, payload);
       if (action === 'myTasks') { myTasks = r.tasks || []; checkNotifications(); }
@@ -197,6 +222,7 @@
       return r;
     },
     feedTasks: function (tasks) { myTasks = (tasks || []).slice(); checkNotifications(); },
+    feedReviews: function (tasks) { var first = !get('reviewBaseline', false); set('reviewBaseline', true); handleReviews(tasks, !first); },
     requestNotifications: async function () {
       if (!notifSupported()) return 'unsupported';
       var p = await Notification.requestPermission();

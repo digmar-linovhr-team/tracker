@@ -91,12 +91,16 @@ Kirim link aplikasi + username & password sementara masing-masing. Setiap orang:
 
 **Anggota tim — "Task Saya"**: task dikelompokkan *Terlambat / Hari ini & berjalan / Akan datang / Tanpa jadwal / Selesai*. **▶ Mulai** mencatat waktu mulai dikerjakan, **✓ Done** mencatat waktu selesai, **Buka lagi** bila ternyata belum selesai. Task berupa URL artikel bisa diklik.
 
-**Admin**: **Semua Task** (buat/edit/pindahkan/hapus task lengkap dengan jam), **Project** (tab Main Project + progres), **Pengguna** (tambah anggota — tab baru dibuat otomatis — email, role, reset password), **Dashboard** (filter periode & orang).
+**Selesai → Review → Done**: anggota menekan lingkaran centang untuk **mengajukan review** (status *Review*). Admin diberi tahu lewat angka di menu **Review**, notifikasi browser, dan email, lalu memilih **Setujui** (Done) atau **Kembalikan** (kembali ke On-Progress, alasan tercatat di Catatan dan dikirim ke email anggota). Hanya admin yang bisa menandai Done. Waktu selesai di dashboard dihitung dari saat anggota mengajukan review.
+
+**Tim**: semua anggota bisa melihat task setiap orang (judul, project, status, jadwal, catatan) beserta ringkasan beban kerja — hanya lihat, tidak bisa mengubah. Server menolak setiap perubahan pada task milik orang lain.
+
+**Admin**: **Review**, **Semua Task** (buat/edit/pindahkan/hapus task lengkap dengan jam), **Project** (tab Main Project + progres), **Pengguna** (tambah anggota — tab baru dibuat otomatis — email, role, reset password), **Dashboard** (filter periode & orang).
 
 ### Cara dashboard menghitung
 | Metrik | Definisi |
 |---|---|
-| Waktu pengerjaan | *Done At* − *Started At* (saat tombol Mulai ditekan); bila tidak pernah ditekan, dihitung dari jadwal mulai |
+| Waktu pengerjaan | Saat **diajukan review** (*Review At*) − *Started At* (saat tombol Mulai ditekan); bila tidak pernah ditekan Mulai, dihitung dari jadwal mulai. Lama review admin tidak dihitung |
 | Overperforming | Selesai sebelum deadline **dan** memakai ≤ 80% durasi rencana (ubah `OVERPERFORM_RATIO` di `web/js/logic.js`) |
 | Tepat waktu | Selesai sebelum/tepat deadline |
 | Selesai terlambat | Done setelah deadline |

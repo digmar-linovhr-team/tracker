@@ -40,7 +40,7 @@ function build() {
       id: 'TDEMO' + (++n), owner, ownerName: name, sheet: name, row: n + 1, code, task,
       startDate: sd === null ? '' : iso(addDays(today, sd)), endDate: ed === null ? '' : iso(addDays(today, ed)),
       startRaw: '', endRaw: '', startTime: st, endTime: et, status, priority: 'Medium',
-      startedAt: '', doneAt: '', notes: ''
+      startedAt: '', doneAt: '', reviewAt: '', notes: ''
     }, extra));
   };
   const stamp = (d, h, m) => addDays(today, d, h, m).toISOString();
@@ -64,14 +64,14 @@ function build() {
   add('fahmi', 'A1', 'https://www.linovhr.com/blog/offboarding/', 0, '09:00', 3, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 5) });
   // Winona
   add('winona', 'A1', 'https://www.linovhr.com/blog/hr-analytics/', -7, '09:00', -4, '17:00', 'Done', { startedAt: stamp(-7, 9, 0), doneAt: stamp(-3, 10, 30) });
-  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'On-Progress', { startedAt: stamp(-1, 9, 40) });
+  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Sudah tambah 3 internal link' });
   // Dany
   add('dany', 'A5', 'Page Solusi — Logistik', -5, '09:00', -3, '17:00', 'Done', { startedAt: stamp(-5, 9, 0), doneAt: stamp(-4, 15, 0) });
   add('dany', 'A5', 'Page Solusi — Construction', -3, '09:00', -1, '17:00', 'Done', { startedAt: stamp(-3, 9, 0), doneAt: stamp(-1, 17, 0) });
   add('dany', 'A5', 'Page Solusi — Mining', 0, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 10) });
   // Arya
   add('arya', 'A3', 'NavBar — struktur menu & mega menu', -2, '09:00', 0, '17:00', 'Done', { startedAt: stamp(-2, 9, 0), doneAt: stamp(-1, 13, 0) });
-  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'On-Progress', { startedAt: stamp(-2, 11, 0) });
+  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString() });
   // Wisnu
   add('wisnu', 'A6', 'Discuss dengan Koh Yos terkait competitor Lawencon + report', -2, '09:00', 0, '12:00', 'Backlog', { priority: 'High' });
   add('wisnu', 'B3', 'Skema FAQ untuk semua landing page LinovHR', 1, '09:00', 1, '17:00', 'Backlog', { priority: 'High' });
@@ -104,9 +104,13 @@ function handle(action, b, session) {
     case 'changePassword': return { user: me };
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
     case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me };
+    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects };
     case 'updateStatus': {
       const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
       if (!t) throw new Error('Task tidak ditemukan');
+      if (me.role !== 'admin' && b.status === 'Done') throw new Error('Hanya admin yang bisa menandai Done. Ajukan review agar diperiksa admin.');
+      if (me.role !== 'admin' && t.status === 'Done') throw new Error('Task ini sudah disetujui admin.');
+      if (b.status === 'Review' && t.status !== 'Review') t.reviewAt = new Date().toISOString();
       if (b.status === 'On-Progress' && !t.startedAt) t.startedAt = new Date().toISOString();
       if (b.status === 'Done') t.doneAt = new Date().toISOString();
       else if (t.status === 'Done') t.doneAt = '';
@@ -126,6 +130,18 @@ function handle(action, b, session) {
       return { ok: true };
     }
     case 'deleteTask': s.tasks = s.tasks.filter((x) => x.id !== b.taskId); return { ok: true };
+    case 'reviewQueue': return { tasks: s.tasks.filter((x) => x.status === 'Review') };
+    case 'reviewTask': {
+      const t = s.tasks.find((x) => x.id === b.taskId);
+      if (!t) throw new Error('Task tidak ditemukan');
+      if (b.decision === 'approve') { t.status = 'Done'; t.doneAt = new Date().toISOString(); if (!t.reviewAt) t.reviewAt = t.doneAt; }
+      else {
+        t.status = 'On-Progress'; t.doneAt = ''; t.reviewAt = '';
+        const d = new Date(); const line = `[Dikembalikan ${d.getDate()}/${d.getMonth() + 1} oleh ${me.name}]` + (b.reason ? ' ' + b.reason : '');
+        t.notes = t.notes ? t.notes + '\n' + line : line;
+      }
+      return { task: t };
+    }
     case 'saveProject': {
       const p = b.project;
       if (p.row) Object.assign(s.projects.find((x) => x.row === p.row), p);

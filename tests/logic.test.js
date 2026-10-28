@@ -76,6 +76,21 @@ it('ringkasan & per orang', () => {
   assert.strictEqual(p.find((x) => x.owner === 'a').done, 2);
 });
 
+it('review: waktu selesai dihitung dari pengajuan review, bukan persetujuan admin', () => {
+  const e = L.evaluate(t({ startDate: '2026-10-20', endDate: '2026-10-21', status: 'Done',
+    startedAt: new Date(2026, 9, 20, 9).toISOString(), reviewAt: new Date(2026, 9, 21, 15).toISOString(), doneAt: new Date(2026, 9, 23, 10).toISOString() }), now);
+  assert.notStrictEqual(e.outcome, 'late', 'admin terlambat menyetujui tidak dihitung terlambat');
+  assert.strictEqual(e.durationMs, 30 * 36e5);
+});
+
+it('task Review: tidak dianggap overdue, tidak memicu notifikasi, punya kelompok sendiri', () => {
+  const rv = t({ id: 'R', status: 'Review', startDate: '2026-10-20', endDate: '2026-10-27', reviewAt: new Date(2026, 9, 26).toISOString() });
+  assert.strictEqual(L.evaluate(rv, now).outcome, 'review');
+  assert.strictEqual(L.bucket(rv, now), 'review');
+  assert.strictEqual(L.dueNotifications([rv], {}, now).length, 0);
+  assert.strictEqual(L.summarize([rv], null, now).review, 1);
+});
+
 it('format durasi', () => {
   assert.strictEqual(L.humanDuration(45 * 60000), '45 menit');
   assert.strictEqual(L.humanDuration(3 * 36e5 + 15 * 60000), '3 jam 15 mnt');

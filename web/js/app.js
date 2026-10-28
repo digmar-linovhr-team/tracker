@@ -14,8 +14,10 @@ const S = {
   f: {
     mineTab: 'active', mineQ: '',
     period: '30', person: 'all',
-    tq: '', towner: 'all', tstatus: 'active', tcode: 'all'
-  }
+    tq: '', towner: 'all', tstatus: 'active', tcode: 'all',
+    teamQ: '', teamPerson: 'all', teamTab: 'active', teamCode: 'all'
+  },
+  team: null, teamAt: 0
 };
 
 const STATUSES = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
@@ -27,6 +29,8 @@ const ICONS = {
   tasks: svg('<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>'),
   projects: svg('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/>'),
   users: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>'),
+  team: svg('<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 19a5.5 5.5 0 0 1 11 0M10.5 19a5.5 5.5 0 0 1 11 0"/>'),
+  review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
 const REMINDER_OPTS = [[1440, '1 hari sebelum deadline'], [180, '3 jam sebelum'], [60, '1 jam sebelum'], [30, '30 menit sebelum'], [15, '15 menit sebelum']];
@@ -189,6 +193,7 @@ async function enterApp() {
   if (cached && cached.mine && (S.user.role !== 'admin' || cached.all)) {
     S.mine = cached.mine;
     S.all = cached.all || null;
+    S.team = cached.team || null;
     setSyncInfo('Menyinkronkan…');
     go(first);
     if (await loadData(true)) softRender();
@@ -211,22 +216,27 @@ function renderNav() {
   const items = [];
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
-  if (admin) items.push(['sect', 'Admin'], ['tasks', 'Semua Task', 'Semua'], ['projects', 'Project', 'Project'], ['users', 'Pengguna', 'Tim']);
+  items.push(['team', 'Tim', 'Tim']);
+  if (admin) {
+    const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review').length : 0;
+    items.push(['sect', 'Admin'], ['review', 'Review', 'Review', reviews, 'info'], ['tasks', 'Semua Task', 'Semua'], ['projects', 'Project', 'Project', 0, '', 'secondary'], ['users', 'Pengguna', 'Akun', 0, '', 'secondary']);
+  }
   items.push(['sect', ''], ['settings', 'Pengaturan', 'Setelan']);
   $('#nav').innerHTML = items.map((i) => i[0] === 'sect'
     ? `<div class="sect">${esc(i[1])}</div>`
-    : `<button data-v="${i[0]}" class="${S.view === i[0] ? 'active' : ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count" title="Terlambat">${i[3]}</span>` : ''}</button>`).join('');
+    : `<button data-v="${i[0]}" class="${S.view === i[0] ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
   $$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
 }
 
 // ---------- cache lokal: aplikasi langsung tampil dengan data terakhir ----------
 const cacheKey = () => 'pt.cache.' + (S.cfg.demo ? 'demo.' : '') + S.user.username;
 function saveCache() {
-  try { localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), mine: S.mine, all: S.all })); } catch (e) { /* penyimpanan penuh/diblokir */ }
+  try { localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), mine: S.mine, all: S.all, team: S.team })); } catch (e) { /* penyimpanan penuh/diblokir */ }
 }
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
+function resetSession() { S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -240,6 +250,7 @@ async function loadData(quiet) {
       all = await api.call('getAll');
       mine = { tasks: all.tasks.filter((t) => t.owner === S.user.username), projects: all.projects };
       if (S.user.sheetName) api.feedTasks(mine.tasks);
+      api.feedReviews(all.tasks.filter((t) => t.status === 'Review'));
     } else {
       mine = S.user.sheetName ? await api.call('myTasks') : { tasks: [], projects: [] };
     }
@@ -283,11 +294,13 @@ function go(view) {
     tasks: ['Semua Task', 'Kelola dan bagikan task ke anggota tim'],
     projects: ['Project', 'Daftar project dari tab Main Project'],
     users: ['Pengguna', 'Akun login anggota tim'],
+    team: ['Tim', 'Task yang sedang dikerjakan semua anggota (hanya lihat)'],
+    review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']
   };
   $('#view-title').textContent = titles[view][0];
   $('#view-sub').textContent = titles[view][1];
-  ({ mine: viewMine, dashboard: viewDashboard, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, review: viewReview, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
 }
 
 function projectName(code) {
@@ -385,7 +398,7 @@ function renderMineList() {
   if (f.mineTab === 'active') tasks = tasks.filter((t) => !L.isDone(t));
   if (f.mineTab === 'done') tasks = tasks.filter((t) => L.isDone(t));
   const groups = [
-    ['overdue', 'Terlambat', css('--bad')], ['today', 'Hari ini & sedang berjalan', css('--info')],
+    ['overdue', 'Terlambat', css('--bad')], ['today', 'Hari ini & sedang berjalan', css('--info')], ['review', 'Menunggu review admin', css('--brand')],
     ['upcoming', 'Akan datang', css('--muted')], ['backlog', 'Tanpa jadwal', css('--muted')], ['done', 'Selesai', css('--good')]
   ];
   const byStart = (a, b) => (L.schedule(a).end || Infinity) - (L.schedule(b).end || Infinity);
@@ -416,6 +429,10 @@ function whenInfo(t) {
     const [cls, main] = map[e.outcome] || ['good', 'Selesai'];
     return { cls, main, sub: e.doneAt ? 'Done ' + shortDT(e.doneAt) : '' };
   }
+  if (t.status === 'Review') {
+    const late = e.reviewAt && end && e.reviewAt > end;
+    return { cls: late ? 'warn' : 'review', main: 'Menunggu review', sub: e.reviewAt ? 'Diajukan ' + shortDT(e.reviewAt) + (late ? ' · lewat deadline' : '') : '' };
+  }
   if (t.status === 'Recurring') return { cls: 'muted', main: 'Rutin', sub: '' };
   if (!s && !end) return { cls: 'muted', main: 'Belum dijadwalkan', sub: [t.startRaw, t.endRaw].filter(Boolean).join(' → ') };
   if (end && now > end) return { cls: 'bad', main: `Terlambat ${relDur(now - end)}`, sub: 'Deadline ' + shortDT(end) };
@@ -428,24 +445,49 @@ function whenInfo(t) {
   return { cls: left !== null && left < 24 * 36e5 ? 'warn' : 'normal', main: end ? `${relDur(left)} lagi` : 'Sedang berjalan', sub: end ? 'Deadline ' + shortDT(end) : '', pct };
 }
 
-function taskRow(t) {
+const HOURGLASS_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/></svg>';
+
+/** Lingkaran di kiri baris task: perilakunya tergantung status & hak akses. */
+function tickHtml(t, readonly) {
+  const id = esc(t.id), admin = S.user.role === 'admin', done = L.isDone(t);
+  if (!t.id) return '<span class="tick disabled"></span>';
+  if (t.status === 'Review') {
+    if (admin && !readonly) return `<button class="tick review" data-st="Done" data-id="${id}" title="Setujui (Done)" aria-label="Setujui">${HOURGLASS_SVG}</button>`;
+    return `<span class="tick review" title="Menunggu review admin">${HOURGLASS_SVG}</span>`;
+  }
+  if (readonly) return `<span class="tick ro ${done ? 'on' : ''}" title="${esc(t.status)}">${done ? CHECK_SVG : ''}</span>`;
+  if (done) return admin
+    ? `<button class="tick" data-st="On-Progress" data-id="${id}" title="Buka lagi" aria-label="Buka lagi">${CHECK_SVG}</button>`
+    : `<span class="tick on" title="Disetujui admin">${CHECK_SVG}</span>`;
+  return admin
+    ? `<button class="tick" data-st="Done" data-id="${id}" title="Tandai selesai" aria-label="Tandai selesai">${CHECK_SVG}</button>`
+    : `<button class="tick" data-st="Review" data-id="${id}" title="Selesai? Ajukan review ke admin" aria-label="Ajukan review">${CHECK_SVG}</button>`;
+}
+
+function taskRow(t, opts) {
+  opts = opts || {};
+  const readonly = !!opts.readonly;
   const done = L.isDone(t);
   const pname = projectName(t.code);
   const showProj = pname && pname.trim().toLowerCase() !== String(t.task).trim().toLowerCase();
   const w = whenInfo(t);
   const id = esc(t.id);
   const prio = String(t.priority || '').toLowerCase();
-  const canStart = !done && ['Backlog', 'Hold'].includes(t.status);
-  const statusSel = `<select class="pill ${ST_CLASS[t.status] || 'st-backlog'}" data-sel="${id}" aria-label="Status task">${STATUSES.map((x) => `<option ${x === t.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
-  return `<div class="trow ${S.pending.has(t.id) ? 'is-saving' : ''} ${done ? 'is-done' : ''} ${w.cls === 'bad' ? 'is-late' : ''} prio-${esc(prio || 'none')}" id="task-${id}">
-    ${t.id ? `<button class="tick" data-st="${done ? 'On-Progress' : 'Done'}" data-id="${id}" title="${done ? 'Buka lagi' : 'Tandai selesai'}" aria-label="${done ? 'Buka lagi' : 'Tandai selesai'}">${CHECK_SVG}</button>` : '<span class="tick disabled"></span>'}
+  const admin = S.user.role === 'admin';
+  const canStart = !readonly && !done && ['Backlog', 'Hold'].includes(t.status);
+  const options = admin ? STATUSES : STATUSES.filter((x) => x !== 'Done');
+  const staticPill = `<span class="pill ${ST_CLASS[t.status] || 'st-backlog'}">${esc(t.status)}</span>`;
+  const statusSel = readonly || (done && !admin) ? staticPill
+    : `<select class="pill ${ST_CLASS[t.status] || 'st-backlog'}" data-sel="${id}" aria-label="Status task">${options.map((x) => `<option ${x === t.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
+  return `<div class="trow ${readonly ? 'is-ro' : ''} ${t.status === 'Review' ? 'is-review' : ''} ${S.pending.has(t.id) ? 'is-saving' : ''} ${done ? 'is-done' : ''} ${w.cls === 'bad' ? 'is-late' : ''} prio-${esc(prio || 'none')}" id="task-${id}">
+    ${tickHtml(t, readonly)}
     <div class="t-main">
       <div class="t-title">${prettyTitle(t.task)}</div>
       <div class="t-sub">
         ${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}
         ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
-        ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes)}</span>` : ''}
+        ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes.split('\n').pop())}</span>` : ''}
       </div>
     </div>
     <div class="t-when w-${w.cls}">
@@ -477,17 +519,18 @@ function patchTask(id, patch) {
 async function setStatus(id, status) {
   const t = findTask(id);
   if (!t || t.status === status) return;
-  const before = { status: t.status, startedAt: t.startedAt, doneAt: t.doneAt };
+  const before = { status: t.status, startedAt: t.startedAt, doneAt: t.doneAt, reviewAt: t.reviewAt };
   const nowIso = new Date().toISOString();
   const patch = { status, doneAt: status === 'Done' ? nowIso : '' };
+  if (status === 'Review' && t.status !== 'Review') patch.reviewAt = nowIso;
   if ((status === 'On-Progress' || status === 'Review') && !t.startedAt) patch.startedAt = nowIso;
   patchTask(id, patch);
   S.pending.add(id);
   softRender();
-  toast(status === 'Done' ? 'Mantap! Task ditandai selesai.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
+  toast(status === 'Done' ? 'Task ditandai selesai.' : status === 'Review' ? 'Diajukan ke admin untuk direview.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
   try {
     const r = await api.call('updateStatus', { taskId: id, status });
-    if (r && r.task) patchTask(id, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt });
+    if (r && r.task) patchTask(id, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt });
     S.pending.delete(id);
     saveCache();
     softRender();
@@ -537,7 +580,7 @@ function viewDashboard() {
       ${tile('Selesai terlambat', sum.late, 'done setelah deadline', css('--bad'))}
       ${tile('Overdue aktif', sum.overdue, 'lewat deadline, belum done', css('--warn'))}
       ${tile('Rata-rata selisih deadline', sum.avgSlackMs === null ? '–' : (sum.avgSlackMs >= 0 ? '+' : '') + L.humanDuration(sum.avgSlackMs), 'positif = lebih cepat dari deadline')}
-      ${tile('Masih berjalan', sum.open, 'belum jatuh tempo')}
+      ${tile('Masih berjalan', sum.open, sum.review ? `${sum.review} menunggu review admin` : 'belum jatuh tempo')}
     </div>
     <div class="dash-grid">
       <div class="card"><div class="card-h"><h2>${team ? 'Hasil per orang' : 'Task selesai per minggu'}</h2>
@@ -547,7 +590,7 @@ function viewDashboard() {
     </div>
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
     <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="hist"></div></div>
-    <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai "Done". <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.</p>`;
+    <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.</p>`;
 
   $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; go('dashboard'); });
   if ($('#person')) $('#person').onchange = (e) => { f.person = e.target.value; go('dashboard'); };
@@ -558,13 +601,13 @@ function viewDashboard() {
 }
 
 function legendOutcome() {
-  return [['--good', 'Overperforming'], ['--info', 'Tepat waktu'], ['--bad', 'Terlambat'], ['--warn', 'Overdue'], ['--muted', 'Masih berjalan']]
+  return [['--good', 'Overperforming'], ['--info', 'Tepat waktu'], ['--bad', 'Terlambat'], ['--warn', 'Overdue'], ['--brand', 'Menunggu review'], ['--muted', 'Masih berjalan']]
     .map(([c, l]) => `<span><i class="dot" style="background:${css(c)}"></i>${l}</span>`).join('');
 }
 
 function renderDist(sum) {
   const rows = [['Overperforming', sum.over, '--good'], ['Tepat waktu', sum.ontime, '--info'], ['Selesai terlambat', sum.late, '--bad'],
-    ['Overdue aktif', sum.overdue, '--warn'], ['Masih berjalan', sum.open, '--muted']];
+    ['Overdue aktif', sum.overdue, '--warn'], ['Menunggu review', sum.review, '--brand'], ['Masih berjalan', sum.open, '--muted']];
   const max = Math.max(1, ...rows.map((r) => r[1]));
   $('#dist').innerHTML = rows.map(([l, n, c]) => `
     <div style="margin-bottom:14px">
@@ -583,7 +626,7 @@ function chartDefaults() {
 function renderPersonChart(tasks, range) {
   chartDefaults();
   const people = L.byPerson(tasks, range).sort((a, b) => a.name.localeCompare(b.name));
-  const ds = [['over', 'Overperforming', '--good'], ['ontime', 'Tepat waktu', '--info'], ['late', 'Terlambat', '--bad'], ['overdue', 'Overdue', '--warn'], ['open', 'Masih berjalan', '--muted']]
+  const ds = [['over', 'Overperforming', '--good'], ['ontime', 'Tepat waktu', '--info'], ['late', 'Terlambat', '--bad'], ['overdue', 'Overdue', '--warn'], ['review', 'Menunggu review', '--brand'], ['open', 'Masih berjalan', '--muted']]
     .map(([k, l, c]) => ({ label: l, data: people.map((p) => p[k]), backgroundColor: css(c), borderColor: css('--surface'), borderWidth: { right: 2 }, borderRadius: 4, borderSkipped: false, barThickness: 16 }));
   S.charts.push(new Chart($('#c1'), {
     type: 'bar', data: { labels: people.map((p) => p.name), datasets: ds },
@@ -616,7 +659,8 @@ function renderWeeklyChart(tasks) {
 }
 
 function posOf(username) {
-  const u = S.all && S.all.users.find((x) => x.username === username);
+  const pool = (S.all && S.all.users) || (S.team && S.team.users) || [];
+  const u = pool.find((x) => x.username === username);
   return u ? u.position || '' : '';
 }
 
@@ -641,6 +685,157 @@ function renderHistory(sum, admin) {
       <td class="num nw">${L.humanDuration(e.durationMs)}</td><td class="num nw">${L.humanDuration(e.plannedMs)}</td>
       <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanDuration(e.slackMs)}</td><td class="nw">${outcomeChip(t)}</td></tr>`).join('')}
   </tbody></table>`;
+}
+
+// ---------- Tim (baca-saja) ----------
+function teamData() {
+  if (S.user.role === 'admin' && S.all) {
+    return { tasks: S.all.tasks, users: S.all.users.filter((u) => u.sheetName && u.active).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })) };
+  }
+  return S.team;
+}
+
+async function loadTeam() {
+  if (S.user.role === 'admin') return true;
+  try { S.team = await api.call('teamTasks'); S.teamAt = Date.now(); saveCache(); return true; }
+  catch (e) { toast(cleanErr(e), true); return false; }
+}
+
+function viewTeam() {
+  const d = teamData();
+  if (!d) {
+    $('#view').innerHTML = '<div class="loading">Memuat data tim…</div>';
+    loadTeam().then((ok) => { if (ok && S.view === 'team') go('team'); });
+    return;
+  }
+  if (S.user.role !== 'admin' && Date.now() - S.teamAt > 60000) {
+    S.teamAt = Date.now();
+    loadTeam().then((ok) => { if (ok && S.view === 'team') softRender(); });
+  }
+  const f = S.f, now = new Date(), week = new Date(now - 7 * 864e5);
+  const users = d.users.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const codes = [...new Set(d.tasks.map((t) => t.code).filter(Boolean))].sort();
+  const stat = (u) => {
+    const ts = d.tasks.filter((t) => t.owner === u.username);
+    const b = (k) => ts.filter((t) => L.bucket(t, now) === k).length;
+    return { running: ts.filter((t) => !L.isDone(t) && (t.status === 'On-Progress' || L.bucket(t, now) === 'today')).length,
+      overdue: b('overdue'), review: b('review'), done7: ts.filter((t) => L.isDone(t) && t.doneAt && new Date(t.doneAt) >= week).length,
+      upcoming: b('upcoming') };
+  };
+  $('#view').innerHTML = `
+    <div class="wl-grid">${users.map((u) => { const st = stat(u); return `
+      <button class="card wl-card ${f.teamPerson === u.username ? 'on' : ''}" data-person="${esc(u.username)}">
+        <div class="row" style="gap:10px"><span class="avatar">${initials(u.name)}</span>
+          <div style="min-width:0;text-align:left"><b class="wl-name">${esc(u.name)}${u.username === S.user.username ? ' <span class="muted">(Anda)</span>' : ''}</b><small class="wl-pos">${esc(u.position || '—')}</small></div></div>
+        <div class="wl-stats">
+          <span title="Sedang berjalan"><b>${st.running}</b> berjalan</span>
+          ${st.overdue ? `<span class="bad" title="Terlambat"><b>${st.overdue}</b> terlambat</span>` : ''}
+          ${st.review ? `<span class="rv" title="Menunggu review"><b>${st.review}</b> review</span>` : ''}
+          <span title="Selesai 7 hari terakhir"><b>${st.done7}</b> selesai</span>
+        </div>
+      </button>`; }).join('')}</div>
+    <div class="toolbar">
+      <div class="seg" id="tmtab">${[['active', 'Aktif'], ['review', 'Review'], ['done', 'Selesai'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.teamTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <input type="search" id="tmq" placeholder="Cari task…" value="${esc(f.teamQ)}">
+      <select id="tmperson"><option value="all">Semua orang</option>${users.map((u) => `<option value="${esc(u.username)}" ${f.teamPerson === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
+      <select id="tmcode"><option value="all">Semua project</option>${codes.map((c) => `<option value="${esc(c)}" ${f.teamCode === c ? 'selected' : ''}>${esc(c)} — ${esc(projectName(c).slice(0, 40))}</option>`).join('')}</select>
+    </div>
+    <div id="tmlist"></div>
+    <p class="def">Halaman ini hanya untuk melihat. Perubahan task hanya bisa dilakukan oleh pemilik task (dan admin).</p>`;
+  $$('[data-person]').forEach((b) => b.onclick = () => { f.teamPerson = f.teamPerson === b.dataset.person ? 'all' : b.dataset.person; go('team'); });
+  $$('#tmtab button').forEach((b) => b.onclick = () => { f.teamTab = b.dataset.k; go('team'); });
+  $('#tmq').oninput = (e) => { f.teamQ = e.target.value; renderTeamList(d, users); };
+  $('#tmperson').onchange = (e) => { f.teamPerson = e.target.value; go('team'); };
+  $('#tmcode').onchange = (e) => { f.teamCode = e.target.value; renderTeamList(d, users); };
+  renderTeamList(d, users);
+}
+
+function renderTeamList(d, users) {
+  const f = S.f, q = f.teamQ.toLowerCase();
+  const tab = { active: (t) => !L.isDone(t), review: (t) => t.status === 'Review', done: (t) => L.isDone(t), all: () => true }[f.teamTab];
+  const byEnd = (a, b) => (L.schedule(a).end || Infinity) - (L.schedule(b).end || Infinity);
+  const html = users.filter((u) => f.teamPerson === 'all' || f.teamPerson === u.username).map((u) => {
+    const list = d.tasks.filter((t) => t.owner === u.username && tab(t) && (f.teamCode === 'all' || t.code === f.teamCode) &&
+      (!q || (t.task + ' ' + t.code + ' ' + (t.notes || '')).toLowerCase().includes(q)))
+      .sort(f.teamTab === 'done' ? (a, b) => new Date(b.doneAt || 0) - new Date(a.doneAt || 0) : byEnd);
+    if (!list.length) return '';
+    return `<div class="group"><div class="group-h"><span class="avatar" style="width:22px;height:22px;font-size:10px">${initials(u.name)}</span>${esc(u.name)}
+      ${u.position ? `<span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">· ${esc(u.position)}</span>` : ''} <span class="n">${list.length}</span></div>
+      <div class="card tlist">${list.map((t) => taskRow(t, { readonly: true })).join('')}</div></div>`;
+  }).join('');
+  $('#tmlist').innerHTML = html || '<div class="card empty"><b>Tidak ada task</b>Ubah filter untuk melihat task lain.</div>';
+  $$('[data-ext]', $('#tmlist')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
+}
+
+// ---------- Admin: Review ----------
+function ago(d) { if (!d) return ''; const ms = Date.now() - d; return ms < 60000 ? 'baru saja' : relDur(ms) + ' lalu'; }
+
+function viewReview() {
+  const list = S.all.tasks.filter((t) => t.status === 'Review').sort((a, b) => new Date(a.reviewAt || 0) - new Date(b.reviewAt || 0));
+  if (!list.length) {
+    $('#view').innerHTML = '<div class="card empty"><b>Tidak ada task yang menunggu review</b>Pengajuan baru dari anggota akan muncul di sini, dan Anda akan diberi tahu lewat notifikasi & email.</div>';
+    return;
+  }
+  $('#view').innerHTML = `<div class="card tlist">${list.map((t) => {
+    const e = L.evaluate(t), id = esc(t.id), pname = projectName(t.code);
+    const late = e.reviewAt && e.plannedEnd && e.reviewAt > e.plannedEnd;
+    const pos = posOf(t.owner);
+    return `<div class="rv-row ${S.pending.has(t.id) ? 'is-saving' : ''}" id="task-${id}">
+      <div class="rv-who"><span class="avatar">${initials(t.ownerName)}</span><div><b>${esc(t.ownerName)}</b>${pos ? `<small>${esc(pos)}</small>` : ''}</div></div>
+      <div class="t-main">
+        <div class="t-title">${prettyTitle(t.task)}</div>
+        <div class="t-sub">${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
+        ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
+      </div>
+      <div class="t-when ${late ? 'w-warn' : 'w-good'}">
+        <b>${late ? 'Lewat deadline' : 'Tepat waktu'}</b>
+        <span>Diajukan ${esc(ago(e.reviewAt))}</span>
+        ${e.plannedEnd ? `<span>Deadline ${esc(shortDT(e.plannedEnd))}</span>` : ''}
+      </div>
+      <div class="t-ctrl rv-ctrl">
+        <button class="btn sm" data-return="${id}">Kembalikan</button>
+        <button class="btn sm primary" data-approve="${id}">Setujui</button>
+      </div>
+    </div>`; }).join('')}</div>
+    <p class="def"><b>Setujui</b> menandai task sebagai Done. <b>Kembalikan</b> mengubahnya menjadi On-Progress; alasan Anda tercatat di Catatan task dan dikirim ke email anggota.</p>`;
+  $$('[data-ext]', $('#view')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
+  $$('[data-approve]').forEach((b) => b.onclick = () => decideReview(b.dataset.approve, 'approve'));
+  $$('[data-return]').forEach((b) => b.onclick = () => {
+    const t = findTask(b.dataset.return);
+    modal({
+      title: 'Kembalikan task',
+      body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
+        <label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="rv-reason" rows="3" placeholder="mis. Tambahkan meta description dan 2 internal link"></textarea></label>`,
+      actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rv-send">Kembalikan</button>',
+      onMount: (m, close) => { $('#rv-send', m).onclick = () => { const reason = $('#rv-reason', m).value.trim(); close(); decideReview(t.id, 'return', reason); }; }
+    });
+  });
+}
+
+async function decideReview(id, decision, reason) {
+  const t = findTask(id);
+  if (!t) return;
+  const before = { status: t.status, doneAt: t.doneAt, reviewAt: t.reviewAt, notes: t.notes };
+  const now = new Date();
+  if (decision === 'approve') patchTask(id, { status: 'Done', doneAt: now.toISOString(), reviewAt: t.reviewAt || now.toISOString() });
+  else {
+    const line = `[Dikembalikan ${now.getDate()} ${MONTHS[now.getMonth()]} ${pad(now.getHours())}:${pad(now.getMinutes())} oleh ${S.user.name}]` + (reason ? ' ' + reason : '');
+    patchTask(id, { status: 'On-Progress', doneAt: '', reviewAt: '', notes: t.notes ? t.notes + '\n' + line : line });
+  }
+  S.pending.add(id);
+  softRender(); renderNav();
+  toast(decision === 'approve' ? `Disetujui — task ${t.ownerName} ditandai Done.` : `Dikembalikan ke ${t.ownerName}.`);
+  try {
+    const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '' });
+    if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes });
+    saveCache();
+  } catch (e) {
+    patchTask(id, before);
+    toast('Gagal menyimpan keputusan: ' + cleanErr(e), true);
+  } finally {
+    S.pending.delete(id);
+    softRender(); renderNav();
+  }
 }
 
 // ---------- Admin: Semua Task ----------
@@ -918,6 +1113,9 @@ function viewSettings() {
       </div>
     </div></div>
     <div class="card settings-sect"><div class="card-h"><h2>Pasang di perangkat</h2></div><div class="card-b">${install}</div></div>
+    ${S.user.role === 'admin' ? `<div class="card settings-sect"><div class="card-h"><h2>Admin</h2></div><div class="card-b">
+      <p>Kelola data tim.</p><div class="row" style="flex-wrap:wrap"><button class="btn" data-go="projects">Project</button><button class="btn" data-go="users">Pengguna</button><button class="btn" data-go="tasks">Semua Task</button></div>
+    </div></div>` : ''}
     <div class="card settings-sect"><div class="card-h"><h2>Akun</h2></div><div class="card-b">
       <p>Masuk sebagai <b>${esc(S.user.name)}</b> (${esc(S.user.username)}).</p>
       <div class="row"><button class="btn" id="cpw">Ganti password</button><button class="btn danger" id="lo">Keluar</button></div>
@@ -927,6 +1125,7 @@ function viewSettings() {
       <button class="btn" id="srv">${c.demo ? 'Keluar dari mode demo' : 'Ganti alamat server'}</button>
     </div></div>`}
     <p class="def">Project Tracker v${esc(c.version)}</p>`;
+  $$('[data-go]').forEach((b) => b.onclick = () => go(b.dataset.go));
   $('#ef').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -942,7 +1141,7 @@ function viewSettings() {
   if ($('#perm')) $('#perm').onclick = async () => { await api.requestNotifications(); S.cfg = await api.config(); viewSettings(); };
   $('#tn').onclick = async () => { const ok = await api.testNotification(); S.cfg = await api.config(); if (!ok) toast('Notifikasi tidak diizinkan atau tidak didukung browser ini', true); };
   if ($('#inst')) $('#inst').onclick = async () => { await api.install(); S.cfg = await api.config(); viewSettings(); };
-  $('#lo').onclick = async () => { clearCaches(); await api.logout(); S.user = null; S.all = null; S.mine = { tasks: [], projects: [] }; S.cfg = await api.config(); showLogin(); };
+  $('#lo').onclick = async () => { clearCaches(); await api.logout(); S.user = null; resetSession(); S.cfg = await api.config(); showLogin(); };
   if ($('#srv')) $('#srv').onclick = async () => {
     await api.logout();
     if (c.demo) await api.setConfig({ demo: false });
@@ -967,7 +1166,7 @@ function viewSettings() {
 // ---------- event global ----------
 $('#btn-logout').onclick = async () => {
   if (!(await confirmBox('Keluar dari akun?', `Anda akan keluar dari akun ${S.user ? S.user.name : ''}. Login lagi untuk masuk dengan akun lain.`, 'Keluar'))) return;
-  clearCaches(); await api.logout(); S.user = null; S.all = null; S.mine = { tasks: [], projects: [] }; S.cfg = await api.config(); showLogin();
+  clearCaches(); await api.logout(); S.user = null; resetSession(); S.cfg = await api.config(); showLogin();
 };
 $('#btn-refresh').onclick = async () => { setSyncInfo('Menyinkronkan…'); await busy($('#btn-refresh'), () => loadData()); go(S.view); };
 api.on('auth:expired', () => { S.user = null; toast('Sesi berakhir, silakan login lagi', true); showLogin(); });
@@ -978,6 +1177,17 @@ api.on('tasks:refreshed', (tasks) => {
   saveCache();
   if (S.view === 'mine' || S.view === 'dashboard') softRender();
 });
+api.on('reviews:refreshed', (tasks) => {
+  if (!S.user || S.user.role !== 'admin' || !S.all || !Array.isArray(tasks)) return;
+  tasks.forEach((t) => {
+    if (S.pending.has(t.id)) return;
+    const i = S.all.tasks.findIndex((x) => x.id === t.id);
+    if (i >= 0) S.all.tasks[i] = Object.assign({}, S.all.tasks[i], t); else S.all.tasks.push(t);
+  });
+  saveCache(); renderNav();
+  if (S.view === 'review') softRender();
+});
+api.on('nav:view', (v) => { if (S.user && v) go(v); });
 api.on('nav:task', async (id) => {
   if (!S.user || !S.user.sheetName) return;
   S.f.mineTab = 'all'; S.f.mineQ = '';

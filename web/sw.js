@@ -1,6 +1,6 @@
 /* Service worker: membuat aplikasi bisa dibuka cepat/offline dan menangani klik notifikasi.
  * Naikkan VERSION setiap kali file aplikasi diubah agar semua pengguna mendapat versi baru. */
-const VERSION = 'pt-v2.5.0';
+const VERSION = 'pt-v2.6.0';
 const SHELL = [
   './', 'index.html', 'styles.css', 'config.js', 'manifest.webmanifest',
   'js/logic.js', 'js/demo.js', 'js/pt-web.js', 'js/app.js', 'vendor/chart.umd.js',
@@ -35,12 +35,13 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const taskId = e.notification.data && e.notification.data.taskId;
+  const view = e.notification.data && e.notification.data.view;
   e.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const client = all.find((c) => c.url.startsWith(self.registration.scope));
     if (client) {
       await client.focus();
-      if (taskId) client.postMessage({ type: 'nav', taskId });
+      if (taskId || view) client.postMessage({ type: 'nav', taskId, view });
     } else {
       await self.clients.openWindow(self.registration.scope + (taskId ? '?task=' + encodeURIComponent(taskId) : ''));
     }

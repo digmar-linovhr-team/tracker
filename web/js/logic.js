@@ -34,22 +34,27 @@
     var s = schedule(task);
     var startedAt = stamp(task.startedAt);
     var doneAt = stamp(task.doneAt);
+    var reviewAt = stamp(task.reviewAt);
+    // waktu selesai = saat anggota mengajukan review (lama review admin tidak dihitung)
+    var finishAt = doneAt && reviewAt && reviewAt <= doneAt ? reviewAt : doneAt;
     var actualStart = startedAt || s.start;
     var planned = s.start && s.end ? Math.max(s.end - s.start, 0) : null;
     var r = {
-      plannedStart: s.start, plannedEnd: s.end, startedAt: startedAt, doneAt: doneAt,
+      plannedStart: s.start, plannedEnd: s.end, startedAt: startedAt, doneAt: doneAt, reviewAt: reviewAt, finishAt: finishAt,
       plannedMs: planned, durationMs: null, slackMs: null, outcome: null
     };
     if (isDone(task)) {
-      if (doneAt && actualStart) r.durationMs = Math.max(doneAt - actualStart, 0);
-      if (doneAt && s.end) {
-        r.slackMs = s.end - doneAt; // positif = lebih cepat dari deadline
-        if (doneAt > s.end) r.outcome = 'late';
+      if (finishAt && actualStart) r.durationMs = Math.max(finishAt - actualStart, 0);
+      if (finishAt && s.end) {
+        r.slackMs = s.end - finishAt; // positif = lebih cepat dari deadline
+        if (finishAt > s.end) r.outcome = 'late';
         else if (planned && r.durationMs !== null && r.durationMs <= planned * OVERPERFORM_RATIO) r.outcome = 'over';
         else r.outcome = 'ontime';
       } else {
         r.outcome = 'done-nodate';
       }
+    } else if (task.status === 'Review') {
+      r.outcome = 'review';
     } else if (s.end && now > s.end && String(task.status) !== 'Recurring') {
       r.outcome = 'overdue';
       r.slackMs = s.end - now;
@@ -63,6 +68,7 @@
   function bucket(task, now) {
     now = now || new Date();
     if (isDone(task)) return 'done';
+    if (task.status === 'Review') return 'review';
     var s = schedule(task);
     if (s.end && now > s.end && task.status !== 'Recurring') return 'overdue';
     if (s.start && s.end && now >= s.start && now <= s.end) return 'today';
@@ -78,7 +84,7 @@
     var reminders = (opts && opts.reminders) || [1440, 60];
     var out = [];
     tasks.forEach(function (t) {
-      if (isDone(t) || t.status === 'Recurring') return;
+      if (isDone(t) || t.status === 'Recurring' || t.status === 'Review') return;
       var s = schedule(t);
       if (s.start && now >= s.start && now - s.start < 6 * HOUR && t.status !== 'On-Progress') {
         out.push({ key: t.id + '|start|' + s.start.toISOString(), task: t, type: 'start',
@@ -117,11 +123,11 @@
     var from = range && range.from, to = range && range.to;
     var rows = tasks.map(function (t) { return { t: t, e: evaluate(t, now) }; }).filter(function (x) {
       if (!from && !to) return true;
-      var ref = x.e.doneAt || x.e.plannedEnd || x.e.plannedStart;
+      var ref = x.e.finishAt || x.e.plannedEnd || x.e.plannedStart;
       if (!ref) return !from; // tanpa tanggal hanya ikut di "Semua waktu"
       return (!from || ref >= from) && (!to || ref <= to);
     });
-    var k = { total: rows.length, done: 0, over: 0, ontime: 0, late: 0, overdue: 0, open: 0,
+    var k = { total: rows.length, done: 0, over: 0, ontime: 0, late: 0, overdue: 0, open: 0, review: 0,
       durSum: 0, durN: 0, slackSum: 0, slackN: 0 };
     rows.forEach(function (x) {
       var o = x.e.outcome;
@@ -131,6 +137,7 @@
       else if (o === 'late') k.late++;
       else if (o === 'overdue') k.overdue++;
       else if (o === 'open') k.open++;
+      else if (o === 'review') k.review++;
       if (x.e.durationMs !== null) { k.durSum += x.e.durationMs; k.durN++; }
       if (isDone(x.t) && x.e.slackMs !== null) { k.slackSum += x.e.slackMs; k.slackN++; }
     });
@@ -138,7 +145,7 @@
     return {
       rows: rows,
       total: k.total, done: k.done, over: k.over, ontime: k.ontime, late: k.late,
-      overdue: k.overdue, open: k.open,
+      overdue: k.overdue, open: k.open, review: k.review,
       completionRate: k.total ? k.done / k.total : 0,
       onTimeRate: judged ? (k.over + k.ontime) / judged : null,
       avgDurationMs: k.durN ? k.durSum / k.durN : null,

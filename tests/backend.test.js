@@ -153,19 +153,21 @@ it('updateStatus mengembalikan task lengkap (untuk update instan di aplikasi)', 
   post({ action: 'updateStatus', token: ari, taskId: t0.id, status: 'On-Progress' });
 });
 
-it('updateStatus mencatat Started At & Done At; buka lagi menghapus Done At', () => {
+it('anggota: Mulai mencatat Started At; Done ditolak (harus lewat review)', () => {
   const id = post({ action: 'myTasks', token: ari }).data.tasks[1].id;
   let r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' });
   assert.ok(r.data.task.startedAt);
   r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'Done' });
-  assert.ok(r.data.task.doneAt);
-  r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' });
-  assert.strictEqual(r.data.task.doneAt, '');
+  assert.strictEqual(r.ok, false); assert.ok(/Hanya admin/.test(r.error));
+  r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'Review' });
+  assert.ok(r.ok, r.error); assert.ok(r.data.task.reviewAt, 'Review At tercatat');
+  post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' });
 });
 
 it('anggota tidak bisa mengubah task orang lain atau aksi admin', () => {
   const wid = ss.getSheetByName('Wisnu').data[1][ss.getSheetByName('Wisnu').data[0].indexOf('Task ID')];
-  assert.strictEqual(post({ action: 'updateStatus', token: ari, taskId: wid, status: 'Done' }).ok, false);
+  assert.strictEqual(post({ action: 'updateStatus', token: ari, taskId: wid, status: 'Review' }).ok, false);
+  assert.strictEqual(post({ action: 'reviewTask', token: ari, taskId: wid, decision: 'approve' }).ok, false);
   assert.strictEqual(post({ action: 'getAll', token: ari }).ok, false);
 });
 
@@ -230,10 +232,10 @@ it('aktifkan pengingat: anggota mengisi email sendiri → event mulai & deadline
 
 it('task Done → event dihapus; dibuka lagi → event dibuat ulang', () => {
   const id = post({ action: 'myTasks', token: ari }).data.tasks[2].id;
-  post({ action: 'updateStatus', token: ari, taskId: id, status: 'Done' });
+  post({ action: 'updateStatus', token: admin, taskId: id, status: 'Done' });
   sandbox.runReminders();
   assert.strictEqual(Object.values(events).filter((e) => e.title.includes('[A7]')).length, 0);
-  post({ action: 'updateStatus', token: ari, taskId: id, status: 'Backlog' });
+  post({ action: 'updateStatus', token: admin, taskId: id, status: 'Backlog' });
   sandbox.runReminders();
   assert.strictEqual(Object.values(events).filter((e) => e.title.includes('[A7]')).length, 2);
 });
@@ -280,6 +282,38 @@ it('jabatan bisa diisi & dibaca, tidak mengubah hak akses', () => {
   assert.ok(n.ok, n.error); assert.strictEqual(n.data.user.position, 'UI UX & Design Grafis Intern');
   const me = post({ action: 'myTasks', token: ari }); assert.ok(me.ok);
   assert.strictEqual(post({ action: 'getAll', token: admin }).data.users.find((u) => u.username === 'nadia').position, 'UI UX & Design Grafis Intern');
+});
+
+it('menu Tim: anggota melihat task semua orang (dengan catatan), tanpa email/akun', () => {
+  const r = post({ action: 'teamTasks', token: ari });
+  assert.ok(r.ok, r.error);
+  assert.ok(r.data.tasks.some((t) => t.owner === 'wisnu'), 'task orang lain terlihat');
+  assert.ok('notes' in r.data.tasks[0]);
+  assert.ok(r.data.users.every((u) => !('email' in u) && !('role' in u)), 'tidak membocorkan email/role');
+});
+
+it('alur review: ajukan → admin diberi email sekali → setujui = Done; kembalikan = On-Progress + alasan', () => {
+  post({ action: 'saveUser', token: admin, user: { username: 'admin', name: 'Administrator', role: 'admin', active: true, email: 'digmar@linovhr.com' } });
+  const t = post({ action: 'myTasks', token: ari }).data.tasks.find((x) => x.status !== 'Done');
+  assert.ok(post({ action: 'updateStatus', token: ari, taskId: t.id, status: 'Review' }).ok);
+  const q = post({ action: 'reviewQueue', token: admin });
+  assert.ok(q.data.tasks.some((x) => x.id === t.id));
+  mails.length = 0;
+  sandbox.runReminders(); sandbox.runReminders();
+  const rv = mails.filter((m) => m.subject.includes('menunggu review'));
+  assert.strictEqual(rv.length, 1, 'email review ke admin terkirim sekali'); assert.strictEqual(rv[0].to, 'digmar@linovhr.com');
+  // kembalikan
+  mails.length = 0;
+  let r = post({ action: 'reviewTask', token: admin, taskId: t.id, decision: 'return', reason: 'Tambahkan meta description' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.status, 'On-Progress');
+  assert.ok(r.data.task.notes.includes('Tambahkan meta description'));
+  assert.ok(mails.some((m) => m.to === 'ari@linovhr.com' && m.subject.startsWith('↩️')), 'anggota diberi tahu');
+  // ajukan lagi lalu setujui
+  post({ action: 'updateStatus', token: ari, taskId: t.id, status: 'Review' });
+  r = post({ action: 'reviewTask', token: admin, taskId: t.id, decision: 'approve' });
+  assert.strictEqual(r.data.task.status, 'Done'); assert.ok(r.data.task.doneAt); assert.ok(r.data.task.reviewAt);
+  // anggota tidak bisa membuka lagi task yang sudah disetujui
+  assert.strictEqual(post({ action: 'updateStatus', token: ari, taskId: t.id, status: 'On-Progress' }).ok, false);
 });
 
 it('ringkasan pagi terkirim ke anggota & rekap ke admin (jika hari kerja)', () => {
