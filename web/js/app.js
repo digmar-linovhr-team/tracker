@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.8.0';
+const CSS_VERSION = '2.9.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -33,7 +33,7 @@ const S = {
 
 const STATUSES = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
-const STATUS_DOT = { Backlog: '#a3a9b0', 'On-Progress': '#2f6f9e', Review: '#5b45b8', Hold: '#b77700', Done: '#0a8a0a', Recurring: '#255473' };
+const STATUS_DOT = { Backlog: 'var(--muted)', 'On-Progress': 'var(--info)', Review: 'var(--review)', Hold: 'var(--warn)', Done: 'var(--good)', Recurring: 'var(--accent)' };
 const svg = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICONS = {
   mine: svg('<path d="M9 11l2 2 4-4"/><rect x="3" y="3" width="18" height="18" rx="4"/>'),
@@ -53,6 +53,12 @@ const FB = {
   status: fsvg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>'),
   chev: fsvg('<path d="M6 9l6 6 6-6"/>')
 };
+const THEME_ICONS = {
+  light: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  dark: svg('<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>'),
+  system: svg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>')
+};
+const THEMES = [['light', 'Terang', THEME_ICONS.light], ['dark', 'Gelap', THEME_ICONS.dark], ['system', 'Ikuti sistem', THEME_ICONS.system]];
 const REMINDER_OPTS = [[1440, '1 hari sebelum deadline'], [180, '3 jam sebelum'], [60, '1 jam sebelum'], [30, '30 menit sebelum'], [15, '15 menit sebelum']];
 
 // ---------- util ----------
@@ -1311,6 +1317,11 @@ function viewSettings() {
         <button class="btn" id="tn" ${c.notifPermission === 'unsupported' || c.notifPermission === 'denied' ? 'disabled' : ''}>Kirim notifikasi uji</button>
       </div>
     </div></div>
+    <div class="card settings-sect"><div class="card-h"><h2>Tampilan</h2></div><div class="card-b">
+      <p>Pilih mode terang atau gelap. <b>Ikuti sistem</b> menyesuaikan otomatis dengan setelan perangkat.</p>
+      <div class="theme-pick" id="theme-pick" role="radiogroup" aria-label="Mode tampilan">${THEMES.map(([k, l, ic]) => `<button type="button" role="radio" data-theme-k="${k}" aria-checked="${window.PTTheme.get() === k}" class="${window.PTTheme.get() === k ? 'on' : ''}">
+        <span class="tp-prev tp-${k}"><i></i><i></i><i></i></span><span class="tp-lbl">${ic}${l}</span></button>`).join('')}</div>
+    </div></div>
     <div class="card settings-sect"><div class="card-h"><h2>Pasang di perangkat</h2></div><div class="card-b">${install}</div></div>
     ${S.user.role === 'admin' ? `<div class="card settings-sect"><div class="card-h"><h2>Admin</h2></div><div class="card-b">
       <p>Kelola data tim.</p><div class="row" style="flex-wrap:wrap"><button class="btn" data-go="projects">Project</button><button class="btn" data-go="users">Pengguna</button><button class="btn" data-go="tasks">Semua Task</button></div>
@@ -1367,6 +1378,24 @@ $('#btn-logout').onclick = async () => {
   if (!(await confirmBox('Keluar dari akun?', `Anda akan keluar dari akun ${S.user ? S.user.name : ''}. Login lagi untuk masuk dengan akun lain.`, 'Keluar'))) return;
   clearCaches(); await api.logout(); S.user = null; resetSession(); S.cfg = await api.config(); showLogin();
 };
+// ---------- mode tampilan ----------
+function setTheme(k) {
+  document.documentElement.classList.add('theme-anim');
+  window.PTTheme.set(k);
+  setTimeout(() => document.documentElement.classList.remove('theme-anim'), 260);
+}
+function renderThemeBtn() {
+  const dark = window.PTTheme.resolved() === 'dark';
+  const b = $('#btn-theme');
+  b.innerHTML = dark ? THEME_ICONS.light : THEME_ICONS.dark;
+  b.title = dark ? 'Ganti ke mode terang' : 'Ganti ke mode gelap';
+  b.setAttribute('aria-label', b.title);
+}
+window.PTTheme.onChange(() => { renderThemeBtn(); if (S.user && S.view && !$('#modal-root').innerHTML) { msClose(); go(S.view); } });
+renderThemeBtn();
+$('#btn-theme').onclick = () => setTheme(window.PTTheme.resolved() === 'dark' ? 'light' : 'dark');
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-theme-k]'); if (b) setTheme(b.dataset.themeK); });
+
 $('#btn-refresh').onclick = async () => { setSyncInfo('Menyinkronkan…'); await busy($('#btn-refresh'), () => loadData()); go(S.view); };
 api.on('auth:expired', () => { S.user = null; toast('Sesi berakhir, silakan login lagi', true); showLogin(); });
 api.on('tasks:refreshed', (tasks) => {
