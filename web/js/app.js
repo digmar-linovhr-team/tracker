@@ -815,6 +815,10 @@ function viewSettings() {
 }
 
 // ---------- event global ----------
+$('#btn-logout').onclick = async () => {
+  if (!(await confirmBox('Keluar dari akun?', `Anda akan keluar dari akun ${S.user ? S.user.name : ''}. Login lagi untuk masuk dengan akun lain.`, 'Keluar'))) return;
+  await api.logout(); S.user = null; S.all = null; S.mine = { tasks: [], projects: [] }; S.cfg = await api.config(); showLogin();
+};
 $('#btn-refresh').onclick = async () => { await busy($('#btn-refresh'), () => loadData()); go(S.view); };
 api.on('auth:expired', () => { S.user = null; toast('Sesi berakhir, silakan login lagi', true); showLogin(); });
 api.on('tasks:refreshed', async () => {

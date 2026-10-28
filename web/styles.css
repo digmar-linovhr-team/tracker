@@ -264,3 +264,8 @@ nav button.active { box-shadow: inset 3px 0 0 var(--brand); }
 .btn.sm { padding-left: 12px; padding-right: 12px; }
 .card-h { flex-wrap: wrap; gap: 6px 16px; }
 .card-h h2 { white-space: nowrap; }
+
+.me .me-text { flex: 1; min-width: 0; }
+.me .me-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.logout { color: var(--text-2); border-color: var(--border); }
+.btn.logout:hover { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
