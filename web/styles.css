@@ -27,20 +27,8 @@
   font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Inter", Roboto, sans-serif;
   font-size: 14px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg: #11161b; --surface: #182029; --surface-2: #1f2933; --border: #2b3742;
-    --text: #eef2f5; --text-2: #b9c3cc; --muted: #84909b;
-    --accent: #6aaee0; --accent-ink: #0b2233; --accent-soft: #1b2e3d;
-    --brand: #6aaee0; --gold: #e6b95a;
-    --good: #3cc23c; --good-soft: #17301a; --warn: #f0b23a; --warn-soft: #33290f;
-    --bad: #ec6b6b; --bad-soft: #3a1b1b; --info: #7cb6e3; --info-soft: #1b2731;
-    --series-1: #5ea3d5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
-    --shadow: none;
-  }
-}
+/* Tema terang putih-biru LinovHR dipakai di semua perangkat (tidak mengikuti mode gelap). */
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
 body { -webkit-font-smoothing: antialiased; }
@@ -274,3 +262,5 @@ nav button.active { box-shadow: inset 3px 0 0 var(--brand); }
 /* tombol berbentuk kapsul seperti situs LinovHR */
 .btn { border-radius: 999px; padding-left: 16px; padding-right: 16px; }
 .btn.sm { padding-left: 12px; padding-right: 12px; }
+.card-h { flex-wrap: wrap; gap: 6px 16px; }
+.card-h h2 { white-space: nowrap; }
