@@ -233,7 +233,6 @@ button, a, input, select { -webkit-tap-highlight-color: transparent; }
   .tile .sub { font-size: 11px; }
   .toolbar input[type=search] { width: 100%; flex: 1 1 100%; }
   .toolbar select { flex: 1; max-width: none; min-width: 0; }
-  #tcode, #person { flex: 1 1 100%; }
   body { overflow-x: hidden; }
   .toolbar .seg { flex: 1 1 100%; }
   .toolbar .seg button { flex: 1; }
@@ -381,3 +380,32 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 
 .wl-card.dim { opacity: .42; }
 .wl-card.dim:hover { opacity: .75; }
+
+/* ---------- bilah filter menyatu ---------- */
+.fbar { flex: 1 1 520px; min-width: 0; display: flex; align-items: stretch; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.fbar.fbar-sm { flex: 0 1 360px; }
+.fbar.fbar-auto { flex: 0 0 auto; }
+.fbar > * + * { border-left: 1px solid var(--border); }
+.fb-search { flex: 1 1 160px; min-width: 120px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--muted); cursor: text; }
+.toolbar .fbar input[type=search] { flex: 1; width: 100%; min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 9px 0; box-shadow: none; }
+.fb-sel { position: relative; flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 30px 0 12px; cursor: pointer; transition: background .12s; }
+.fb-ico { display: inline-flex; color: var(--brand); flex: none; }
+.toolbar .fbar select { -webkit-appearance: none; appearance: none; flex: 1 1 auto; width: auto; max-width: 230px; min-width: 0; border: 0; border-radius: 0; background: transparent; padding: 9px 0; color: var(--text); cursor: pointer; text-overflow: ellipsis; box-shadow: none; }
+.fb-chev { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); display: inline-flex; color: var(--muted); pointer-events: none; }
+.fb-sel:hover, .fb-search:hover { background: #fafbfc; }
+.fb-sel:focus-within, .fb-search:focus-within { background: #f3f7fa; box-shadow: inset 0 -2px 0 var(--brand); }
+.fbar input:focus, .fbar select:focus { outline: none; }
+.fb-sel.on select { color: var(--accent); font-weight: 600; }
+.fb-sel.on .fb-chev { color: var(--accent); }
+
+@media (max-width: 760px) {
+  .fbar, .fbar.fbar-sm, .fbar.fbar-auto { flex: 1 1 100%; flex-wrap: wrap; }
+  .fb-search { flex: 1 1 100%; min-height: 42px; }
+  .fbar > .fb-search + .fb-sel { border-left: 0; }
+  .fbar > .fb-search ~ .fb-sel { border-top: 1px solid var(--border); }
+  .fb-sel { flex: 1 1 0; min-height: 42px; }
+  .toolbar .fbar select { max-width: none; font-size: 16px; }
+}
+.fb-sel { flex-shrink: 0; }
+.fbar ~ .spacer { display: none; }
+.fbar ~ .btn.primary { margin-left: auto; }

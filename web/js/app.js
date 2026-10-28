@@ -33,6 +33,15 @@ const ICONS = {
   review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
+const fsvg = (d) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const FB = {
+  search: fsvg('<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>'),
+  user: fsvg('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
+  folder: fsvg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+  status: fsvg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>'),
+  chev: fsvg('<path d="M6 9l6 6 6-6"/>')
+};
+const fbSel = (on, icon, selectHtml) => `<label class="fb-sel ${on ? 'on' : ''}"><span class="fb-ico">${FB[icon]}</span>${selectHtml}<span class="fb-chev">${FB.chev}</span></label>`;
 const REMINDER_OPTS = [[1440, '1 hari sebelum deadline'], [180, '3 jam sebelum'], [60, '1 jam sebelum'], [30, '30 menit sebelum'], [15, '15 menit sebelum']];
 
 // ---------- util ----------
@@ -366,7 +375,7 @@ function viewMine() {
     </div>
     <div class="toolbar">
       <div class="seg" id="mtab">${[['active', 'Aktif'], ['done', 'Selesai'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.mineTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <input type="search" id="mq" placeholder="Cari task…" value="${esc(f.mineQ)}">
+      <div class="fbar fbar-sm"><label class="fb-search">${FB.search}<input type="search" id="mq" placeholder="Cari task…" value="${esc(f.mineQ)}"></label></div>
     </div>
     <div id="mlist"></div>`;
   bindBanners();
@@ -568,7 +577,7 @@ function viewDashboard() {
   $('#view').innerHTML = `
     <div class="toolbar">
       <div class="seg" id="per">${[['7', '7 hari'], ['30', '30 hari'], ['month', 'Bulan ini'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.period === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      ${admin ? `<select id="person"><option value="all">Semua orang</option>${users.map((u) => `<option value="${esc(u.username)}" ${f.person === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>` : ''}
+      ${admin ? `<div class="fbar fbar-auto">${fbSel(f.person !== 'all', 'user', `<select id="person"><option value="all">Semua orang</option>${users.map((u) => `<option value="${esc(u.username)}" ${f.person === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`)}</div>` : ''}
     </div>
     <div class="tiles">
       ${tile('Penyelesaian', pct(sum.completionRate), `${sum.done} dari ${sum.total} task selesai`)}
@@ -746,9 +755,9 @@ function viewTeam() {
       </button>`; }).join('')}</div>
     <div class="toolbar">
       <div class="seg" id="tmtab">${[['active', 'Aktif'], ['review', 'Review'], ['done', 'Selesai'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.teamTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <input type="search" id="tmq" placeholder="Cari task…" value="${esc(f.teamQ)}">
-      <select id="tmperson"><option value="all">${f.teamCode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.teamCode)}</option>${lf.people.map((u) => `<option value="${esc(u.username)}" ${f.teamPerson === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
-      <select id="tmcode"><option value="all">${f.teamPerson === 'all' ? 'Semua project' : 'Semua project ' + esc((users.find((u) => u.username === f.teamPerson) || {}).name || '')}</option>${codes.map((c) => `<option value="${esc(c)}" ${f.teamCode === c ? 'selected' : ''}>${esc(c)} — ${esc(projectName(c).slice(0, 40))}</option>`).join('')}</select>
+      <div class="fbar"><label class="fb-search">${FB.search}<input type="search" id="tmq" placeholder="Cari task…" value="${esc(f.teamQ)}"></label>
+      ${fbSel(f.teamPerson !== 'all', 'user', `<select id="tmperson"><option value="all">${f.teamCode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.teamCode)}</option>${lf.people.map((u) => `<option value="${esc(u.username)}" ${f.teamPerson === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`)}
+      ${fbSel(f.teamCode !== 'all', 'folder', `<select id="tmcode"><option value="all">${f.teamPerson === 'all' ? 'Semua project' : 'Semua project ' + esc((users.find((u) => u.username === f.teamPerson) || {}).name || '')}</option>${codes.map((c) => `<option value="${esc(c)}" ${f.teamCode === c ? 'selected' : ''}>${esc(c)} — ${esc(projectName(c).slice(0, 40))}</option>`).join('')}</select>`)}</div>
     </div>
     <div id="tmlist"></div>
     <p class="def">Halaman ini hanya untuk melihat. Perubahan task hanya bisa dilakukan oleh pemilik task (dan admin).</p>`;
@@ -865,10 +874,10 @@ function viewTasks() {
   const codes = lf.codes.map((c) => all.projects.find((p) => p.code === c) || { code: c, project: '' });
   $('#view').innerHTML = `
     <div class="toolbar">
-      <input type="search" id="tq" placeholder="Cari task…" value="${esc(f.tq)}">
-      <select id="towner"><option value="all">${f.tcode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.tcode)}</option>${people.map((u) => `<option value="${esc(u.username)}" ${f.towner === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>
-      <select id="tstatus">${[['active', 'Belum selesai'], ['overdue', 'Terlambat'], ['all', 'Semua status']].concat(STATUSES.map((s) => [s, s])).map(([k, l]) => `<option value="${k}" ${f.tstatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-      <select id="tcode"><option value="all">Semua project</option>${codes.map((p) => `<option value="${esc(p.code)}" ${f.tcode === p.code ? 'selected' : ''}>${esc(p.code)}${p.project ? ' — ' + esc(p.project.slice(0, 40)) : ''}</option>`).join('')}</select>
+      <div class="fbar"><label class="fb-search">${FB.search}<input type="search" id="tq" placeholder="Cari task…" value="${esc(f.tq)}"></label>
+      ${fbSel(f.towner !== 'all', 'user', `<select id="towner"><option value="all">${f.tcode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.tcode)}</option>${people.map((u) => `<option value="${esc(u.username)}" ${f.towner === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`)}
+      ${fbSel(f.tstatus !== 'active', 'status', `<select id="tstatus">${[['active', 'Belum selesai'], ['overdue', 'Terlambat'], ['all', 'Semua status']].concat(STATUSES.map((s) => [s, s])).map(([k, l]) => `<option value="${k}" ${f.tstatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
+      ${fbSel(f.tcode !== 'all', 'folder', `<select id="tcode"><option value="all">Semua project</option>${codes.map((p) => `<option value="${esc(p.code)}" ${f.tcode === p.code ? 'selected' : ''}>${esc(p.code)}${p.project ? ' — ' + esc(p.project.slice(0, 40)) : ''}</option>`).join('')}</select>`)}</div>
       <span class="spacer"></span>
       <button class="btn primary" id="newtask">+ Task baru</button>
     </div>
