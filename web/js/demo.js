@@ -78,7 +78,8 @@ function build() {
   add('wisnu', 'A2', 'Riset tools AIO tracking', -9, '09:00', -6, '17:00', 'Done', { startedAt: stamp(-9, 9, 0), doneAt: stamp(-5, 11, 0) });
 
   const users = [['admin', 'Administrator', 'admin', '']].concat(people.map((p) => [p[0], p[1], 'member', p[1]]))
-    .map((u) => ({ username: u[0], name: u[1], role: u[2], sheetName: u[3], mustChange: false, active: true, email: u[0] === 'wisnu' ? '' : u[0] + '@contoh.com' }));
+    .map((u) => ({ username: u[0], name: u[1], role: u[2], sheetName: u[3], mustChange: false, active: true, email: u[0] === 'wisnu' ? '' : u[0] + '@contoh.com',
+      position: { ari: 'SEO Specialist', ammar: 'Content Writer', fahmi: 'Content Writer', winona: 'Content Writer Intern', dany: 'Frontend Developer', arya: 'Frontend Developer', wisnu: 'Digital Marketing Lead' }[u[0]] || '' }));
   return { projects, tasks, users };
 }
 
@@ -102,7 +103,7 @@ function handle(action, b, session) {
     case 'me': return me;
     case 'changePassword': return { user: me };
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
-    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects };
+    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me };
     case 'updateStatus': {
       const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
       if (!t) throw new Error('Task tidak ditemukan');
@@ -135,7 +136,7 @@ function handle(action, b, session) {
     case 'saveUser': {
       const u = b.user; const ex = s.users.find((x) => x.username === u.username);
       if (ex) { Object.assign(ex, u); return { user: ex }; }
-      const nu = { username: u.username, name: u.name, role: u.role, sheetName: u.hasTasks === false ? '' : u.name, mustChange: true, active: true, email: u.email || '' };
+      const nu = { username: u.username, name: u.name, role: u.role, sheetName: u.hasTasks === false ? '' : u.name, mustChange: true, active: true, email: u.email || '', position: u.position || '' };
       s.users.push(nu); return { user: nu, password: 'demo' };
     }
     case 'resetPassword': return { password: 'demo' };

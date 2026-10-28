@@ -29,7 +29,7 @@ var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
   'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
-  'Salt', 'Must Change', 'Active', 'Created At', 'Email'];
+  'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
 
@@ -157,7 +157,7 @@ function route_(b) {
 
   switch (a) {
     case 'me': return publicUser_(me);
-    case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_() };
+    case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me) };
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'setMyEmail': return setMyEmail_(me, b.email);
   }
@@ -270,7 +270,8 @@ function readUsers_() {
       salt: String(r[col['salt']] || ''),
       mustChange: bool_(r[col['must change']]),
       active: r[col['active']] === '' ? true : bool_(r[col['active']]),
-      email: col['email'] === undefined ? '' : String(r[col['email']] || '').trim()
+      email: col['email'] === undefined ? '' : String(r[col['email']] || '').trim(),
+      position: col['position'] === undefined ? '' : String(r[col['position']] || '').trim()
     });
   });
   return out;
@@ -282,7 +283,7 @@ function findUser_(username) {
 
 function publicUser_(u) {
   return { username: u.username, name: u.name, role: u.role, sheetName: u.sheetName,
-    mustChange: u.mustChange, active: u.active, email: u.email || '' };
+    mustChange: u.mustChange, active: u.active, email: u.email || '', position: u.position || '' };
 }
 
 function appendUser_(username, name, role, sheetName, password) {
@@ -324,6 +325,7 @@ function saveUser_(me, data) {
       sh.getRange(existing.row, col['role'] + 1).setValue(role);
       sh.getRange(existing.row, col['active'] + 1).setValue(data.active !== false);
       if (data.email !== undefined) sh.getRange(existing.row, col['email'] + 1).setValue(cleanEmail_(data.email));
+      if (data.position !== undefined) sh.getRange(existing.row, col['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
       if (data.hasTasks && !existing.sheetName) {
         var sn = ensurePersonSheet_(data.name || existing.name);
         sh.getRange(existing.row, col['sheet name'] + 1).setValue(sn);
@@ -335,10 +337,9 @@ function saveUser_(me, data) {
     var sheetName = data.hasTasks === false ? '' : ensurePersonSheet_(data.name || username);
     var pw = tempPassword_();
     appendUser_(username, data.name || username, role, sheetName, pw);
-    if (data.email) {
-      var nu = findUser_(username);
-      sh.getRange(nu.row, colMap_(sh)['email'] + 1).setValue(cleanEmail_(data.email));
-    }
+    var nu = findUser_(username), ucol = colMap_(sh);
+    if (data.email) sh.getRange(nu.row, ucol['email'] + 1).setValue(cleanEmail_(data.email));
+    if (data.position) sh.getRange(nu.row, ucol['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
     log_(me, 'create-user', '', username);
     return { user: publicUser_(findUser_(username)), password: pw };
   } finally { lock.releaseLock(); }

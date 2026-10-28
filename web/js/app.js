@@ -178,13 +178,19 @@ async function enterApp() {
   $('#auth').classList.add('hidden');
   $('#shell').classList.remove('hidden');
   $('#me-name').textContent = S.user.name;
-  $('#me-role').textContent = S.user.role === 'admin' ? 'Admin' : 'Anggota tim';
+  renderMe();
   $('#me-avatar').textContent = initials(S.user.name);
   $('#demo-tag').innerHTML = S.cfg.demo ? 'Mode demo' : 'Linov<b>HR</b>';
   renderNav();
   $('#view').innerHTML = '<div class="loading">Memuat data…</div>';
   await loadData();
   go(S.user.role === 'admin' && !S.user.sheetName ? 'dashboard' : 'mine');
+}
+
+function renderMe() {
+  $('#me-name').textContent = S.user.name;
+  $('#me-role').textContent = S.user.position || (S.user.role === 'admin' ? 'Admin' : 'Anggota tim');
+  $('#me-role').title = S.user.position ? S.user.position + (S.user.role === 'admin' ? ' · Admin' : '') : '';
 }
 
 function renderNav() {
@@ -207,6 +213,8 @@ async function loadData(quiet) {
     if (S.user.role === 'admin') jobs.push(api.call('getAll'));
     const [mine, all] = await Promise.all(jobs);
     S.mine = mine;
+    const fresh = (mine && mine.me) || (all && all.users.find((u) => u.username === S.user.username));
+    if (fresh) { S.user = Object.assign(S.user, fresh); renderMe(); }
     if (all) { S.all = all; if (!S.user.sheetName) S.mine.projects = all.projects; }
     S.lastSync = new Date();
     $('#sync-info').textContent = 'Diperbarui ' + pad(S.lastSync.getHours()) + ':' + pad(S.lastSync.getMinutes());
@@ -536,10 +544,15 @@ function renderWeeklyChart(tasks) {
   }));
 }
 
+function posOf(username) {
+  const u = S.all && S.all.users.find((x) => x.username === username);
+  return u ? u.position || '' : '';
+}
+
 function renderBoard(tasks, range) {
   const ppl = L.byPerson(tasks, range).sort((a, b) => ((b.onTimeRate || 0) - (a.onTimeRate || 0)) || (b.over - a.over) || (b.done - a.done));
   $('#board').innerHTML = `<table class="tbl"><thead><tr><th>#</th><th>Nama</th><th class="num">Task</th><th class="num">Done</th><th>Penyelesaian</th><th class="num">Tepat waktu</th><th class="num" title="Overperforming">Over&shy;perform</th><th class="num">Telat</th><th class="num">Overdue</th><th class="num">Rata² durasi</th><th class="num">Rata² selisih</th></tr></thead><tbody>
-    ${ppl.map((p, i) => `<tr><td class="muted">${i + 1}</td><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(p.name)}</span><b>${esc(p.name)}</b></div></td>
+    ${ppl.map((p, i) => `<tr><td class="muted">${i + 1}</td><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(p.name)}</span><div><b>${esc(p.name)}</b>${posOf(p.owner) ? `<div class="muted" style="font-size:11.5px">${esc(posOf(p.owner))}</div>` : ''}</div></div></td>
       <td class="num">${p.total}</td><td class="num">${p.done}</td>
       <td><div class="row" style="gap:8px"><div class="bar" style="flex:1;min-width:60px"><i style="width:${p.completionRate * 100}%"></i></div><span class="small" style="width:34px">${pct(p.completionRate)}</span></div></td>
       <td class="num">${pct(p.onTimeRate)}</td><td class="num">${p.over ? `<span class="chip good">★ ${p.over}</span>` : '0'}</td>
@@ -721,8 +734,9 @@ function viewUsers() {
   $('#view').innerHTML = `${all.notifications === false ? `<div class="banner warn"><div><b>Pengingat Google Calendar & email belum aktif.</b> Buka spreadsheet → menu <b>Project Tracker → 2. Aktifkan Calendar &amp; email pengingat</b>, lalu deploy ulang Web App.</div></div>` : ''}
     ${noEmail ? `<div class="banner"><div><b>${noEmail} anggota belum punya email</b> — task mereka belum masuk Google Calendar. Isi lewat tombol Edit, atau minta mereka mengisinya di Pengaturan.</div></div>` : ''}
     <div class="toolbar"><span class="muted small">${all.users.length} akun</span><span class="spacer"></span><button class="btn primary" id="newu">+ Pengguna</button></div>
-    <div class="card" style="overflow:auto"><table class="tbl"><thead><tr><th>Nama</th><th>Username</th><th>Email (Calendar)</th><th>Role</th><th>Tab task</th><th class="num">Task aktif</th><th>Status</th><th></th></tr></thead><tbody>
+    <div class="card" style="overflow:auto"><table class="tbl"><thead><tr><th>Nama</th><th>Jabatan</th><th>Username</th><th>Email (Calendar)</th><th>Akses</th><th>Tab task</th><th class="num">Task aktif</th><th>Status</th><th></th></tr></thead><tbody>
     ${all.users.map((u) => `<tr><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(u.name)}</span><b>${esc(u.name)}</b></div></td>
+      <td class="small">${u.position ? esc(u.position) : '<span class="muted">—</span>'}</td>
       <td><code>${esc(u.username)}</code></td><td class="small">${u.email ? esc(u.email) : (u.sheetName ? '<span class="chip warn">belum diisi</span>' : '<span class="muted">—</span>')}</td><td>${u.role === 'admin' ? '<span class="chip accent">Admin</span>' : 'Anggota'}</td>
       <td>${u.sheetName ? esc(u.sheetName) : '<span class="muted">—</span>'}</td>
       <td class="num">${all.tasks.filter((t) => t.owner === u.username && !L.isDone(t)).length}</td>
@@ -747,8 +761,10 @@ function userModal(u) {
     body: `<form id="uf">
       <label class="field"><span>Nama *</span><input name="name" value="${esc(u.name || '')}" required placeholder="mis. Wildan"></label>
       <label class="field"><span>Username *</span><input name="username" value="${esc(u.username || '')}" ${edit ? 'readonly' : ''} required pattern="[a-zA-Z0-9._-]+" placeholder="huruf kecil tanpa spasi"></label>
+      <label class="field"><span>Jabatan</span><input name="position" list="pos-list" maxlength="80" value="${esc(u.position || '')}" placeholder="mis. UI UX &amp; Design Grafis Intern">
+        <datalist id="pos-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.position).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
       <label class="field"><span>Email (untuk Google Calendar &amp; pengingat)</span><input type="email" name="email" value="${esc(u.email || '')}" placeholder="nama@perusahaan.com"></label>
-      <label class="field"><span>Role</span><select name="role"><option value="member" ${u.role !== 'admin' ? 'selected' : ''}>Anggota tim</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select></label>
+      <label class="field"><span>Hak akses</span><select name="role"><option value="member" ${u.role !== 'admin' ? 'selected' : ''}>Anggota — melihat & mengubah task sendiri</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin — mengelola semua task, project & pengguna</option></select></label>
       <label class="check"><input type="checkbox" name="hasTasks" ${!edit || u.sheetName ? 'checked' : ''} ${edit && u.sheetName ? 'disabled' : ''}> Punya daftar task (membuat tab di spreadsheet)</label>
       ${edit ? `<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Akun aktif (bisa login)</label>` : ''}
       <div id="uerr"></div></form>`,
@@ -759,7 +775,7 @@ function userModal(u) {
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
         const data = { name: f.name.value.trim(), username: f.username.value.trim().toLowerCase(), role: f.role.value,
-          hasTasks: f.hasTasks.checked, active: edit ? f.active.checked : true, email: f.email.value.trim() };
+          hasTasks: f.hasTasks.checked, active: edit ? f.active.checked : true, email: f.email.value.trim(), position: f.position.value.trim() };
         try {
           const r = await busy($('#save', m), () => api.call('saveUser', { user: data }));
           close(); await loadData(true); go('users');

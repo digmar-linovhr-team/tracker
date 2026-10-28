@@ -259,6 +259,15 @@ it('hapus task menghapus event-nya; anggota tanpa email tidak dapat event', () =
   assert.ok(!Object.values(events).some((e) => e.guests === '' || e.guests === undefined));
 });
 
+it('jabatan bisa diisi & dibaca, tidak mengubah hak akses', () => {
+  const r = post({ action: 'saveUser', token: admin, user: { username: 'ari', name: 'Ari', role: 'member', active: true, position: 'SEO Specialist' } });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.user.position, 'SEO Specialist'); assert.strictEqual(r.data.user.role, 'member');
+  const n = post({ action: 'saveUser', token: admin, user: { name: 'Nadia', username: 'nadia', role: 'member', hasTasks: true, position: 'UI UX & Design Grafis Intern' } });
+  assert.ok(n.ok, n.error); assert.strictEqual(n.data.user.position, 'UI UX & Design Grafis Intern');
+  const me = post({ action: 'myTasks', token: ari }); assert.ok(me.ok);
+  assert.strictEqual(post({ action: 'getAll', token: admin }).data.users.find((u) => u.username === 'nadia').position, 'UI UX & Design Grafis Intern');
+});
+
 it('ringkasan pagi terkirim ke anggota & rekap ke admin (jika hari kerja)', () => {
   post({ action: 'saveUser', token: admin, user: { username: 'admin', name: 'Administrator', role: 'admin', active: true, email: 'digmar@linovhr.com' } });
   mails.length = 0;
