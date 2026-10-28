@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.7.1';
+const CSS_VERSION = '2.8.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -24,15 +24,16 @@ const S = {
   bgTimer: null,
   f: {
     mineTab: 'active', mineQ: '',
-    period: '30', person: 'all',
-    tq: '', towner: 'all', tstatus: 'active', tcode: 'all',
-    teamQ: '', teamPerson: 'all', teamTab: 'active', teamCode: 'all'
+    period: '30', persons: [],
+    tq: '', towners: [], tstatus: 'active', tcodes: [],
+    teamQ: '', teamPeople: [], teamTab: 'active', teamCodes: []
   },
   team: null, teamAt: 0
 };
 
 const STATUSES = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
+const STATUS_DOT = { Backlog: '#a3a9b0', 'On-Progress': '#2f6f9e', Review: '#5b45b8', Hold: '#b77700', Done: '#0a8a0a', Recurring: '#255473' };
 const svg = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const ICONS = {
   mine: svg('<path d="M9 11l2 2 4-4"/><rect x="3" y="3" width="18" height="18" rx="4"/>'),
@@ -52,7 +53,6 @@ const FB = {
   status: fsvg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>'),
   chev: fsvg('<path d="M6 9l6 6 6-6"/>')
 };
-const fbSel = (on, icon, selectHtml) => `<label class="fb-sel ${on ? 'on' : ''}"><span class="fb-ico">${FB[icon]}</span>${selectHtml}<span class="fb-chev">${FB.chev}</span></label>`;
 const REMINDER_OPTS = [[1440, '1 hari sebelum deadline'], [180, '3 jam sebelum'], [60, '1 jam sebelum'], [30, '30 menit sebelum'], [15, '15 menit sebelum']];
 
 // ---------- util ----------
@@ -291,7 +291,7 @@ async function loadData(quiet) {
 
 /** Gambar ulang tampilan aktif tanpa mengganggu (tidak saat form/modal terbuka atau sedang mengetik). */
 function softRender() {
-  if (!S.user || $('#modal-root').innerHTML) return;
+  if (!S.user || $('#modal-root').innerHTML || $('#ms-pop')) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA') && a.type !== 'checkbox') return;
   go(S.view);
@@ -306,6 +306,7 @@ function refreshInBackground(delay) {
 function go(view) {
   if (S.view !== view) { const m = $('.main'); if (m) m.scrollTop = 0; window.scrollTo(0, 0); }
   S.view = view;
+  msClose();
   S.charts.forEach((c) => c.destroy()); S.charts = [];
   renderNav();
   const titles = {
@@ -580,15 +581,17 @@ function viewDashboard() {
   const f = S.f;
   const users = admin ? S.all.users.filter((u) => u.sheetName) : [];
   let tasks = admin ? S.all.tasks : S.mine.tasks;
-  if (admin && f.person !== 'all') tasks = tasks.filter((t) => t.owner === f.person);
+  f.persons = f.persons.filter((x) => users.some((u) => u.username === x));
+  if (admin && f.persons.length) { const p = new Set(f.persons); tasks = tasks.filter((t) => p.has(t.owner)); }
   const range = periodRange(f.period);
   const sum = L.summarize(tasks, range);
-  const team = admin && f.person === 'all';
+  const team = admin && f.persons.length !== 1;
 
   $('#view').innerHTML = `
     <div class="toolbar">
       <div class="seg" id="per">${[['7', '7 hari'], ['30', '30 hari'], ['month', 'Bulan ini'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.period === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      ${admin ? `<div class="fbar fbar-auto">${fbSel(f.person !== 'all', 'user', `<select id="person"><option value="all">Semua orang</option>${users.map((u) => `<option value="${esc(u.username)}" ${f.person === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`)}</div>` : ''}
+      ${admin ? `<div class="fbar fbar-auto">${msTrigger({ id: 'person', kind: 'person', icon: 'user', allLabel: 'Semua orang', selected: f.persons,
+        items: personItems(users.slice().sort((a, b) => a.name.localeCompare(b.name))), onApply: (v) => { f.persons = v; go('dashboard'); } })}</div>` : ''}
     </div>
     <div class="tiles">
       ${tile('Penyelesaian', pct(sum.completionRate), `${sum.done} dari ${sum.total} task selesai`)}
@@ -613,7 +616,6 @@ function viewDashboard() {
     <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.</p>`;
 
   $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; go('dashboard'); });
-  if ($('#person')) $('#person').onchange = (e) => { f.person = e.target.value; go('dashboard'); };
 
   renderDist(sum);
   if (team) { renderPersonChart(tasks, range); renderBoard(tasks, range); } else renderWeeklyChart(tasks);
@@ -707,13 +709,161 @@ function renderHistory(sum, admin) {
   </tbody></table>`;
 }
 
-/** Filter orang ⇄ project yang saling menyesuaikan. Mengembalikan opsi yang relevan & mereset pilihan yang tidak lagi cocok. */
-function linkedFilters(tasks, people, person, code) {
-  const codesOf = (who) => [...new Set(tasks.filter((t) => t.code && (who === 'all' || t.owner === who)).map((t) => t.code))].sort();
-  const peopleIn = (c) => c === 'all' ? people : people.filter((u) => tasks.some((t) => t.owner === u.username && t.code === c));
-  if (person !== 'all' && code !== 'all' && !tasks.some((t) => t.owner === person && t.code === code)) code = 'all';
-  return { person, code, codes: codesOf(person), people: peopleIn(code) };
+/** Filter orang ⇄ project (boleh pilih banyak) yang saling menyesuaikan.
+ *  Opsi project = project milik orang terpilih; opsi orang = orang yang terlibat di project terpilih.
+ *  Pilihan yang tidak lagi cocok dibuang. Array kosong = semua. */
+function linkedFilters(tasks, people, persons, codes) {
+  const P = () => new Set(persons), C = () => new Set(codes);
+  const codesOf = () => { const p = P(); return [...new Set(tasks.filter((t) => t.code && (!p.size || p.has(t.owner))).map((t) => t.code))].sort(); };
+  const peopleIn = () => { const c = C(); return c.size ? people.filter((u) => tasks.some((t) => t.owner === u.username && c.has(t.code))) : people; };
+  persons = persons.filter((x) => people.some((u) => u.username === x));
+  const okCodes = new Set(codesOf());
+  codes = codes.filter((c) => okCodes.has(c));
+  const okPeople = new Set(peopleIn().map((u) => u.username));
+  if (codes.length) persons = persons.filter((x) => okPeople.has(x));
+  return { persons, codes, codeOpts: codesOf(), peopleOpts: peopleIn() };
 }
+
+// ---------- Dropdown pilih-banyak (avatar + jabatan, centang, Terapkan) ----------
+const MS = {};
+const firstName = (n) => String(n || '').split(/\s+/)[0];
+function msTrigger(cfg) {
+  MS[cfg.id] = cfg;
+  if (cfg.single) {
+    const it = cfg.items.find((x) => x.value === cfg.selected) || cfg.items[0];
+    return `<button type="button" class="fb-sel fb-ms ${cfg.on ? 'on' : ''}" data-ms="${cfg.id}" aria-haspopup="listbox" aria-expanded="false"><span class="fb-ico">${FB[cfg.icon]}</span><span class="ms-lbl">${esc(it.label)}</span><span class="fb-chev">${FB.chev}</span></button>`;
+  }
+  const sel =cfg.items.filter((it) => cfg.selected.includes(it.value));
+  const n = sel.length, person = cfg.kind === 'person';
+  let label;
+  if (!n) label = `<span class="ms-lbl">${esc(cfg.allLabel)}</span>`;
+  else if (n <= 2) label = `<span class="ms-lbl">${sel.map((s) => esc(person ? s.label : s.value)).join(', ')}</span>`;
+  else if (person) label = `<span class="ms-lbl">${esc(firstName(sel[0].label))}</span><span class="ms-more">+${n - 1}</span>`;
+  else label = `<span class="ms-lbl">${esc(sel[0].value)}, ${esc(sel[1].value)}</span><span class="ms-more">+${n - 2}</span>`;
+  const lead = n && person
+    ? `<span class="ms-stack">${sel.slice(0, 3).map((s) => `<span class="avatar">${initials(s.label)}</span>`).join('')}</span>`
+    : `<span class="fb-ico">${FB[cfg.icon]}</span>`;
+  const title = n ? sel.map((s) => person ? s.label : s.value + (s.label ? ' — ' + s.label : '')).join('\n') : cfg.allLabel;
+  return `<button type="button" class="fb-sel fb-ms ${n ? 'on' : ''}" data-ms="${cfg.id}" aria-haspopup="listbox" aria-expanded="false" title="${esc(title)}">${lead}${label}<span class="fb-chev">${FB.chev}</span></button>`;
+}
+
+function msClose() {
+  const p = $('#ms-pop'); if (!p) return;
+  const t = $(`[data-ms="${p.dataset.for}"]`);
+  p.remove(); const b = $('#ms-backdrop'); if (b) b.remove();
+  if (t) { t.setAttribute('aria-expanded', 'false'); t.classList.remove('open'); }
+}
+
+function msMount(pop, trigger, mobile) {
+  if (mobile) { const bd = document.createElement('div'); bd.id = 'ms-backdrop'; bd.className = 'ms-backdrop'; bd.onclick = msClose; document.body.appendChild(bd); }
+  document.body.appendChild(pop);
+  trigger.setAttribute('aria-expanded', 'true'); trigger.classList.add('open');
+  if (mobile) return;
+  const r = trigger.getBoundingClientRect(), w = Math.max(pop.classList.contains('single') ? 220 : 290, Math.min(340, r.width + 40));
+  pop.style.width = w + 'px';
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  const below = innerHeight - r.bottom - 12;
+  if (below < 260 && r.top > below) { pop.style.bottom = (innerHeight - r.top + 6) + 'px'; pop.style.maxHeight = (r.top - 16) + 'px'; }
+  else { pop.style.top = (r.bottom + 6) + 'px'; pop.style.maxHeight = below + 'px'; }
+}
+
+/** Panah atas/bawah berpindah antar pilihan. */
+function msArrows(pop, sel, e) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const els = $$(sel, pop), i = els.indexOf(document.activeElement);
+  const n = e.key === 'ArrowDown' ? Math.min(els.length - 1, i + 1) : Math.max(0, i - 1);
+  if (els[n]) { e.preventDefault(); els[n].focus(); (els[n].closest('.ms-item') || els[n]).scrollIntoView({ block: 'nearest' }); }
+}
+
+function msOpen(trigger) {
+  const id = trigger.dataset.ms, cfg = MS[id];
+  if (!cfg) return;
+  const wasOpen = $('#ms-pop') && $('#ms-pop').dataset.for === id;
+  msClose();
+  if (wasOpen) return;
+  const person = cfg.kind === 'person', mobile = matchMedia('(max-width: 760px)').matches;
+  const pop = document.createElement('div');
+  pop.id = 'ms-pop'; pop.dataset.for = id; pop.className = 'ms-pop' + (mobile ? ' sheet' : '') + (cfg.single ? ' single' : '');
+  pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', cfg.allLabel || cfg.title || 'Filter');
+
+  if (cfg.single) {
+    pop.innerHTML = `${mobile ? '<div class="ms-grab"></div>' : ''}${cfg.title ? `<div class="ms-head">${esc(cfg.title)}</div>` : ''}<div class="ms-list" role="listbox">${cfg.items.map((it) => it.sep ? '<div class="ms-sep"></div>' :
+      `<button type="button" class="ms-item ms-opt ${it.value === cfg.selected ? 'sel' : ''}" role="option" aria-selected="${it.value === cfg.selected}" data-v="${esc(it.value)}">
+        ${it.dot ? `<span class="ms-dot" style="background:${it.dot}"></span>` : ''}<span class="ms-txt"><b>${esc(it.label)}</b></span><span class="ms-tick">${fsvg('<path d="M5 12.5l4.5 4.5L19 7.5"/>')}</span></button>`).join('')}</div>`;
+    msMount(pop, trigger, mobile);
+    $$('.ms-opt', pop).forEach((b) => b.onclick = () => { msClose(); cfg.onApply(b.dataset.v); });
+    pop.addEventListener('keydown', (e) => msArrows(pop, '.ms-opt', e));
+    ($('.ms-opt.sel', pop) || $('.ms-opt', pop)).focus({ preventScroll: true });
+    return;
+  }
+
+  const draft = new Set(cfg.selected.filter((v) => cfg.items.some((it) => it.value === v)));
+  const row = (it) => `<label class="ms-item" data-q="${esc((it.value + ' ' + it.label + ' ' + (it.sub || '')).toLowerCase())}">
+      <input type="checkbox" value="${esc(it.value)}"><span class="ms-box"></span>
+      ${person ? `<span class="avatar">${initials(it.label)}</span>` : `<span class="code-tag">${esc(it.value)}</span>`}
+      <span class="ms-txt"><b>${esc(person ? it.label : (it.label || it.value))}</b>${person && it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></label>`;
+  pop.innerHTML = `
+    ${mobile ? '<div class="ms-grab"></div>' : ''}
+    ${cfg.header ? `<div class="ms-head">${esc(cfg.header)}</div>` : ''}
+    ${cfg.items.length > 7 ? `<div class="ms-search">${FB.search}<input type="search" placeholder="${person ? 'Cari nama…' : 'Cari project…'}" aria-label="Cari"></div>` : ''}
+    <div class="ms-list" role="listbox" aria-multiselectable="true">
+      <label class="ms-item ms-all"><input type="checkbox" data-all><span class="ms-box"></span>
+        <span class="ms-txt"><b>${esc(cfg.allLabel)}</b><small>${cfg.items.length} ${person ? 'orang' : 'project'}</small></span></label>
+      ${cfg.items.map(row).join('') || '<div class="ms-empty">Tidak ada pilihan</div>'}
+      <div class="ms-empty hidden" data-none>Tidak ditemukan</div>
+    </div>
+    <div class="ms-foot"><span class="muted small" data-count></span><span style="flex:1"></span>
+      <button type="button" class="btn sm ghost" data-clear>Hapus</button><button type="button" class="btn sm primary" data-apply>Terapkan</button></div>`;
+  msMount(pop, trigger, mobile);
+
+  const sync = () => {
+    $$('.ms-item input[value]', pop).forEach((c) => { c.checked = draft.has(c.value); c.closest('.ms-item').classList.toggle('sel', c.checked); });
+    $('[data-all]', pop).checked = !draft.size;
+    $('.ms-all', pop).classList.toggle('sel', !draft.size);
+    $('[data-count]', pop).textContent = draft.size ? `${draft.size} dipilih` : 'Semua';
+  };
+  sync();
+  pop.addEventListener('change', (e) => {
+    const c = e.target;
+    if (c.type !== 'checkbox') return;
+    if (c.hasAttribute('data-all')) draft.clear();
+    else if (c.checked) draft.add(c.value); else draft.delete(c.value);
+    sync();
+  });
+  const apply = () => { const v = cfg.items.map((it) => it.value).filter((x) => draft.has(x)); msClose(); cfg.onApply(v); };
+  $('[data-clear]', pop).onclick = () => { draft.clear(); sync(); };
+  $('[data-apply]', pop).onclick = apply;
+  const q = $('.ms-search input', pop);
+  if (q) q.oninput = () => {
+    const s = q.value.trim().toLowerCase(); let shown = 0;
+    $$('.ms-item[data-q]', pop).forEach((el) => { const ok = !s || el.dataset.q.includes(s); el.classList.toggle('hidden', !ok); if (ok) shown++; });
+    $('[data-none]', pop).classList.toggle('hidden', !!shown);
+  };
+  pop.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); if (e.target.type === 'checkbox') apply(); return; }
+    msArrows(pop, '.ms-item:not(.hidden) input', e);
+  });
+  (q || $('.ms-item input', pop)).focus({ preventScroll: true });
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-ms]');
+  if (t) { e.preventDefault(); msOpen(t); }
+});
+document.addEventListener('mousedown', (e) => {
+  const p = $('#ms-pop');
+  if (p && !p.contains(e.target) && !e.target.closest('[data-ms]') && !e.target.closest('#ms-backdrop')) msClose();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('#ms-pop')) { const id = $('#ms-pop').dataset.for; msClose(); e.stopImmediatePropagation(); const t = $(`[data-ms="${id}"]`); if (t) t.focus(); }
+}, true);
+window.addEventListener('resize', () => { if ($('#ms-pop') && !$('#ms-pop').classList.contains('sheet')) msClose(); });
+document.addEventListener('scroll', (e) => { const p = $('#ms-pop'); if (p && !p.classList.contains('sheet') && !p.contains(e.target)) msClose(); }, true);
+
+const personItems = (users) => users.map((u) => ({ value: u.username, label: u.name, sub: u.position || '' }));
+const codeItems = (codes) => codes.map((c) => ({ value: c, label: projectName(c) || '' }));
+const namesOf = (users, list) => list.map((x) => (users.find((u) => u.username === x) || {}).name || x);
+const scopeTxt = (arr, max) => arr.length <= (max || 2) ? arr.join(', ') : arr.slice(0, max || 2).join(', ') + ` +${arr.length - (max || 2)}`;
 
 // ---------- Tim (baca-saja) ----------
 function teamData() {
@@ -742,9 +892,9 @@ function viewTeam() {
   }
   const f = S.f, now = new Date(), week = new Date(now - 7 * 864e5);
   const users = d.users.slice().sort((a, b) => a.name.localeCompare(b.name));
-  const lf = linkedFilters(d.tasks, users, f.teamPerson, f.teamCode);
-  f.teamCode = lf.code;
-  const codes = lf.codes, involved = new Set(lf.people.map((u) => u.username));
+  const lf = linkedFilters(d.tasks, users, f.teamPeople, f.teamCodes);
+  f.teamPeople = lf.persons; f.teamCodes = lf.codes;
+  const involved = new Set(lf.peopleOpts.map((u) => u.username)), picked = new Set(f.teamPeople);
   const stat = (u) => {
     const ts = d.tasks.filter((t) => t.owner === u.username);
     const b = (k) => ts.filter((t) => L.bucket(t, now) === k).length;
@@ -754,7 +904,7 @@ function viewTeam() {
   };
   $('#view').innerHTML = `
     <div class="wl-grid">${users.map((u) => { const st = stat(u); return `
-      <button class="card wl-card ${f.teamPerson === u.username ? 'on' : ''} ${involved.has(u.username) ? '' : 'dim'}" data-person="${esc(u.username)}" ${involved.has(u.username) ? '' : `title="Tidak terlibat di project ${esc(f.teamCode)}"`}>
+      <button class="card wl-card ${picked.has(u.username) ? 'on' : ''} ${involved.has(u.username) ? '' : 'dim'}" data-person="${esc(u.username)}" aria-pressed="${picked.has(u.username)}" ${involved.has(u.username) ? '' : `title="Tidak terlibat di project ${esc(f.teamCodes.join(', '))}"`}>
         <div class="row" style="gap:10px"><span class="avatar">${initials(u.name)}</span>
           <div style="min-width:0;text-align:left"><b class="wl-name">${esc(u.name)}${u.username === S.user.username ? ' <span class="muted">(Anda)</span>' : ''}</b><small class="wl-pos">${esc(u.position || '—')}</small></div></div>
         <div class="wl-stats">
@@ -767,24 +917,25 @@ function viewTeam() {
     <div class="toolbar">
       <div class="seg" id="tmtab">${[['active', 'Aktif'], ['review', 'Review'], ['done', 'Selesai'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.teamTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="fbar"><label class="fb-search">${FB.search}<input type="search" id="tmq" placeholder="Cari task…" value="${esc(f.teamQ)}"></label>
-      ${fbSel(f.teamPerson !== 'all', 'user', `<select id="tmperson"><option value="all">${f.teamCode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.teamCode)}</option>${lf.people.map((u) => `<option value="${esc(u.username)}" ${f.teamPerson === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`)}
-      ${fbSel(f.teamCode !== 'all', 'folder', `<select id="tmcode"><option value="all">${f.teamPerson === 'all' ? 'Semua project' : 'Semua project ' + esc((users.find((u) => u.username === f.teamPerson) || {}).name || '')}</option>${codes.map((c) => `<option value="${esc(c)}" ${f.teamCode === c ? 'selected' : ''}>${esc(c)} — ${esc(projectName(c).slice(0, 40))}</option>`).join('')}</select>`)}</div>
+      ${msTrigger({ id: 'tmperson', kind: 'person', icon: 'user', selected: f.teamPeople, items: personItems(lf.peopleOpts),
+        allLabel: f.teamCodes.length ? 'Semua orang di ' + (f.teamCodes.length > 2 ? f.teamCodes.length + ' project' : f.teamCodes.join(', ')) : 'Semua orang',
+        header: f.teamCodes.length ? 'Terlibat di ' + scopeTxt(f.teamCodes, 3) : '',
+        onApply: (v) => { f.teamPeople = v; go('team'); } })}
+      ${msTrigger({ id: 'tmcode', kind: 'code', icon: 'folder', selected: f.teamCodes, items: codeItems(lf.codeOpts),
+        allLabel: 'Semua project',
+        header: f.teamPeople.length ? 'Project ' + scopeTxt(namesOf(users, f.teamPeople).map(firstName), 3) : '',
+        onApply: (v) => { f.teamCodes = v; go('team'); } })}</div>
     </div>
     <div id="tmlist"></div>
     <p class="def">Halaman ini hanya untuk melihat. Perubahan task hanya bisa dilakukan oleh pemilik task (dan admin).</p>`;
   $$('[data-person]').forEach((b) => b.onclick = () => {
-    f.teamPerson = f.teamPerson === b.dataset.person ? 'all' : b.dataset.person;
-    if (b.classList.contains('dim')) f.teamCode = 'all'; // klik orang di luar project → tampilkan semua project-nya
+    const who = b.dataset.person;
+    f.teamPeople = f.teamPeople.includes(who) ? f.teamPeople.filter((x) => x !== who) : f.teamPeople.concat(who);
+    if (b.classList.contains('dim')) f.teamCodes = []; // klik orang di luar project → tampilkan semua project-nya
     go('team');
   });
   $$('#tmtab button').forEach((b) => b.onclick = () => { f.teamTab = b.dataset.k; go('team'); });
   $('#tmq').oninput = (e) => { f.teamQ = e.target.value; renderTeamList(d, users); };
-  $('#tmperson').onchange = (e) => { f.teamPerson = e.target.value; go('team'); };
-  $('#tmcode').onchange = (e) => {
-    f.teamCode = e.target.value;
-    if (f.teamCode !== 'all' && f.teamPerson !== 'all' && !d.tasks.some((t) => t.owner === f.teamPerson && t.code === f.teamCode)) f.teamPerson = 'all';
-    go('team');
-  };
   renderTeamList(d, users);
 }
 
@@ -792,8 +943,9 @@ function renderTeamList(d, users) {
   const f = S.f, q = f.teamQ.toLowerCase();
   const tab = { active: (t) => !L.isDone(t), review: (t) => t.status === 'Review', done: (t) => L.isDone(t), all: () => true }[f.teamTab];
   const byEnd = (a, b) => (L.schedule(a).end || Infinity) - (L.schedule(b).end || Infinity);
-  const html = users.filter((u) => f.teamPerson === 'all' || f.teamPerson === u.username).map((u) => {
-    const list = d.tasks.filter((t) => t.owner === u.username && tab(t) && (f.teamCode === 'all' || t.code === f.teamCode) &&
+  const P = new Set(f.teamPeople), C = new Set(f.teamCodes);
+  const html = users.filter((u) => !P.size || P.has(u.username)).map((u) => {
+    const list = d.tasks.filter((t) => t.owner === u.username && tab(t) && (!C.size || C.has(t.code)) &&
       (!q || (t.task + ' ' + t.code + ' ' + (t.notes || '')).toLowerCase().includes(q)))
       .sort(f.teamTab === 'done' ? (a, b) => new Date(b.doneAt || 0) - new Date(a.doneAt || 0) : byEnd);
     if (!list.length) return '';
@@ -879,28 +1031,29 @@ async function decideReview(id, decision, reason) {
 // ---------- Admin: Semua Task ----------
 function viewTasks() {
   const f = S.f, all = S.all;
-  const lf = linkedFilters(all.tasks, all.users.filter((u) => u.sheetName), f.towner, f.tcode);
-  f.tcode = lf.code;
-  const people = lf.people;
-  const codes = lf.codes.map((c) => all.projects.find((p) => p.code === c) || { code: c, project: '' });
+  const users = all.users.filter((u) => u.sheetName).sort((a, b) => a.name.localeCompare(b.name));
+  const lf = linkedFilters(all.tasks, users, f.towners, f.tcodes);
+  f.towners = lf.persons; f.tcodes = lf.codes;
   $('#view').innerHTML = `
     <div class="toolbar">
       <div class="fbar"><label class="fb-search">${FB.search}<input type="search" id="tq" placeholder="Cari task…" value="${esc(f.tq)}"></label>
-      ${fbSel(f.towner !== 'all', 'user', `<select id="towner"><option value="all">${f.tcode === 'all' ? 'Semua orang' : 'Semua orang di ' + esc(f.tcode)}</option>${people.map((u) => `<option value="${esc(u.username)}" ${f.towner === u.username ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select>`)}
-      ${fbSel(f.tstatus !== 'active', 'status', `<select id="tstatus">${[['active', 'Belum selesai'], ['overdue', 'Terlambat'], ['all', 'Semua status']].concat(STATUSES.map((s) => [s, s])).map(([k, l]) => `<option value="${k}" ${f.tstatus === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
-      ${fbSel(f.tcode !== 'all', 'folder', `<select id="tcode"><option value="all">Semua project</option>${codes.map((p) => `<option value="${esc(p.code)}" ${f.tcode === p.code ? 'selected' : ''}>${esc(p.code)}${p.project ? ' — ' + esc(p.project.slice(0, 40)) : ''}</option>`).join('')}</select>`)}</div>
+      ${msTrigger({ id: 'towner', kind: 'person', icon: 'user', selected: f.towners, items: personItems(lf.peopleOpts),
+        allLabel: f.tcodes.length ? 'Semua orang di ' + (f.tcodes.length > 2 ? f.tcodes.length + ' project' : f.tcodes.join(', ')) : 'Semua orang',
+        header: f.tcodes.length ? 'Terlibat di ' + scopeTxt(f.tcodes, 3) : '',
+        onApply: (v) => { f.towners = v; viewTasks(); } })}
+      ${msTrigger({ id: 'tstatus', single: true, icon: 'status', title: 'Status', selected: f.tstatus, on: f.tstatus !== 'active',
+        items: [{ value: 'active', label: 'Belum selesai' }, { value: 'overdue', label: 'Terlambat', dot: css('--bad') }, { value: 'all', label: 'Semua status' }, { sep: true }]
+          .concat(STATUSES.map((s) => ({ value: s, label: s, dot: STATUS_DOT[s] }))),
+        onApply: (v) => { f.tstatus = v; viewTasks(); } })}
+      ${msTrigger({ id: 'tcode', kind: 'code', icon: 'folder', selected: f.tcodes, items: codeItems(lf.codeOpts),
+        allLabel: 'Semua project',
+        header: f.towners.length ? 'Project ' + scopeTxt(namesOf(users, f.towners).map(firstName), 3) : '',
+        onApply: (v) => { f.tcodes = v; viewTasks(); } })}</div>
       <span class="spacer"></span>
       <button class="btn primary" id="newtask">+ Task baru</button>
     </div>
     <div class="card" style="overflow:auto" id="tt"></div>`;
   $('#tq').oninput = (e) => { f.tq = e.target.value; renderTaskTable(); };
-  $('#tstatus').onchange = (e) => { f.tstatus = e.target.value; renderTaskTable(); };
-  $('#towner').onchange = (e) => { f.towner = e.target.value; viewTasks(); };
-  $('#tcode').onchange = (e) => {
-    f.tcode = e.target.value;
-    if (f.tcode !== 'all' && f.towner !== 'all' && !S.all.tasks.some((t) => t.owner === f.towner && t.code === f.tcode)) f.towner = 'all';
-    viewTasks();
-  };
   $('#newtask').onclick = () => taskModal(null);
   renderTaskTable();
 }
@@ -909,8 +1062,8 @@ function renderTaskTable() {
   const f = S.f, q = f.tq.toLowerCase();
   let list = S.all.tasks.filter((t) =>
     (!q || (t.task + ' ' + t.ownerName + ' ' + t.code).toLowerCase().includes(q)) &&
-    (f.towner === 'all' || t.owner === f.towner) &&
-    (f.tcode === 'all' || t.code === f.tcode) &&
+    (!f.towners.length || f.towners.includes(t.owner)) &&
+    (!f.tcodes.length || f.tcodes.includes(t.code)) &&
     (f.tstatus === 'all' || (f.tstatus === 'active' ? !L.isDone(t) : f.tstatus === 'overdue' ? L.bucket(t) === 'overdue' : t.status === f.tstatus)));
   list = list.sort((a, b) => (L.schedule(a).end || Infinity) - (L.schedule(b).end || Infinity));
   if (!list.length) { $('#tt').innerHTML = '<div class="empty"><b>Tidak ada task</b>Ubah filter atau buat task baru.</div>'; return; }
@@ -948,7 +1101,7 @@ function renderTaskTable() {
 
 function taskModal(t) {
   const all = S.all, edit = !!t;
-  t = t || { owner: S.f.towner !== 'all' ? S.f.towner : '', code: S.f.tcode !== 'all' ? S.f.tcode : '', startTime: '09:00', endTime: '17:00', priority: 'Medium', status: 'Backlog' };
+  t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '17:00', priority: 'Medium', status: 'Backlog' };
   if (edit && !t.id) return toast('Task ini belum punya Task ID. Jalankan menu Setup di spreadsheet.', true);
   const people = all.users.filter((u) => u.sheetName && u.active);
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label || v)}</option>`;
