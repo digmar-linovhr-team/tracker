@@ -69,7 +69,7 @@ const sandbox = {
   CalendarApp: { getCalendarById: (id) => (id === 'cal1' ? calendar : null), createCalendar: () => calendar, Color: { TEAL: 'teal' } },
   MailApp: { sendEmail: (m) => mails.push(m) },
   DocumentApp: (() => {
-    const mkBody = (doc) => { const p = () => ({ setHeading() { return this; }, editAsText() { return { setBold() {} }; } });
+    const mkBody = (doc) => { const p = () => ({ setHeading() { return this; }, setIndentStart() { return this; }, editAsText() { return { setBold() {} }; } });
       return { clear() { doc.text = []; }, appendParagraph(t) { doc.text.push(t); return p(); }, appendListItem(t) { doc.text.push('• ' + t); return p(); },
         appendTable(rows) { doc.text.push(rows.map((r) => r.join(' | ')).join('\n')); return { getCell: () => ({ editAsText: () => ({ setBold() {} }) }) }; } }; };
     const mk = (name) => { const doc = { id: 'doc' + (++docSeq), name, text: [] }; docs[doc.id] = doc;
@@ -425,53 +425,46 @@ it('status project mengikuti task: 1 task = cermin; banyak task = Done bila semu
   assert.strictEqual(proj('Z1').status, 'Done');
 });
 
-it('Brief: anggota membuat brief untuk task-nya, satu brief per task, izin & konflik', () => {
+it('Brief: anggota membuat brief untuk task-nya, satu brief per task, izin, konflik, siap ditulis', () => {
   const tasks = post({ action: 'myTasks', token: ari }).data.tasks;
   const t = tasks.find((x) => x.status !== 'Done');
-  const data = { kwMain: 'reimbursement karyawan', h1: 'Reimbursement Karyawan: Pengertian & Alur', kwSecondary: ['reimbursement adalah'],
-    outline: [{ level: 2, heading: 'Apa itu reimbursement', words: 200, notes: 'definisi' }],
-    competitors: [{ url: 'https://talenta.co/x', words: 1900, strengths: 'form', gaps: 'pajak' }],
-    links: [{ url: '/fitur/reimbursement', anchor: 'aplikasi reimbursement', kind: 'internal' }],
-    faq: ['Apakah reimbursement kena pajak?'], checklist: [{ text: 'Keyword di H1', done: false }, { text: 'Alt text', done: false }] };
-  let r = post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, type: 'artikel', data } });
+  const data = { v: 2, kwMain: 'reimbursement karyawan', kwSecondary: ['reimbursement adalah'], h1: 'Reimbursement Karyawan: Pengertian & Alur',
+    contentType: 'Informasional', wordEst: '1.800 – 2.200', metaTitle: 'Reimbursement Karyawan', metaDesc: 'Pelajari alur…',
+    competitors: [{ url: 'https://talenta.co/x', insight: 'punya template' }, { url: '', insight: '' }],
+    intro: 'Masalah klaim', sections: [{ h2: 'Apa itu reimbursement', points: 'definisi', sources: ['https://pajak.go.id/pph21'], h3: [{ title: 'Medis', points: 'plafon' }] }],
+    ctaPage: '/fitur/reimbursement', ctaText: 'Coba demo', internalLinks: [{ url: '/blog/pph-21/', anchor: 'PPh 21' }], externalLinks: [{ url: 'https://pajak.go.id', anchor: 'DJP' }],
+    faq: [{ q: 'Apakah kena pajak?', a: 'Umumnya tidak' }], extras: ['Infographic'], extraNote: 'alur 5 langkah' };
+  let r = post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, type: 'Informasional', data } });
   assert.ok(r.ok, r.error);
   const b = r.data.brief;
-  assert.strictEqual(b.owner, 'ari'); assert.strictEqual(b.keyword, 'reimbursement karyawan'); assert.strictEqual(b.status, 'Draft');
-  assert.deepStrictEqual(b.data.outline, data.outline);
-  // daftar terbaca semua anggota (lewat myTasks/teamTasks/briefs)
+  assert.strictEqual(b.owner, 'ari'); assert.strictEqual(b.keyword, 'reimbursement karyawan'); assert.strictEqual(b.status, 'Draft'); assert.strictEqual(b.type, 'Informasional');
+  assert.deepStrictEqual(b.data.sections, data.sections);
   assert.ok(post({ action: 'myTasks', token: ari }).data.briefs.some((x) => x.id === b.id));
   assert.ok(post({ action: 'getAll', token: admin }).data.briefs.some((x) => x.id === b.id));
-  // satu task satu brief
-  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, data: {} } }).ok, false);
-  // tidak bisa membuat brief untuk task orang lain
+  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, data: {} } }).ok, false, 'satu task satu brief');
   const wTask = post({ action: 'getAll', token: admin }).data.tasks.find((x) => x.owner === 'wisnu');
-  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: wTask.id, data: {} } }).ok, false);
-  // update + konflik versi
-  r = post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, status: 'Siap ditulis', baseUpdatedAt: b.updatedAt, data: Object.assign({}, data, { metaTitle: 'x' }) } });
+  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: wTask.id, data: {} } }).ok, false, 'bukan task miliknya');
+  // siap ditulis butuh minimal 2 kompetitor
+  r = post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, status: 'Siap ditulis', baseUpdatedAt: b.updatedAt, data } });
+  assert.strictEqual(r.ok, false); assert.ok(/kompetitor/.test(r.error));
+  const data2 = Object.assign({}, data, { competitors: [data.competitors[0], { url: 'https://gadjian.com/y', insight: 'alur visual' }] });
+  r = post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, status: 'Siap ditulis', baseUpdatedAt: b.updatedAt, data: data2 } });
   assert.ok(r.ok, r.error); assert.strictEqual(r.data.brief.status, 'Siap ditulis');
   const b2 = r.data.brief;
   if (b2.updatedAt !== b.updatedAt) assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, baseUpdatedAt: b.updatedAt, data } }).ok, false, 'versi lama ditolak');
-  // checklist hanya mengubah satu item
-  r = post({ action: 'briefCheck', token: ari, briefId: b.id, index: 1, done: true });
-  assert.ok(r.ok, r.error);
-  assert.deepStrictEqual(r.data.brief.data.checklist.map((c) => c.done), [false, true]);
-  assert.strictEqual(r.data.brief.data.metaTitle, 'x');
-  // terlalu besar ditolak; keyword diawali = aman
   assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, data: { big: 'x'.repeat(46000) } } }).ok, false);
-  // ekspor Google Doc → dibagikan ke pemilik, url tersimpan; ekspor ulang memakai doc yang sama
+  // ekspor Google Doc
   post({ action: 'setMyEmail', token: ari, email: 'ari@linovhr.com' });
   r = post({ action: 'exportBriefDoc', token: ari, briefId: b.id });
   assert.ok(r.ok, r.error); assert.ok(/docs\.google\.com\/document/.test(r.data.url));
   const doc = Object.values(docs)[0];
-  assert.ok(doc.text.some((x) => x.includes('Reimbursement Karyawan: Pengertian & Alur')));
-  assert.ok(doc.text.some((x) => x.includes('talenta.co/x')));
+  for (const want of ['Reimbursement Karyawan: Pengertian & Alur', 'gadjian.com/y', 'H2 · Apa itu reimbursement', 'H3 · Medis', 'pajak.go.id/pph21', 'Apakah kena pajak?', '/fitur/reimbursement', 'Infographic'])
+    assert.ok(doc.text.some((x) => x.includes(want)), 'doc memuat ' + want);
   assert.ok((doc.editors || []).includes('ari@linovhr.com'));
-  r = post({ action: 'exportBriefDoc', token: ari, briefId: b.id });
+  post({ action: 'exportBriefDoc', token: ari, briefId: b.id });
   assert.strictEqual(Object.keys(docs).length, 1, 'ekspor ulang tidak membuat doc baru');
-  // admin bisa menghapus
   assert.ok(post({ action: 'deleteBrief', token: admin, briefId: b.id }).ok);
   assert.ok(!post({ action: 'briefs', token: ari }).data.briefs.some((x) => x.id === b.id));
-  // setup tidak menganggap tab Briefs sebagai tab orang
   logs.length = 0; sandbox.setup();
   assert.ok(!post({ action: 'getAll', token: admin }).data.users.some((u) => u.username === 'briefs'));
 });

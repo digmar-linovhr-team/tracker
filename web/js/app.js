@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.12.0';
+const CSS_VERSION = '2.13.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -614,21 +614,7 @@ async function saveResults(id, results, note, thenReview) {
 function askReview(id) {
   const t = findTask(id);
   if (!t || S.user.role === 'admin') return setStatus(id, 'Review');
-  const b = briefOf(t.id), left = b ? checklistOf(b).filter((c) => !c.done) : [];
   const noResult = !resultsOf(t).length && !(t.resultNote || '').trim();
-  if (left.length && !noResult) return checklistModal(b.id, { thenReview: () => setStatus(id, 'Review') });
-  if (left.length && noResult) {
-    return modal({
-      title: 'Ajukan review',
-      body: `<p style="margin-top:0">Sebelum diajukan:</p><ul class="pre-list"><li>Checklist brief baru <b>${checklistOf(b).length - left.length}/${checklistOf(b).length}</b></li><li>Belum ada keterangan maupun link hasil kerja</li></ul><p class="muted small" style="margin-bottom:0">Tidak wajib — Anda tetap bisa mengajukan langsung.</p>`,
-      actions: '<button class="btn" id="rv-skip">Ajukan langsung</button><button class="btn" id="rv-ck">Checklist</button><button class="btn primary" id="rv-add">Isi hasil kerja</button>',
-      onMount: (m, close) => {
-        $('#rv-skip', m).onclick = () => { close(); setStatus(id, 'Review'); };
-        $('#rv-ck', m).onclick = () => { close(); checklistModal(b.id, { thenReview: () => askReview(id) }); };
-        $('#rv-add', m).onclick = () => { close(); resultsModal(t, { thenReview: true }); };
-      }
-    });
-  }
   if (!noResult) return setStatus(id, 'Review');
   modal({
     title: 'Ajukan review',
@@ -1175,8 +1161,7 @@ function viewReview() {
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
         <div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
           ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
-          <div class="rv-res">${briefChips(t, true, true)}${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div>
-          ${rvChecklist(t)}</div>
+          <div class="rv-res">${briefChips(t, true)}${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div></div>
       </div>
       <div class="t-when ${late ? 'w-warn' : 'w-good'}">
         <b>${late ? 'Lewat deadline' : 'Tepat waktu'}</b>
@@ -1232,15 +1217,6 @@ async function decideReview(id, decision, reason) {
   }
 }
 
-/** Progres checklist brief di halaman Review. */
-function rvChecklist(t) {
-  const b = briefOf(t.id); if (!b) return '';
-  const c = checklistOf(b); if (!c.length) return '';
-  const done = c.filter((x) => x.done).length, left = c.filter((x) => !x.done);
-  return `<div class="rv-ck"><span class="rv-res-h">Checklist</span><div class="bar"><i style="width:${Math.round(done / c.length * 100)}%"></i></div>
-    <span class="${left.length ? 'warn' : 'ok'}" title="${esc(left.map((x) => '☐ ' + x.text).join('\n'))}">${done}/${c.length}${left.length ? ' · ' + left.length + ' belum' : ' ✓'}</span></div>`;
-}
-
 // ---------- Admin: Semua Task ----------
 function viewTasks() {
   const f = S.f, all = S.all;
@@ -1275,7 +1251,7 @@ function resCell(t) {
   const list = resultsOf(t), note = (t.resultNote || '').trim();
   const noteIco = note ? `<span class="res-chip compact" title="${esc('Keterangan hasil: ' + note)}"><span class="res-ico" style="color:var(--text-2)">${RES_ICO.form}</span></span>` : '';
   const b = briefOf(t.id);
-  const briefIco = b ? `<button type="button" class="res-chip compact" data-openbrief="${esc(b.id)}" title="${esc('Brief: ' + bKw(b) + ' · checklist ' + checkCount(b).done + '/' + checkCount(b).total)}"><span class="res-ico" style="color:var(--accent)">${ICONS.briefs}</span></button>` : '';
+  const briefIco = b ? `<button type="button" class="res-chip compact" data-openbrief="${esc(b.id)}" title="${esc('Brief: ' + bKw(b))}"><span class="res-ico" style="color:var(--accent)">${ICONS.briefs}</span></button>` : '';
   if (!list.length) return note || b ? `<span class="res-cell">${briefIco}${noteIco}</span>` : '<span class="muted">–</span>';
   return `<span class="res-cell">${briefIco}${noteIco}${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
 }

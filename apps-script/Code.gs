@@ -139,7 +139,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 6 });
+  return json_({ ok: true, app: 'project-tracker', version: 8 });
 }
 
 function doPost(e) {
@@ -174,7 +174,6 @@ function route_(b) {
     case 'briefs': return { briefs: readBriefs_() };
     case 'saveBrief': return saveBrief_(me, b.brief);
     case 'deleteBrief': return deleteBrief_(me, b.briefId);
-    case 'briefCheck': return briefCheck_(me, b.briefId, b.index, b.done);
     case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'setMyEmail': return setMyEmail_(me, b.email);
@@ -1337,7 +1336,8 @@ function shortTitle_(s) {
 
 
 // ===================== Brief artikel =====================
-var BRIEF_TYPES = { artikel: 'Artikel baru', optimasi: 'Optimasi artikel lama', landing: 'Landing page', pillar: 'Pillar page' };
+var BRIEF_TYPES = ['Informasional', 'Consideration', 'Conversion'];   // jenis konten
+var MIN_COMPETITORS = 2;
 var BRIEF_STATUSES = ['Draft', 'Siap ditulis'];
 var BRIEF_MAX_CHARS = 45000;   // satu sel Sheets maksimal 50.000 karakter
 
@@ -1367,7 +1367,7 @@ function rowBrief_(r, col, row) {
   try { data = JSON.parse(String(g('data') || '{}')) || {}; } catch (e) { data = {}; }
   return {
     id: id, row: row, taskId: String(g('task id') || '').trim(), owner: String(g('owner') || ''),
-    createdBy: String(g('created by') || ''), type: String(g('type') || 'artikel'),
+    createdBy: String(g('created by') || ''), type: String(g('type') || 'Informasional'),
     status: String(g('status') || 'Draft'),
     keyword: String(g('keyword') || '').replace(/^'(?=[=+\-@])/, ''),
     title: String(g('title') || '').replace(/^'(?=[=+\-@])/, ''),
@@ -1402,10 +1402,17 @@ function cleanBriefData_(d) {
 
 function saveBrief_(me, b) {
   b = b || {};
-  var type = BRIEF_TYPES[b.type] ? b.type : 'artikel';
+  var type = BRIEF_TYPES.indexOf(b.type) >= 0 ? b.type : 'Informasional';
   var status = BRIEF_STATUSES.indexOf(b.status) >= 0 ? b.status : 'Draft';
   var json = cleanBriefData_(b.data || {});
   var d = b.data || {};
+  if (status === 'Siap ditulis') {
+    var miss = [];
+    if (!String(d.kwMain || '').trim()) miss.push('keyword utama');
+    if (!String(d.h1 || '').trim()) miss.push('H1');
+    if ((d.competitors || []).filter(function (c) { return c && String(c.url || '').trim(); }).length < MIN_COMPETITORS) miss.push('minimal ' + MIN_COMPETITORS + ' link kompetitor');
+    if (miss.length) throw new Error('Lengkapi dulu: ' + miss.join(', ') + '.');
+  }
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var loc = locateTask_(me, b.taskId);   // anggota hanya bisa memilih task miliknya
@@ -1445,22 +1452,6 @@ function deleteBrief_(me, id) {
     f.sheet.deleteRow(f.row);
     log_(me, 'delete-brief', f.brief.taskId, id);
     return { ok: true };
-  } finally { lock.releaseLock(); }
-}
-
-/** Penulis mencentang satu item checklist — hanya item itu yang diubah, isi brief lain tidak tertimpa. */
-function briefCheck_(me, id, index, done) {
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
-  try {
-    var f = findBrief_(id);
-    assertBriefEditor_(me, f.brief);
-    var d = f.brief.data, list = Array.isArray(d.checklist) ? d.checklist : [];
-    var i = Number(index);
-    if (!(i >= 0 && i < list.length)) throw new Error('Item checklist tidak ditemukan. Muat ulang data.');
-    list[i].done = !!done;
-    var now = new Date();
-    writeObj_(f.sheet, f.row, { 'data': JSON.stringify(d), 'updated at': now, 'updated by': me.username });
-    return { brief: rowBrief_(f.sheet.getRange(f.row, 1, 1, f.sheet.getLastColumn()).getValues()[0], f.col, f.row) };
   } finally { lock.releaseLock(); }
 }
 
@@ -1508,7 +1499,7 @@ function writeBriefDoc_(doc, b, task) {
     var p = body.appendParagraph(label + ': ' + v);
     p.editAsText().setBold(0, label.length, true);
   };
-  var head = function (t) { body.appendParagraph(t).setHeading(H.HEADING2); };
+  var head = function (t, lvl) { body.appendParagraph(t).setHeading(lvl || H.HEADING2); };
   var table = function (header, rows) {
     rows = rows.filter(function (r) { return r.some(function (c) { return txt(c); }); });
     if (!rows.length) return;
@@ -1516,38 +1507,42 @@ function writeBriefDoc_(doc, b, task) {
     for (var i = 0; i < header.length; i++) t.getCell(0, i).editAsText().setBold(true);
   };
   body.appendParagraph(txt(d.h1) || txt(b.keyword) || 'Brief artikel').setHeading(H.TITLE);
-  body.appendParagraph((BRIEF_TYPES[b.type] || '') + ' · ' + b.status +
-    (task ? ' · Task: ' + (task.code ? task.code + ' ' : '') + task.task + ' · ' + task.ownerName +
-      (task.endDate ? ' · Deadline ' + task.endDate + (task.endTime ? ' ' + task.endTime : '') : '') : ''))
-    .setHeading(H.SUBTITLE);
+  body.appendParagraph([txt(d.contentType), b.status, txt(d.wordEst) ? '±' + txt(d.wordEst) + ' kata' : '',
+    task ? 'Task: ' + (task.code ? task.code + ' ' : '') + task.task + ' · ' + task.ownerName + (task.endDate ? ' · Deadline ' + task.endDate : '') : '']
+    .filter(String).join(' · ')).setHeading(H.SUBTITLE);
 
-  head('1. Ringkasan & tujuan');
-  para('Tujuan bisnis', d.goal); para('KPI', d.kpi);
-  para('URL lama', d.oldUrl); para('Performa saat ini', d.currentPerf); para('Yang harus diubah', d.changes);
-  head('2. Keyword & intent');
-  para('Keyword utama', [d.kwMain, d.kwVolume ? 'vol ' + d.kwVolume : '', d.kwKd ? 'KD ' + d.kwKd : ''].filter(String).join(' · '));
-  para('Keyword turunan', (d.kwSecondary || []).join(', '));
-  para('Search intent', d.intent); para('Target SERP feature', d.serpFeature); para('Catatan kanibalisasi', d.cannibalNote);
-  head('3. Analisis SERP & kompetitor');
-  table(['URL', 'Jumlah kata', 'Kelebihan', 'Celah'], (d.competitors || []).map(function (c) { return [c.url, c.words, c.strengths, c.gaps]; }));
-  para('Angle pembeda', d.angle);
-  head('4. Audiens & pesan');
-  para('Persona', d.persona); para('Masalah utama', d.problem); para('Pesan kunci', d.message); para('Tone', d.tone);
-  head('5. Judul & metadata');
-  para('H1', d.h1); para('Meta title', d.metaTitle); para('Meta description', d.metaDesc); para('Slug', d.slug);
-  head('6. Outline');
-  table(['Heading', 'Kata', 'Poin wajib & keyword'], (d.outline || []).map(function (o) {
-    return [(o.level === 3 ? '    H3 ' : o.level === 1 ? '' : 'H2 ') + txt(o.heading), o.words, o.notes];
-  }));
-  para('Target total kata', [d.wordMin, d.wordMax].filter(String).join(' – '));
-  head('7. FAQ & schema');
-  (d.faq || []).filter(function (q) { return txt(q); }).forEach(function (q) { body.appendListItem(txt(q)); });
-  para('Schema', (d.schema || []).join(', '));
-  head('8. Link');
-  table(['Tujuan', 'Anchor text', 'Jenis'], (d.links || []).map(function (l) { return [l.url, l.anchor, l.kind === 'external' ? 'Eksternal' : 'Internal']; }));
-  head('9. Visual & CTA');
-  para('Visual', d.visual); para('CTA tengah', d.ctaMid); para('CTA akhir', d.ctaEnd);
-  head('10. Checklist sebelum ajukan review');
-  (d.checklist || []).forEach(function (c) { if (txt(c.text)) body.appendListItem((c.done ? '☑ ' : '☐ ') + txt(c.text)); });
-  if (txt(d.writerNotes)) { head('Catatan untuk penulis'); body.appendParagraph(txt(d.writerNotes)); }
+  head('Keyword');
+  para('Keyword utama', d.kwMain); para('Keyword turunan', (d.kwSecondary || []).join(', '));
+  head('Analisis kompetitor');
+  table(['Link kompetitor', 'Insight'], (d.competitors || []).map(function (c) { return [c.url, c.insight]; }));
+  head('H1, jenis konten & meta');
+  para('H1', d.h1); para('Jenis konten', d.contentType); para('Estimasi jumlah kata', d.wordEst);
+  para('Meta title', d.metaTitle); para('Meta description', d.metaDesc);
+  head('Struktur artikel');
+  if (txt(d.intro)) { head('Introduction', H.HEADING3); para('Poin pembahasan', d.intro); }
+  (d.sections || []).forEach(function (s) {
+    if (!txt(s.h2) && !txt(s.points)) return;
+    head('H2 · ' + (txt(s.h2) || '(tanpa judul)'), H.HEADING3);
+    para('Poin pembahasan', s.points);
+    (s.h3 || []).forEach(function (h) {
+      if (!txt(h.title) && !txt(h.points)) return;
+      var p = body.appendParagraph('H3 · ' + txt(h.title) + (txt(h.points) ? ' — ' + txt(h.points) : ''));
+      p.setIndentStart(24);
+    });
+    var src = (s.sources || []).filter(function (x) { return txt(x); });
+    if (src.length) para('Source', src.join(' · '));
+  });
+  head('CTA');
+  para('Ke halaman produk', d.ctaPage); para('Teks / ajakan', d.ctaText);
+  head('Link');
+  table(['Internal link', 'Anchor text'], (d.internalLinks || []).map(function (l) { return [l.url, l.anchor]; }));
+  table(['External link', 'Anchor text'], (d.externalLinks || []).map(function (l) { return [l.url, l.anchor]; }));
+  head('FAQ');
+  (d.faq || []).forEach(function (f) {
+    if (!txt(f.q)) return;
+    var p = body.appendParagraph(txt(f.q)); p.editAsText().setBold(true);
+    if (txt(f.a)) body.appendParagraph(txt(f.a));
+  });
+  head('Extra feature');
+  para('Fitur', (d.extras || []).join(', ')); para('Catatan', d.extraNote);
 }

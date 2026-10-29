@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.12.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.13.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -112,8 +112,8 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 textarea { resize: vertical; min-height: 70px; }
-label.field { display: block; margin-bottom: 12px; }
-label.field > span { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; font-weight: 600; }
+label.field, div.field { display: block; margin-bottom: 12px; }
+label.field > span, div.field > span:first-child { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; font-weight: 600; }
 .row { display: flex; gap: 10px; align-items: center; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .grid4 { display: grid; grid-template-columns: 1.4fr 1fr 1.4fr 1fr; gap: 0 12px; }
@@ -719,4 +719,49 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
   .rtab-r { grid-template-columns: minmax(0, 1fr) 30px; }
   .rtab-r > :not(.ibtn):not(span) { grid-column: 1; }
   .rtab-r > .ibtn, .rtab-r > span { grid-column: 2; grid-row: 1; }
+}
+
+/* ---------- Brief ringkas (v2) ---------- */
+.bed-one { max-width: 920px; }
+.comp-h, .comp-r { display: grid; grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1.3fr) 30px; gap: 8px; align-items: start; }
+.comp-h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; margin-bottom: 4px; }
+.comp-r { margin-bottom: 8px; }
+.comp-r .li-n { padding-top: 10px; }
+#bcomp .ok { color: var(--good); font-weight: 600; }
+#bcomp .warn { color: var(--warn); font-weight: 600; }
+.seg-pick { display: inline-flex; flex-wrap: wrap; }
+.seg-pick button:disabled { cursor: default; }
+.sx { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
+.sx.intro { background: var(--surface-2); }
+.sx .field { margin-bottom: 8px; }
+.sx-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sx-h input { flex: 1; min-width: 0; font-weight: 600; }
+.sx-h b { font-weight: 600; }
+.sx-tools { display: inline-flex; flex: none; }
+.sx-h3 { margin: 4px 0 8px 22px; padding: 2px 0 2px 12px; border-left: 2px solid var(--line-strong); }
+.sx-h3 .sx-h { margin-bottom: 6px; }
+.sx-h3 .sx-h input { font-weight: 500; }
+.add-h3 { margin: 0 0 8px 22px; border: 1px dashed var(--line-strong); }
+.add-h2 { border-style: dashed; color: var(--accent); border-color: var(--brand); }
+.sx-src { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; margin-top: 4px; }
+.sx-src-h { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.sx-src .li-row { margin-bottom: 6px; }
+.sx-src .li-row input { font-size: 13px; }
+.link-r { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 30px; gap: 8px; margin-bottom: 6px; align-items: center; }
+.extra-in { width: 170px; border-radius: 999px !important; padding: 4px 12px !important; font-size: 12.5px; }
+@media (max-width: 760px) {
+  .comp-h { display: none; }
+  .comp-r { grid-template-columns: 22px minmax(0, 1fr) 30px; }
+  .comp-r textarea { grid-column: 2; grid-row: 2; }
+  .comp-r > :last-child { grid-column: 3; grid-row: 1; }
+  .sx-h3, .add-h3 { margin-left: 8px; }
+  .link-r { grid-template-columns: minmax(0, 1fr) 30px; }
+  .link-r input[data-f="anchor"] { grid-column: 1; }
+  .link-r > :last-child { grid-column: 2; grid-row: 1; }
+}
+.field > .seg-pick { display: flex; width: fit-content; max-width: 100%; }
+@media (max-width: 760px) {
+  .sx-h { flex-wrap: wrap; row-gap: 6px; }
+  .sx-h input { order: 3; flex-basis: 100%; }
+  .sx-h .sx-tools, .sx-h > .ibtn { margin-left: auto; }
 }
