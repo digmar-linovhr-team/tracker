@@ -23,6 +23,7 @@ function build() {
     ['A5', 'Membuat Sisa Page Solusi (Logistik, Construction, Mining, dll.)', 'Dany', -2, 11, 'High', 'On-Progress'],
     ['A6', 'Report competitor Lawencon di tender terbaru', 'Wisnu', -2, 0, 'High', 'Backlog'],
     ['A7', 'Weekly Report SEO', 'Ari', null, null, 'Medium', 'Recurring'],
+    ['A8', 'Company profile deck 2027', 'Dany', 3, 10, 'Medium', 'Backlog'],
     ['B2', 'Fixing Technical Issue - Page with Redirect URL', 'Wisnu, Ari', 0, 33, 'Low', 'Backlog'],
     ['B3', 'Membuat skema FAQ untuk semua possible Landing Page LinovHR', 'Wisnu', 1, 1, 'High', 'Backlog']
   ].map((p, i) => ({
@@ -92,6 +93,21 @@ let db = null;
 function state() { if (!db) db = build(); return db; }
 function reset() { db = null; }
 
+const ST = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
+function syncProj(s, codes) {
+  const out = [];
+  codes.filter(Boolean).forEach((code) => {
+    const st = s.tasks.filter((t) => t.code === code).map((t) => t.status || 'Backlog');
+    s.projects.filter((p) => p.code === code).forEach((p) => {
+      let n = null;
+      if (st.length === 1) n = ST.includes(st[0]) ? st[0] : null;
+      else if (st.length > 1) n = st.every((x) => x === 'Done') ? 'Done' : (p.status === 'Done' ? 'On-Progress' : null);
+      if (n && n !== p.status) { p.status = n; out.push({ code, status: n }); }
+    });
+  });
+  return out;
+}
+
 function handle(action, b, session) {
   const s = state();
   const me = session && s.users.find((u) => u.username === session.username);
@@ -131,7 +147,7 @@ function handle(action, b, session) {
       if (b.status === 'Done') t.doneAt = new Date().toISOString();
       else if (t.status === 'Done') t.doneAt = '';
       t.status = b.status;
-      return { task: t };
+      return { task: t, projects: syncProj(s, [t.code]) };
     }
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
@@ -141,11 +157,12 @@ function handle(action, b, session) {
     case 'saveTask': {
       const t = b.task; const owner = s.users.find((u) => u.username === t.owner);
       if (!owner) throw new Error('Penanggung jawab tidak ditemukan');
-      if (t.id) Object.assign(s.tasks.find((x) => x.id === t.id), t, { ownerName: owner.name });
-      else s.tasks.push(Object.assign({ startedAt: '', doneAt: '' }, t, { id: 'TDEMO' + Date.now(), ownerName: owner.name }));
-      return { ok: true };
+      let saved, oldCode = '';
+      if (t.id) { saved = s.tasks.find((x) => x.id === t.id); oldCode = saved.code; Object.assign(saved, t, { ownerName: owner.name }); }
+      else { saved = Object.assign({ startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '' }, t, { id: 'TDEMO' + Date.now(), ownerName: owner.name }); s.tasks.push(saved); }
+      return { id: saved.id, task: saved, projects: syncProj(s, [saved.code, oldCode]) };
     }
-    case 'deleteTask': s.tasks = s.tasks.filter((x) => x.id !== b.taskId); return { ok: true };
+    case 'deleteTask': { const old = s.tasks.find((x) => x.id === b.taskId); s.tasks = s.tasks.filter((x) => x.id !== b.taskId); return { ok: true, projects: syncProj(s, [old && old.code]) }; }
     case 'reviewQueue': return { tasks: s.tasks.filter((x) => x.status === 'Review') };
     case 'reviewTask': {
       const t = s.tasks.find((x) => x.id === b.taskId);
@@ -156,7 +173,7 @@ function handle(action, b, session) {
         const d = new Date(); const line = `[Dikembalikan ${d.getDate()}/${d.getMonth() + 1} oleh ${me.name}]` + (b.reason ? ' ' + b.reason : '');
         t.notes = t.notes ? t.notes + '\n' + line : line;
       }
-      return { task: t };
+      return { task: t, projects: syncProj(s, [t.code]) };
     }
     case 'saveProject': {
       const p = b.project;

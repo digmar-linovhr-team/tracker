@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.10.1';
+const CSS_VERSION = '2.11.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -679,6 +679,26 @@ function patchTask(id, patch) {
   [S.mine.tasks, S.all && S.all.tasks, S.team && S.team.tasks].forEach((list) => { if (!list) return; const t = list.find((x) => x.id === id); if (t) Object.assign(t, patch); });
 }
 
+// ---------- status project mengikuti task (aturan sama dengan server) ----------
+function projectStatusFor(statuses, current) {
+  if (!statuses.length) return null;
+  if (statuses.length === 1) return STATUSES.includes(statuses[0]) ? statuses[0] : null;
+  if (statuses.every((x) => x === 'Done')) return 'Done';
+  return current === 'Done' ? 'On-Progress' : null;
+}
+/** Perbarui status project di tampilan admin: dari hasil server bila ada, bila tidak dihitung lokal. */
+function syncProjects(codes, serverList) {
+  if (!S.all || !S.all.projects) return;
+  if (Array.isArray(serverList)) {
+    serverList.forEach((c) => S.all.projects.filter((p) => p.code === c.code).forEach((p) => { p.status = c.status; }));
+    return;
+  }
+  codes.filter(Boolean).forEach((code) => {
+    const st = S.all.tasks.filter((t) => t.code === code).map((t) => t.status || 'Backlog');
+    S.all.projects.filter((p) => p.code === code).forEach((p) => { const n = projectStatusFor(st, p.status); if (n) p.status = n; });
+  });
+}
+
 /** Ubah status: tampilan langsung berubah, penyimpanan berjalan di belakang; dibatalkan bila gagal. */
 async function setStatus(id, status) {
   const t = findTask(id);
@@ -689,18 +709,22 @@ async function setStatus(id, status) {
   if (status === 'Review' && t.status !== 'Review') patch.reviewAt = nowIso;
   if ((status === 'On-Progress' || status === 'Review') && !t.startedAt) patch.startedAt = nowIso;
   patchTask(id, patch);
+  const projBefore = S.all ? S.all.projects.map((p) => p.status) : null;
+  syncProjects([t.code]);
   S.pending.add(id);
   softRender();
   toast(status === 'Done' ? 'Task ditandai selesai.' : status === 'Review' ? 'Diajukan ke admin untuk direview.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
   try {
     const r = await api.call('updateStatus', { taskId: id, status });
     if (r && r.task) patchTask(id, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt });
+    if (r) syncProjects([t.code], r.projects);
     S.pending.delete(id);
     saveCache();
     softRender();
   } catch (e) {
     S.pending.delete(id);
     patchTask(id, before);
+    if (projBefore) S.all.projects.forEach((p, i) => { p.status = projBefore[i]; });
     softRender();
     toast('Gagal menyimpan, status dikembalikan: ' + cleanErr(e), true);
   }
@@ -1158,15 +1182,17 @@ async function decideReview(id, decision, reason) {
     const line = `[Dikembalikan ${now.getDate()} ${MONTHS[now.getMonth()]} ${pad(now.getHours())}:${pad(now.getMinutes())} oleh ${S.user.name}]` + (reason ? ' ' + reason : '');
     patchTask(id, { status: 'On-Progress', doneAt: '', reviewAt: '', notes: t.notes ? t.notes + '\n' + line : line });
   }
+  syncProjects([t.code]);
   S.pending.add(id);
   softRender(); renderNav();
   toast(decision === 'approve' ? `Disetujui — task ${t.ownerName} ditandai Done.` : `Dikembalikan ke ${t.ownerName}.`);
   try {
     const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '' });
     if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes });
+    if (r) syncProjects([t.code], r.projects);
     saveCache();
   } catch (e) {
-    patchTask(id, before);
+    patchTask(id, before); syncProjects([t.code]);
     toast('Gagal menyimpan keputusan: ' + cleanErr(e), true);
   } finally {
     S.pending.delete(id);
@@ -1248,13 +1274,13 @@ function renderTaskTable() {
     S.all.tasks = S.all.tasks.filter((x) => x.id !== t.id);
     S.mine.tasks = S.mine.tasks.filter((x) => x.id !== t.id);
     softRender(); toast('Task dihapus');
-    try { await api.call('deleteTask', { taskId: t.id }); saveCache(); }
+    try { const r = await api.call('deleteTask', { taskId: t.id }); syncProjects([t.code], r && r.projects); saveCache(); softRender(); }
     catch (e) { S.all.tasks = snapAll; S.mine.tasks = snapMine; softRender(); toast('Gagal menghapus: ' + cleanErr(e), true); }
   });
 }
 
-function taskModal(t) {
-  const all = S.all, edit = !!t;
+function taskModal(t, prefill) {
+  const all = S.all, edit = !!t && !prefill;
   t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '17:00', priority: 'Medium', status: 'Backlog' };
   if (edit && !t.id) return toast('Task ini belum punya Task ID. Jalankan menu Setup di spreadsheet.', true);
   const people = all.users.filter((u) => u.sheetName && u.active);
@@ -1302,6 +1328,7 @@ function taskModal(t) {
             const nt = Object.assign({}, r.task, { ownerName: owner ? owner.name : r.task.ownerName });
             S.all.tasks = S.all.tasks.filter((x) => x.id !== nt.id).concat(nt);
             S.mine.tasks = S.mine.tasks.filter((x) => x.id !== nt.id).concat(nt.owner === S.user.username ? [nt] : []);
+            syncProjects([nt.code, t.code], r.projects);
             saveCache();
           }
           softRender();
@@ -1335,11 +1362,12 @@ function viewProjects() {
       const d = ts.filter(L.isDone).length, r = ts.length ? d / ts.length : 0;
       return `<tr><td><span class="chip code">${esc(p.code)}</span></td><td class="clip" title="${esc(p.project)}"><b>${esc(p.project)}</b></td><td class="small">${esc(p.pic)}</td>
         <td>${fmtIso(p.start, p.startRaw)}</td><td>${fmtIso(p.end, p.endRaw)}</td><td>${priorityChip(p.priority)}</td><td>${statusChip(p.status)}</td>
-        <td><div class="row" style="gap:8px"><div class="bar" style="flex:1"><i style="width:${r * 100}%"></i></div><span class="small muted">${d}/${ts.length}</span></div></td>
+        <td>${!ts.length && p.code ? `<button class="btn sm" data-pt="${p.row}" title="Buat task dari project ini">+ Jadikan task</button>` : `<div class="row" style="gap:8px"><div class="bar" style="flex:1"><i style="width:${r * 100}%"></i></div><span class="small muted">${d}/${ts.length}</span></div>`}</td>
         <td style="white-space:nowrap"><button class="btn sm" data-pe="${p.row}">Edit</button> <button class="btn sm danger" data-pd="${p.row}">Hapus</button></td></tr>`;
     }).join('')}</tbody></table>` : '<div class="empty"><b>Belum ada project</b></div>'}</div>`;
   $('#newp').onclick = () => projectModal(null);
   $$('[data-pe]').forEach((b) => b.onclick = () => projectModal(all.projects.find((p) => String(p.row) === b.dataset.pe)));
+  $$('[data-pt]').forEach((b) => b.onclick = () => taskModal(taskFromProject(all.projects.find((p) => String(p.row) === b.dataset.pt)), true));
   $$('[data-pd]').forEach((b) => b.onclick = async () => {
     const p = all.projects.find((x) => String(x.row) === b.dataset.pd);
     if (!(await confirmBox('Hapus project?', `${p.code} — ${p.project} akan dihapus dari tab Main Project. Task terkait tidak ikut terhapus.`))) return;
@@ -1364,23 +1392,70 @@ function projectModal(p) {
       <div class="grid2"><label class="field"><span>Mulai</span><input type="date" name="start" value="${esc(p.start || '')}"></label>
       <label class="field"><span>Selesai</span><input type="date" name="end" value="${esc(p.end || '')}"></label></div>
       <label class="field"><span>Status</span><select name="status">${STATUSES.map((x) => opt(x, p.status)).join('')}</select></label>
+      ${edit ? '' : `<div class="as-task">
+        <label class="check as-task-h"><input type="checkbox" name="asTask" id="as-task"> <span><b>Buat juga sebagai task</b> <small>untuk project yang isinya cukup 1 task</small></span></label>
+        <div class="as-task-b hidden" id="as-task-b">
+          <div class="grid2">
+            <label class="field"><span>Penanggung jawab *</span><select name="owner"><option value="">Pilih…</option>${S.all.users.filter((u) => u.sheetName && u.active).map((u) => `<option value="${esc(u.username)}">${esc(u.name)}</option>`).join('')}</select></label>
+            <div class="grid2"><label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="09:00"></label><label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="17:00"></label></div>
+          </div>
+          <p class="muted small" style="margin:0">Nama task, code, tanggal, dan prioritas mengikuti project. Status project selanjutnya mengikuti task ini.</p>
+        </div></div>`}
       <div id="perr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">Simpan</button>`,
     onMount: (m, close) => {
+      const f0 = $('#pf', m), cb = $('#as-task', m);
+      if (cb) {
+        const pickOwner = () => { if (!f0.owner.value) { const u = ownerFromPic(f0.pic.value); if (u) f0.owner.value = u.username; } };
+        cb.onchange = () => { $('#as-task-b', m).classList.toggle('hidden', !cb.checked); f0.owner.required = cb.checked; $('#save', m).textContent = cb.checked ? 'Simpan project & task' : 'Simpan'; if (cb.checked) pickOwner(); };
+        f0.pic.addEventListener('change', () => { if (cb.checked) pickOwner(); });
+        f0.owner.addEventListener('change', () => { if (!f0.pic.value.trim()) { const u = S.all.users.find((x) => x.username === f0.owner.value); if (u) f0.pic.value = u.name; } });
+      }
       $('#save', m).onclick = async () => {
         const f = $('#pf', m); if (!f.reportValidity()) return;
         const data = Object.fromEntries(new FormData(f).entries());
-        if (edit) { data.row = p.row; data.originalCode = p.code; }
+        const asTask = !edit && cb && cb.checked;
+        if (asTask) {
+          const s0 = L.at(data.start, data.startTime), e0 = L.at(data.end, data.endTime);
+          if (s0 && e0 && e0 < s0) { $('#perr', m).innerHTML = '<div class="error">Tanggal selesai tidak boleh sebelum tanggal mulai.</div>'; return; }
+          if (!data.code.trim()) { $('#perr', m).innerHTML = '<div class="error">Isi Code project supaya task terhubung ke project ini.</div>'; return; }
+        }
+        const proj = { code: data.code, project: data.project, pic: data.pic, start: data.start, end: data.end, priority: data.priority, status: data.status };
+        if (edit) { proj.row = p.row; proj.originalCode = p.code; }
         try {
-          await busy($('#save', m), () => api.call('saveProject', { project: data }));
-          close(); toast('Project disimpan');
-          if (edit) { Object.assign(S.all.projects.find((x) => x.row === p.row) || {}, data); softRender(); }
+          await busy($('#save', m), async () => {
+            await api.call('saveProject', { project: proj });
+            if (asTask) {
+              const r = await api.call('saveTask', { task: Object.assign(taskFromProject(proj), { owner: data.owner, startTime: data.startTime, endTime: data.endTime }) });
+              if (r && r.task) { const o = S.all.users.find((u) => u.username === r.task.owner); S.all.tasks.push(Object.assign({}, r.task, { ownerName: o ? o.name : r.task.ownerName })); }
+            }
+          });
+          close(); toast(asTask ? 'Project & task dibuat' : 'Project disimpan');
+          const data2 = proj;
+          if (edit) { Object.assign(S.all.projects.find((x) => x.row === p.row) || {}, data2); softRender(); }
           refreshInBackground(edit ? 800 : 0);
         }
         catch (err) { $('#perr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
       };
     }
   });
+}
+
+/** Data task baru dari sebuah project (untuk project 1 task). */
+function taskFromProject(p) {
+  return { owner: (ownerFromPic(p.pic || '') || {}).username || '', code: p.code || '', task: p.project || '',
+    startDate: p.start || '', endDate: p.end || p.start || '', startTime: '09:00', endTime: '17:00',
+    priority: p.priority || 'Medium', status: 'Backlog' };
+}
+/** Cocokkan isi kolom PIC ("Ari, Wisnu") dengan akun anggota; ambil yang pertama cocok. */
+function ownerFromPic(pic) {
+  const names = String(pic || '').split(/[,;/&]|\bdan\b/i).map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const people = (S.all ? S.all.users : []).filter((u) => u.sheetName && u.active);
+  for (const n of names) {
+    const u = people.find((x) => x.name.toLowerCase() === n || x.username === n) || people.find((x) => x.name.toLowerCase().split(/\s+/)[0] === n.split(/\s+/)[0]);
+    if (u) return u;
+  }
+  return null;
 }
 
 // ---------- Admin: Pengguna ----------

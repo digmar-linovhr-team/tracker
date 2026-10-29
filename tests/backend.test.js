@@ -379,6 +379,37 @@ it('Result Note: keterangan hasil dari anggota, terpisah dari Catatan admin', ()
   assert.ok(m && m.htmlBody.includes('Siap direview, cek bagian FAQ'));
 });
 
+it('status project mengikuti task: 1 task = cermin; banyak task = Done bila semua Done', () => {
+  const proj = (c) => post({ action: 'getAll', token: admin }).data.projects.find((x) => x.code === c);
+  assert.ok(post({ action: 'saveProject', token: admin, project: { code: 'Z1', project: 'Video testimoni', start: '2026-11-03', end: '2026-11-14', priority: 'High', status: 'Backlog' } }).ok);
+  let r = post({ action: 'saveTask', token: admin, task: { owner: 'ari', code: 'Z1', task: 'Video testimoni', startDate: '2026-11-03', endDate: '2026-11-14', status: 'Backlog' } });
+  const id = r.data.id;
+  r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' });
+  assert.strictEqual(proj('Z1').status, 'On-Progress');
+  assert.deepStrictEqual(r.data.projects, [{ code: 'Z1', status: 'On-Progress' }]);
+  post({ action: 'updateStatus', token: ari, taskId: id, status: 'Review' });
+  assert.strictEqual(proj('Z1').status, 'Review');
+  post({ action: 'reviewTask', token: admin, taskId: id, decision: 'return', reason: 'x' });
+  assert.strictEqual(proj('Z1').status, 'On-Progress');
+  post({ action: 'updateStatus', token: ari, taskId: id, status: 'Review' });
+  post({ action: 'reviewTask', token: admin, taskId: id, decision: 'approve' });
+  assert.strictEqual(proj('Z1').status, 'Done', 'task disetujui → project Done');
+  // tambah task kedua → project banyak task: dibuka lagi jadi On-Progress
+  r = post({ action: 'saveTask', token: admin, task: { owner: 'ari', code: 'Z1', task: 'Edit versi pendek', startDate: '2026-11-10', endDate: '2026-11-12', status: 'Backlog' } });
+  const id2 = r.data.id;
+  assert.strictEqual(proj('Z1').status, 'On-Progress');
+  // status manual (Hold) tidak ditimpa selama belum semua Done
+  const p = proj('Z1');
+  post({ action: 'saveProject', token: admin, project: Object.assign({}, p, { originalCode: 'Z1', status: 'Hold' }) });
+  post({ action: 'updateStatus', token: ari, taskId: id2, status: 'On-Progress' });
+  assert.strictEqual(proj('Z1').status, 'Hold');
+  post({ action: 'updateStatus', token: admin, taskId: id2, status: 'Done' });
+  assert.strictEqual(proj('Z1').status, 'Done', 'semua task Done → project Done');
+  // hapus task → kembali 1 task (Done)
+  post({ action: 'deleteTask', token: admin, taskId: id2 });
+  assert.strictEqual(proj('Z1').status, 'Done');
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

@@ -95,6 +95,10 @@ Kirim link aplikasi + username & password sementara masing-masing. Setiap orang:
 
 **Hasil kerja (kolom *Result* & *Result Note*)**: di setiap task ada tombol **Hasil kerja** untuk menulis **keterangan hasil** (kolom *Result Note*, terpisah dari Catatan admin) dan menempel link dokumen (Google Docs/Sheets/Slides/Drive/Forms, Figma, Canva, atau link lain), maksimal 10 per task. Bisa diubah selama task belum Done. Saat mengajukan review tanpa link, aplikasi mengingatkan (tidak wajib). Admin melihat link di menu **Review**, di kolom *Hasil* Semua Task, dan di email notifikasi review. Di spreadsheet tersimpan di kolom **Result**, satu link per baris: `Nama | URL` atau URL saja — boleh juga diisi langsung dari sheet.
 
+**Project 1 task**: saat membuat **Project baru**, centang **Buat juga sebagai task** dan pilih penanggung jawab — project dan task-nya dibuat sekaligus (nama, code, tanggal, prioritas mengikuti project). Untuk project lama yang belum punya task, klik **+ Jadikan task** di menu Project.
+
+**Status project otomatis**: project dengan 1 task → status project selalu sama dengan task-nya (task disetujui Done → project Done). Project dengan banyak task → otomatis Done saat semua task Done, dan kembali On-Progress bila ada task yang dibuka lagi/ditambah; selain itu status manual (mis. Hold) tidak diubah. Perubahan dari aplikasi langsung tersinkron; perubahan yang diketik di spreadsheet tersinkron dalam ≤ 5 menit.
+
 **Tim**: semua anggota bisa melihat task setiap orang (judul, project, status, jadwal, catatan) beserta ringkasan beban kerja — hanya lihat, tidak bisa mengubah. Server menolak setiap perubahan pada task milik orang lain.
 
 **Admin**: **Review**, **Semua Task** (buat/edit/pindahkan/hapus task lengkap dengan jam), **Project** (tab Main Project + progres), **Pengguna** (tambah anggota — tab baru dibuat otomatis — email, role, reset password), **Dashboard** (filter periode & orang).

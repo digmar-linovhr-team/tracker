@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.10.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.11.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -582,3 +582,9 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 .rv-rnote { font-size: 13px; color: var(--text); border-left: 3px solid var(--brand); padding: 2px 0 2px 10px; margin-bottom: 7px; white-space: pre-wrap; line-height: 1.45; }
 .rv-hasil .rv-res { margin-top: 0; }
 .res-sect-h { font-size: 12.5px; font-weight: 600; color: var(--text-2); margin: 4px 0 8px; }
+.as-task { margin-top: 6px; border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border)); background: var(--info-soft); border-radius: 12px; padding: 10px 12px; }
+.as-task-h { margin: 0; align-items: flex-start; }
+.as-task-h input { margin-top: 3px; }
+.as-task-h small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+.as-task-b { margin-top: 10px; }
+.as-task-b .grid2 .grid2 { gap: 0 8px; }

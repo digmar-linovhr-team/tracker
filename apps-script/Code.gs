@@ -134,7 +134,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 5 });
+  return json_({ ok: true, app: 'project-tracker', version: 6 });
 }
 
 function doPost(e) {
@@ -424,6 +424,53 @@ function saveProject_(me, p) {
   } finally { lock.releaseLock(); }
 }
 
+// ---------- Status project mengikuti task ----------
+/** Status baru project dari status task-task-nya; null = biarkan.
+ *  1 task: status project = status task. Banyak task: Done bila semua Done; dibuka lagi → On-Progress. */
+function projectStatusFor_(statuses, current) {
+  if (!statuses || !statuses.length) return null;
+  if (statuses.length === 1) return STATUSES.indexOf(statuses[0]) >= 0 ? statuses[0] : null;
+  if (statuses.every(function (x) { return x === 'Done'; })) return 'Done';
+  return current === 'Done' ? 'On-Progress' : null;
+}
+
+/** { code: [status task, ...] } dari semua tab orang — hanya membaca kolom yang perlu. */
+function taskStatusByCode_() {
+  var out = {};
+  personSheets_().forEach(function (p) {
+    var sh = p.sheet, col = colMap_(sh);
+    if (sh.getLastRow() < 2 || col['code'] === undefined || col['status'] === undefined || col['task'] === undefined) return;
+    var a = Math.min(col['code'], col['status'], col['task']), b = Math.max(col['code'], col['status'], col['task']);
+    sh.getRange(2, a + 1, sh.getLastRow() - 1, b - a + 1).getValues().forEach(function (r) {
+      var c = String(r[col['code'] - a] || '').trim(), t = String(r[col['task'] - a] || '').trim();
+      if (!c || !t) return;
+      (out[c] = out[c] || []).push(String(r[col['status'] - a] || '').trim() || 'Backlog');
+    });
+  });
+  return out;
+}
+
+/** Perbarui kolom Status di Main Project. codes = daftar code yang berubah, atau null untuk semua. */
+function syncProjectStatus_(codes) {
+  try {
+    var want = codes ? codes.map(function (c) { return String(c || '').trim(); }).filter(String) : null;
+    if (want && !want.length) return [];
+    var sh = sheet_(CFG.MAIN_SHEET);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var col = colMap_(sh);
+    if (col['code'] === undefined || col['status'] === undefined) return [];
+    var by = taskStatusByCode_(), changed = [];
+    var vals = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(col['code'], col['status']) + 1).getValues();
+    vals.forEach(function (r, i) {
+      var c = String(r[col['code']] || '').trim();
+      if (!c || (want && want.indexOf(c) < 0)) return;
+      var cur = String(r[col['status']] || '').trim(), next = projectStatusFor_(by[c], cur);
+      if (next && next !== cur) { sh.getRange(i + 2, col['status'] + 1).setValue(next); changed.push({ code: c, status: next }); }
+    });
+    return changed;
+  } catch (e) { Logger.log('syncProjectStatus_: ' + e); return []; }
+}
+
 function deleteProject_(me, row, code) {
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
@@ -544,7 +591,8 @@ function updateStatus_(me, taskId, status) {
     Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
     log_(me, 'status', taskId, prev + ' → ' + status);
     // Calendar diperbarui oleh trigger berkala (perubahan terdeteksi otomatis), supaya simpan tetap cepat.
-    return { task: rowTask_(r, null, col, sh, loc.user, row) };
+    var task = rowTask_(r, null, col, sh, loc.user, row);
+    return { task: task, projects: syncProjectStatus_([task.code]) };
   } finally { lock.releaseLock(); }
 }
 
@@ -572,8 +620,10 @@ function saveTask_(me, t) {
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
     var id = t.id;
     if (obj.status === 'Review' && !t.reviewAt) obj['review at'] = new Date();
+    var oldCode = '';
     if (id) {
       var loc = locateTask_(me, id);
+      oldCode = String(loc.sheet.getRange(loc.row, loc.col['code'] + 1).getValue() || '').trim();
       if (loc.sheet.getName() !== target.getName()) {
         // pindah penanggung jawab: salin timestamp lalu hapus baris lama
         obj['started at'] = loc.sheet.getRange(loc.row, loc.col['started at'] + 1).getValue();
@@ -602,7 +652,7 @@ function saveTask_(me, t) {
     }
     var savedRow = findRowById_(target, id);
     var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
-    return { id: id, task: saved };
+    return { id: id, task: saved, projects: syncProjectStatus_([obj.code, oldCode]) };
   } finally { lock.releaseLock(); }
 }
 
@@ -717,7 +767,7 @@ function reviewTask_(me, taskId, decision, reason) {
         });
       } catch (e) { /* email tidak boleh menggagalkan keputusan */ }
     }
-    return { task: task };
+    return { task: task, projects: syncProjectStatus_([task.code]) };
   } finally { lock.releaseLock(); }
 }
 
@@ -751,10 +801,11 @@ function deleteTask_(me, taskId) {
   try {
     var loc = locateTask_(me, taskId);
     var title = loc.sheet.getRange(loc.row, loc.col['task'] + 1).getValue();
+    var code = String(loc.sheet.getRange(loc.row, loc.col['code'] + 1).getValue() || '').trim();
     trashRowEvents_(loc.sheet, loc.row);
     loc.sheet.deleteRow(loc.row);
     log_(me, 'delete-task', taskId, title);
-    return { ok: true };
+    return { ok: true, projects: syncProjectStatus_([code]) };
   } finally { lock.releaseLock(); }
 }
 
@@ -1147,6 +1198,7 @@ function runReminders() {
       });
     });
     if (newReviews.length) emailReviewsToAdmins_(newReviews);
+    syncProjectStatus_(null);   // perubahan yang diketik langsung di spreadsheet
   } finally { lock.releaseLock(); }
 }
 
