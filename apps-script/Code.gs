@@ -157,7 +157,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 17 });
+  return json_({ ok: true, app: 'project-tracker', version: 18 });
 }
 
 function doPost(e) {
@@ -198,6 +198,8 @@ function route_(b) {
     case 'getBrief': return { brief: findBrief_(b.briefId).brief };
     case 'saveBrief': return saveBrief_(me, b.brief);
     case 'saveSocialBrief': return saveSocialBrief_(me, b.brief);
+    case 'saveRequest': return saveRequest_(me, b.brief);
+    case 'requestAction': return requestAction_(me, b.briefId, b.act, b.payload || {});
     case 'deleteBrief': return deleteBrief_(me, b.briefId);
     case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status, b.owner);
@@ -219,7 +221,7 @@ function route_(b) {
     case 'saveUser': return saveUser_(me, b.user);
     case 'resetPassword': return { password: resetPassword_(b.username) };
     case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason, b.owner);
-    case 'reviewQueue': return { tasks: cachedTasks_().filter(function (t) { return t.status === 'Review'; }) };
+    case 'reviewQueue': return { tasks: cachedTasks_().filter(function (t) { return t.status === 'Review' && t.type !== 'Request'; }) };
   }
   throw new Error('Aksi tidak dikenal: ' + a);
 }
@@ -779,6 +781,7 @@ function updateStatus_(me, taskId, status, owner) {
     var loc = locateTask_(me, taskId, owner), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     var prev = String(r[col['status']]), now = new Date(), ch = { 'status': status };
+    if (isRequestRow_(r, col) && me.role !== 'admin') throw new Error('Task request mengikuti alurnya. Gunakan tombol di request (Terima / Ajukan hasil).');
     if (isArticleRow_(r, col)) {
       if (me.role !== 'admin') throw new Error('Task artikel mengikuti tahapnya. Gunakan tombol tahap di task (mis. Ajukan brief / Ajukan review artikel).');
       if (status === 'Done') { var tk = setStage_(sh, row, r, col, loc.user, me, 9); log_(me, 'status', taskId, prev + ' → Done'); return { task: tk }; }
@@ -801,7 +804,7 @@ function updateStatus_(me, taskId, status, owner) {
     log_(me, 'status', taskId, prev + ' → ' + status);
     // Calendar diperbarui oleh trigger berkala (perubahan terdeteksi otomatis), supaya simpan tetap cepat.
     var task = rowTask_(r, null, col, sh, loc.user, row);
-    var brief = task.type === 'Sosmed' ? mirrorSocialBrief_(taskId, status, me) : null;
+    var brief = task.type === 'Sosmed' ? mirrorSocialBrief_(taskId, status, me) : task.type === 'Request' ? mirrorRequestBrief_(taskId, status) : null;
     queueProjectSync_([task.code]);
     return brief ? { task: task, brief: brief } : { task: task };
   } finally { unlock_(lock); }
@@ -830,7 +833,7 @@ function saveTask_(me, t) {
     if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
     var article = t.type === 'Artikel';
-    if (t.type !== undefined) obj['type'] = article ? 'Artikel' : t.type === 'Sosmed' ? 'Sosmed' : 'Non-artikel';
+    if (t.type !== undefined) obj['type'] = article ? 'Artikel' : t.type === 'Sosmed' || t.type === 'Request' ? t.type : 'Non-artikel';
     var wantStage = article && Number(t.stage) >= 1 && Number(t.stage) <= 9 ? Number(t.stage) : 0;
     if (article) delete obj.status;   // status task artikel mengikuti tahap
     var id = t.id;
@@ -966,8 +969,9 @@ var REVIEW_LABEL = { 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' };
 
 function typeName_(v) {
   v = String(v || '');
-  return /sosmed|social/i.test(v) ? 'Sosmed' : /artikel/i.test(v) && !/non/i.test(v) ? 'Artikel' : 'Non-artikel';
+  return /request/i.test(v) ? 'Request' : /sosmed|social/i.test(v) ? 'Sosmed' : /artikel/i.test(v) && !/non/i.test(v) ? 'Artikel' : 'Non-artikel';
 }
+function isRequestRow_(r, col) { return col['type'] !== undefined && typeName_(r[col['type']]) === 'Request'; }
 function isSocialRow_(r, col) { return col['type'] !== undefined && typeName_(r[col['type']]) === 'Sosmed'; }
 function isArticleRow_(r, col) {
   var v = col['type'] === undefined ? '' : String(r[col['type']] || '');
@@ -1014,7 +1018,7 @@ function setBriefStatus_(taskId, status) {
 function bulkSetType_(me, ids, type) {
   if (!Array.isArray(ids) || !ids.length) throw new Error('Pilih minimal satu task');
   if (ids.length > 300) throw new Error('Maksimal 300 task sekali ubah');
-  if (['Artikel', 'Non-artikel', 'Sosmed'].indexOf(type) < 0) throw new Error('Jenis task tidak valid');
+  if (['Artikel', 'Non-artikel', 'Sosmed', 'Request'].indexOf(type) < 0) throw new Error('Jenis task tidak valid');
   var article = type === 'Artikel';
   var lock = lock_(30000);
   try {
@@ -1087,6 +1091,8 @@ function advanceStage_(me, taskId, step, url) {
 /** Admin: setujui (Done) atau kembalikan (On-Progress + alasan di Catatan) task yang direview. */
 function reviewTask_(me, taskId, decision, reason, owner) {
   if (decision !== 'approve' && decision !== 'return') throw new Error('Keputusan review tidak valid');
+  var rq = briefRowOfTask_(taskId);
+  if (rq && rq.brief.type === 'Request') return requestAction_(me, rq.brief.id, decision, { text: reason });
   var lock = lock_(20000);
   try {
     var loc = locateTask_(me, taskId, owner), sh = loc.sheet, col = loc.col, row = loc.row;
@@ -1662,6 +1668,7 @@ function runReminders() {
 function collectReview_(sh, row, r, col, user, out) {
   if (col['reminded'] === undefined || col['review at'] === undefined) return;
   if (String(r[col['status']]).trim() !== 'Review' || !isDate_(r[col['review at']])) return;
+  if (isRequestRow_(r, col)) return;   // request disetujui pembuatnya, bukan admin
   var key = 'review|' + r[col['review at']].getTime();
   var sent = String(r[col['reminded']] || '').split(',').filter(String);
   if (sent.indexOf(key) >= 0) return;
@@ -1827,6 +1834,7 @@ function rowBrief_(r, col, row) {
 /** Ringkasan brief untuk daftar (isi lengkap diambil saat brief dibuka). */
 function briefSummary_(b) {
   if (b.type === 'Sosmed') return socialSummary_(b);
+  if (b.type === 'Request') return requestSummary_(b);
   var d = b.data || {}, filled = function (x) { return String(x == null ? '' : x).trim() !== ''; };
   var nH2 = Array.isArray(d.sections) ? d.sections.filter(function (x) { return x && filled(x.h2); }).length
     : (d.outline || []).filter(function (o) { return o && o.level !== 1 && o.level !== 3 && filled(o.heading); }).length;
@@ -1892,7 +1900,7 @@ function saveBrief_(me, b) {
     var id = b.id, row;
     if (id) {
       var f = findBrief_(id);
-      if (f.brief.type === 'Sosmed') throw new Error('Brief sosmed disimpan lewat editor brief sosmed.');
+      if (f.brief.type === 'Sosmed' || f.brief.type === 'Request') throw new Error('Brief ini disimpan lewat editornya sendiri.');
       assertBriefEditor_(me, f.brief);
       if (b.baseUpdatedAt && f.brief.updatedAt && b.baseUpdatedAt !== f.brief.updatedAt) {
         throw new Error('Brief ini baru saja diubah oleh ' + (f.brief.updatedBy || 'orang lain') + '. Muat ulang supaya perubahannya tidak tertimpa.');
@@ -1914,7 +1922,7 @@ function saveBrief_(me, b) {
 
 function deleteBrief_(me, id) {
   var pre = findBrief_(id).brief;
-  if (pre.type === 'Sosmed') return deleteSocialBrief_(me, pre);
+  if (pre.type === 'Sosmed' || pre.type === 'Request') return deleteSocialBrief_(me, pre);
   var lock = lock_(20000);
   try {
     var f = findBrief_(id);
@@ -2169,4 +2177,195 @@ function emailSocialDone_(me, brief, task) {
       htmlBody: emailShell_('Halo ' + esc_(u.name) + ',', 'Konten dari brief Anda sudah dikerjakan ' + esc_(task.ownerName) +
         ' dan <b>disetujui</b> oleh ' + esc_(me.name) + '.' + resultsHtml_(task) + taskTableHtml_([task], true)) });
   } catch (e) { Logger.log('Email sosmed selesai: ' + e); }
+}
+
+
+// ===================== Request (brief custom antar anggota) =====================
+// Siapa pun bisa me-request ke anggota mana pun → task berjenis Request di tab penerima.
+// Alur: Konfirmasi (penerima boleh minta klarifikasi) → Dikerjakan → Diajukan → pembuat request Setujui = Selesai.
+// Kejadian dicatat di kolom Stage Log task ({e, t}) untuk KPI kategori Request (waktu klarifikasi dijeda).
+var REQ_MAX_BODY = 20000, REQ_MAX_ATTACH = 15, REQ_MAX_THREAD = 200;
+var REQ_TASK_STATUS = { 'Konfirmasi': 'Backlog', 'Klarifikasi': 'Backlog', 'Dikerjakan': 'On-Progress', 'Dikembalikan': 'On-Progress', 'Diajukan': 'Review', 'Selesai': 'Done' };
+
+function requestSummary_(b) {
+  var d = b.data || {}, th = d.thread || [], nm = function (u) { var x = u ? findUser_(u) : null; return x ? x.name : (u || ''); };
+  var last = th.length ? th[th.length - 1] : null;
+  return {
+    id: b.id, row: b.row, taskId: b.taskId, owner: b.owner, createdBy: b.createdBy, type: b.type, status: b.status,
+    keyword: '', title: b.title, docUrl: '', createdAt: b.createdAt, updatedAt: b.updatedAt, updatedBy: b.updatedBy, statusAt: b.statusAt, summary: true,
+    ownerName: nm(b.owner), createdByName: nm(b.createdBy),
+    data: { title: d.title || '', nAttach: (d.attachments || []).length, nMsg: th.length, last: last ? { by: last.by, t: last.t, sys: !!last.sys } : null, assign: d.assign || null }
+  };
+}
+function mirrorRequestBrief_(taskId, status) {
+  var f = briefRowOfTask_(taskId);
+  if (!f || f.brief.type !== 'Request') return null;
+  var map = { 'Backlog': 'Konfirmasi', 'On-Progress': 'Dikerjakan', 'Review': 'Diajukan', 'Done': 'Selesai' }, st = map[status];
+  if (st && st !== f.brief.status) { writeObj_(briefSheet_(), f.row, { 'status': st, 'status at': new Date() }); f.brief.status = st; }
+  return requestSummary_(f.brief);
+}
+function cleanRequestData_(d, keep) {
+  d = d || {};
+  var att = (Array.isArray(d.attachments) ? d.attachments : []).map(function (a) {
+    var url = String(a && a.url || '').trim();
+    return url ? { label: String(a.label || '').trim().slice(0, 80), url: url } : null;
+  }).filter(Boolean);
+  if (att.length > REQ_MAX_ATTACH) throw new Error('Maksimal ' + REQ_MAX_ATTACH + ' lampiran');
+  att.forEach(function (a) { if (!/^https?:\/\/\S+$/i.test(a.url) || a.url.length > 1500) throw new Error('Lampiran harus berupa link yang diawali http:// atau https://'); });
+  var body = String(d.body || '');
+  if (body.length > REQ_MAX_BODY) throw new Error('Isi request terlalu panjang (maksimal ' + REQ_MAX_BODY + ' karakter)');
+  return { v: 1, title: String(d.title || '').trim().slice(0, 200), body: body, attachments: att,
+    thread: (keep && keep.thread) || [], assign: d.assign || (keep && keep.assign) || null };
+}
+function reqLog_(sh, row, r, col, me, e, extra) {
+  var log = []; try { log = JSON.parse(String(r[col['stage log']] || '[]')) || []; } catch (x) { log = []; }
+  if (!Array.isArray(log)) log = [];
+  log.push({ e: e, t: new Date().toISOString(), by: me.username });
+  var ch = Object.assign({ 'stage log': JSON.stringify(log.slice(-150)) }, extra || {});
+  writeObj_(sh, row, ch);
+  Object.keys(ch).forEach(function (k) { if (col[k] !== undefined) r[col[k]] = ch[k]; });
+}
+
+function saveRequest_(me, b) {
+  b = b || {};
+  var cur = null;
+  if (b.id) {
+    cur = findBrief_(b.id).brief;
+    if (cur.type !== 'Request') throw new Error('Ini bukan request');
+    if (me.role !== 'admin' && cur.createdBy !== me.username) throw new Error('Hanya pembuat request dan admin yang bisa mengubah request ini.');
+    if (cur.status === 'Selesai' && me.role !== 'admin') throw new Error('Request sudah selesai, jadi tidak bisa diubah lagi.');
+    if (b.baseUpdatedAt && cur.updatedAt && b.baseUpdatedAt !== cur.updatedAt) throw new Error('Request ini baru saja diubah oleh ' + (cur.updatedBy || 'orang lain') + '. Muat ulang supaya perubahannya tidak tertimpa.');
+  }
+  var d = cleanRequestData_(b.data, cur ? cur.data : null);
+  if (!d.title) throw new Error('Isi judul request.');
+  if (!String(d.body).trim()) throw new Error('Tuliskan kebutuhan request.');
+  var ct = cur && cur.taskId ? readTaskById_(cur.taskId) : null, task = ct ? ct.task : null, newOwner = null;
+  var a = b.assign;
+  if (!cur && !a) throw new Error('Pilih penerima request.');
+  if (a) {
+    var owner = findUser_(String(a.owner || '').toLowerCase());
+    if (!owner || !owner.active || !owner.sheetName) throw new Error('Pilih penerima request.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(a.endDate || ''))) throw new Error('Isi deadline.');
+    if (owner.username === (cur ? cur.createdBy : me.username)) throw new Error('Request tidak bisa ditujukan ke pembuatnya sendiri.');
+    var base = task;
+    var res = saveTask_(asAdmin_(me), {
+      id: base ? base.id : '', task: safeCell_(d.title), owner: owner.username, code: String(a.code || '').trim(),
+      startDate: base ? base.startDate : Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd'), endDate: a.endDate,
+      startTime: base ? base.startTime : '09:00', endTime: normTime_(a.endTime) || '18:00',
+      priority: PRIORITIES.indexOf(a.priority) >= 0 ? a.priority : 'Medium',
+      status: base ? base.status : 'Backlog', notes: base ? base.notes : '', type: 'Request'
+    });
+    task = res.task;
+    if (!base || base.owner !== owner.username) newOwner = owner;
+    d.assign = { owner: owner.username, endDate: a.endDate, endTime: normTime_(a.endTime) || '18:00', priority: a.priority || 'Medium', code: String(a.code || '').trim() };
+  } else if (ct && ct.task.task !== d.title) {
+    writeObj_(ct.loc.sheet, ct.loc.row, { 'task': safeCell_(d.title) }); task.task = d.title;
+  }
+  var lock = lock_(20000), brief;
+  try {
+    if (task && !cur) {   // catat waktu dibuat untuk KPI waktu respon
+      var nt = readTaskById_(task.id);
+      if (nt) reqLog_(nt.loc.sheet, nt.loc.row, nt.r, nt.loc.col, me, 'created');
+    }
+    var sh = briefSheet_(), now = new Date();
+    var status = cur ? (newOwner ? 'Konfirmasi' : cur.status) : 'Konfirmasi';
+    if (cur && newOwner && task) {   // pindah penerima: mulai lagi dari konfirmasi
+      var mt = readTaskById_(task.id);
+      if (mt) { writeObj_(mt.loc.sheet, mt.loc.row, { 'status': 'Backlog', 'review at': '', 'started at': '' }); reqLog_(mt.loc.sheet, mt.loc.row, mt.r, mt.loc.col, me, 'created'); task.status = 'Backlog'; }
+      d.thread.push({ by: me.username, name: me.name, t: now.toISOString(), text: 'Request dialihkan ke ' + newOwner.name + '.', sys: true });
+    }
+    var obj = { 'task id': task ? task.id : '', 'owner': task ? task.owner : '', 'type': 'Request', 'status': status,
+      'keyword': '', 'title': safeCell_(d.title), 'data': cleanBriefData_(d), 'updated at': now, 'updated by': me.username };
+    if (!cur || cur.status !== status) obj['status at'] = now;
+    var row;
+    if (cur) { row = findBrief_(cur.id).row; writeObj_(sh, row, obj); }
+    else { obj['brief id'] = 'RQ' + newId_().replace(/^T/, ''); obj['created by'] = me.username; obj['created at'] = now; row = appendObj_(sh, obj); }
+    brief = rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row);
+  } finally { unlock_(lock); }
+  if (!cur) log_(me, 'create-request', task ? task.id : '', brief.id + ' ' + d.title);
+  if (newOwner) requestMail_(newOwner, me, brief, task, '📨 Request baru: ', esc_(me.name) + ' mengirim request kepada Anda. Buka request untuk <b>menerima</b> atau <b>meminta klarifikasi</b> dulu.');
+  return { brief: brief, task: task };
+}
+
+function requestMail_(to, me, brief, task, subj, intro) {
+  if (!to || !to.email || !to.active || to.username === me.username) return;
+  var d = brief.data || {};
+  try {
+    MailApp.sendEmail({ to: to.email, name: 'Project Tracker', subject: subj + shortTitle_(d.title || brief.title),
+      htmlBody: emailShell_('Halo ' + esc_(to.name) + ',', intro +
+        (d.body ? '<div style="margin:10px 0;padding:8px 12px;border-left:3px solid #c9d6e0;color:#545a61;white-space:pre-wrap;font-size:13px">' + esc_(String(d.body).slice(0, 600)) + (String(d.body).length > 600 ? '…' : '') + '</div>' : '') +
+        (task ? taskTableHtml_([task]) : '')) });
+  } catch (e) { Logger.log('Email request: ' + e); }
+}
+
+/** act: message | accept | submit | approve | return. payload: { text, endDate, endTime } */
+function requestAction_(me, id, act, payload) {
+  payload = payload || {};
+  var lock = lock_(20000), out, mail = null;
+  try {
+    var f = findBrief_(id), b = f.brief;
+    if (b.type !== 'Request') throw new Error('Ini bukan request');
+    var ct = readTaskById_(b.taskId);
+    if (!ct) throw new Error('Task request tidak ditemukan (mungkin sudah dihapus).');
+    var t = ct.task, sh = ct.loc.sheet, row = ct.loc.row, col = ct.loc.col, r = ct.r;
+    var admin = me.role === 'admin', isOwner = t.owner === me.username, isCreator = b.createdBy === me.username;
+    var d = b.data || {}; d.thread = Array.isArray(d.thread) ? d.thread : [];
+    var now = new Date(), st = b.status, next = st, text = String(payload.text || '').trim().slice(0, 2000);
+    var creator = findUser_(b.createdBy), owner = findUser_(t.owner);
+    var say = function (msg, sys) { d.thread.push({ by: me.username, name: me.name, t: now.toISOString(), text: msg, sys: !!sys }); };
+    var need = function (ok, msg) { if (!ok) throw new Error(msg); };
+    if (act === 'message') {
+      need(isOwner || isCreator || admin, 'Hanya pembuat dan penerima request yang bisa mengirim pesan.');
+      need(text, 'Tulis pesannya dulu.');
+      need(st !== 'Selesai', 'Request sudah selesai.');
+      say(text);
+      if (isOwner && st === 'Konfirmasi') { next = 'Klarifikasi'; reqLog_(sh, row, r, col, me, 'clar'); mail = [creator, '❓ Klarifikasi request: ', esc_(me.name) + ' meminta klarifikasi sebelum mengerjakan request Anda:<br><i>' + esc_(text) + '</i>']; }
+      else if ((isCreator || admin) && !isOwner && st === 'Klarifikasi') {
+        next = 'Konfirmasi'; reqLog_(sh, row, r, col, me, 'ans');
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(payload.endDate || ''))) {
+          var et = normTime_(payload.endTime) || t.endTime || '18:00';
+          writeObj_(sh, row, { 'end date': toDateCell_(payload.endDate), 'end time': et });
+          d.assign = Object.assign({}, d.assign || {}, { endDate: payload.endDate, endTime: et });
+          say('Deadline diubah ke ' + payload.endDate + ' ' + et + '.', true);
+        }
+        mail = [owner, '💬 Jawaban request: ', esc_(me.name) + ' menjawab klarifikasi Anda:<br><i>' + esc_(text) + '</i><br>Silakan <b>terima</b> request bila sudah jelas.'];
+      } else mail = [isOwner ? creator : owner, '💬 Pesan di request: ', esc_(me.name) + ':<br><i>' + esc_(text) + '</i>'];
+    } else if (act === 'accept') {
+      need(isOwner || admin, 'Hanya penerima yang bisa menerima request.');
+      need(st === 'Konfirmasi' || st === 'Klarifikasi', 'Request ini sudah diterima.');
+      next = 'Dikerjakan'; say('Request diterima dan mulai dikerjakan.', true);
+      reqLog_(sh, row, r, col, me, 'acc', Object.assign({ 'status': 'On-Progress' }, r[col['started at']] ? {} : { 'started at': now }));
+    } else if (act === 'submit') {
+      need(isOwner || admin, 'Hanya penerima yang bisa mengajukan hasil.');
+      need(st === 'Dikerjakan' || st === 'Dikembalikan', st === 'Diajukan' ? 'Hasil sudah diajukan.' : 'Terima request dulu sebelum mengajukan hasil.');
+      need(parseResults_(r[col['result']]).length || String(r[col['result note']] || '').trim(), 'Tambahkan hasil kerja (link atau keterangan) sebelum mengajukan.');
+      next = 'Diajukan'; say('Hasil diajukan untuk disetujui.' + (text ? ' ' + text : ''), true);
+      reqLog_(sh, row, r, col, me, 'sub', { 'status': 'Review', 'review at': now });
+      mail = [creator, '📬 Hasil request siap dicek: ', esc_(me.name) + ' mengajukan hasil request Anda. Buka request untuk <b>menyetujui</b> atau <b>mengembalikan</b>.' + resultsHtml_(rowTask_(r, null, col, sh, ct.loc.user, row))];
+    } else if (act === 'approve' || act === 'return') {
+      need(isCreator || admin, 'Hanya pembuat request (atau admin) yang bisa menyetujui hasilnya.');
+      need(st === 'Diajukan', 'Tidak ada hasil yang menunggu persetujuan — mungkin sudah diputuskan. Data dimuat ulang.');
+      if (act === 'approve') {
+        next = 'Selesai'; say('Hasil disetujui. Request selesai.' + (text ? ' ' + text : ''), true);
+        reqLog_(sh, row, r, col, me, 'done', { 'status': 'Done', 'done at': now });
+        mail = [owner, '✅ Request disetujui: ', esc_(me.name) + ' menyetujui hasil request Anda. Terima kasih!'];
+      } else {
+        next = 'Dikembalikan'; say('Dikembalikan untuk diperbaiki' + (text ? ': ' + text : '.'), true);
+        var line = '[Request dikembalikan ' + Utilities.formatDate(now, tz_(), 'd MMM HH:mm') + ' oleh ' + me.name + ']' + (text ? ' ' + text : '');
+        var old = String(r[col['notes']] || '').trim();
+        reqLog_(sh, row, r, col, me, 'ret', { 'status': 'On-Progress', 'review at': '', 'notes': old ? old + '\n' + line : line });
+        mail = [owner, '↩️ Request dikembalikan: ', esc_(me.name) + ' mengembalikan hasil request untuk diperbaiki' + (text ? ':<br><i>' + esc_(text) + '</i>' : '.')];
+      }
+    } else throw new Error('Aksi request tidak dikenal');
+    d.thread = d.thread.slice(-REQ_MAX_THREAD);
+    var bobj = { 'data': cleanBriefData_(d), 'updated at': now, 'updated by': me.username };
+    if (next !== st) { bobj['status'] = next; bobj['status at'] = now; }
+    writeObj_(f.sheet, f.row, bobj);
+    log_(me, 'request-' + act, b.taskId, id + ' ' + st + ' → ' + next);
+    out = { brief: rowBrief_(f.sheet.getRange(f.row, 1, 1, f.sheet.getLastColumn()).getValues()[0], f.col, f.row),
+      task: rowTask_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], null, col, sh, ct.loc.user, row) };
+    queueProjectSync_([t.code]);
+  } finally { unlock_(lock); }
+  if (mail) requestMail_(mail[0], me, out.brief, out.task, mail[1], mail[2]);
+  return out;
 }

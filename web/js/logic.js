@@ -16,6 +16,65 @@
   var STAGE_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
 
   function isArticle(t) { return String(t && t.type || '').toLowerCase() === 'artikel'; }
+  function isRequest(t) { return String(t && t.type || '').toLowerCase() === 'request'; }
+  /** KPI request: waktu klarifikasi (pertanyaan penerima → jawaban/terima) dijeda dan menggeser deadline.
+   *  Tepat waktu bila pengajuan terakhir ≤ deadline + jeda. Waktu respon = dibuat → terima/klarifikasi pertama. */
+  function requestKpi(task, now) {
+    now = now || new Date();
+    var log = (Array.isArray(task.stageLog) ? task.stageLog : []).map(function (x) { return { e: x.e, t: stamp(x.t) }; })
+      .filter(function (x) { return x.e && x.t; }).sort(function (a, b) { return a.t - b.t; });
+    var created = null, pauseMs = 0, pausedAt = null, firstResp = null, lastSub = null, doneAt = null, revisions = 0, acceptedAt = null;
+    log.forEach(function (x) {
+      if (x.e === 'created') { created = x.t; pauseMs = 0; pausedAt = null; firstResp = null; acceptedAt = null; }
+      else if (x.e === 'clar') { if (!firstResp) firstResp = x.t; if (!pausedAt) pausedAt = x.t; }
+      else if (x.e === 'ans' || x.e === 'acc') {
+        if (pausedAt) { pauseMs += x.t - pausedAt; pausedAt = null; }
+        if (x.e === 'acc') { if (!firstResp) firstResp = x.t; acceptedAt = x.t; }
+      } else if (x.e === 'sub') lastSub = x.t;
+      else if (x.e === 'ret') revisions++;
+      else if (x.e === 'done') doneAt = x.t;
+    });
+    var paused = !!pausedAt;
+    if (pausedAt) pauseMs += Math.max(now - pausedAt, 0);
+    var s = schedule(task), effEnd = s.end ? new Date(s.end.getTime() + pauseMs) : null;
+    var done = isDone(task);
+    var finish = done ? (lastSub || stamp(task.reviewAt) || doneAt || stamp(task.doneAt)) : null;
+    return { created: created, acceptedAt: acceptedAt, responseMs: created && firstResp ? Math.max(firstResp - created, 0) : null,
+      pauseMs: pauseMs, paused: paused, effEnd: effEnd, finishAt: finish, revisions: revisions, done: done,
+      late: done ? !!(finish && effEnd && finish > effEnd) : !!(effEnd && now > effEnd && task.status !== 'Review' && !paused) };
+  }
+  function evaluateRequest(task, now) {
+    var s = schedule(task), k = requestKpi(task, now);
+    var r = { request: true, plannedStart: s.start, plannedEnd: k.effEnd, startedAt: k.acceptedAt, doneAt: stamp(task.doneAt), reviewAt: stamp(task.reviewAt),
+      finishAt: k.finishAt, plannedMs: null, durationMs: k.acceptedAt && k.finishAt ? Math.max(k.finishAt - k.acceptedAt, 0) : null,
+      slackMs: null, responseMs: k.responseMs, revisions: k.revisions, pauseMs: k.pauseMs, outcome: null };
+    if (k.done) { r.slackMs = k.finishAt && k.effEnd ? k.effEnd - k.finishAt : null; r.outcome = k.finishAt && k.effEnd ? (k.late ? 'late' : 'ontime') : 'done-nodate'; }
+    else if (task.status === 'Review') r.outcome = 'review';
+    else if (k.late) { r.outcome = 'overdue'; r.slackMs = k.effEnd - (now || new Date()); }
+    else r.outcome = 'open';
+    return r;
+  }
+  /** Ringkasan KPI kategori Request (per orang penerima). */
+  function requestSummary(tasks, range, now) {
+    now = now || new Date();
+    var from = range && range.from, to = range && range.to;
+    var rows = tasks.filter(isRequest).map(function (t) { return { t: t, e: evaluateRequest(t, now) }; }).filter(function (x) {
+      var ref = x.e.finishAt || x.e.plannedEnd || stamp(x.t.startDate);
+      if (!from && !to) return true;
+      if (!ref) return !from;
+      return (!from || ref >= from) && (!to || ref <= to);
+    });
+    var done = rows.filter(function (x) { return isDone(x.t); });
+    var judged = done.filter(function (x) { return x.e.outcome === 'ontime' || x.e.outcome === 'late'; });
+    var resp = rows.filter(function (x) { return x.e.responseMs !== null; });
+    return { rows: rows, total: rows.length, done: done.length,
+      ontime: judged.filter(function (x) { return x.e.outcome === 'ontime'; }).length, late: judged.filter(function (x) { return x.e.outcome === 'late'; }).length,
+      onTimeRate: judged.length ? judged.filter(function (x) { return x.e.outcome === 'ontime'; }).length / judged.length : null,
+      avgResponseMs: resp.length ? resp.reduce(function (a, x) { return a + x.e.responseMs; }, 0) / resp.length : null,
+      firstPassRate: done.length ? done.filter(function (x) { return !x.e.revisions; }).length / done.length : null,
+      overdue: rows.filter(function (x) { return x.e.outcome === 'overdue'; }).length,
+      waiting: rows.filter(function (x) { return !isDone(x.t) && x.e.outcome !== 'overdue'; }).length };
+  }
   function stageOf(t) { var n = Number(t && t.stage); return n >= 1 && n <= 9 ? n : (isDone(t) ? 9 : 1); }
 
   /** Lama jam kerja (ms) di antara a dan b — hanya Senin–Jumat 09:00–18:00 WIB. */
@@ -86,6 +145,7 @@
   function evaluate(task, now) {
     now = now || new Date();
     if (isArticle(task)) return evaluateArticle(task, now);
+    if (isRequest(task)) return evaluateRequest(task, now);
     var s = schedule(task);
     var startedAt = stamp(task.startedAt);
     var doneAt = stamp(task.doneAt);
@@ -145,6 +205,7 @@
     if (task.status === 'Review') return 'review';
     var s = schedule(task);
     if (isArticle(task)) { if (articleKpi(task, now).late) return 'overdue'; }
+    else if (isRequest(task)) { var rk = requestKpi(task, now); if (rk.late) return 'overdue'; if (rk.effEnd) s = { start: s.start, end: rk.effEnd }; }
     else if (s.end && now > s.end && task.status !== 'Recurring') return 'overdue';
     if (s.start && s.end && now >= s.start && now <= s.end) return 'today';
     if (s.end && s.end - now <= 24 * HOUR) return 'today';
@@ -267,7 +328,7 @@
 
   return {
     WORK: WORK, GRACE_MS: GRACE_MS, STAGES: STAGES, REVIEW_STAGES: REVIEW_STAGES, STAGE_STATUS: STAGE_STATUS,
-    isArticle: isArticle, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
+    isArticle: isArticle, isRequest: isRequest, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
     DEFAULT_START: DEFAULT_START, DEFAULT_END: DEFAULT_END, OVERPERFORM_RATIO: OVERPERFORM_RATIO,
     at: at, schedule: schedule, evaluate: evaluate, bucket: bucket, isDone: isDone,
     dueNotifications: dueNotifications, summarize: summarize, byPerson: byPerson,

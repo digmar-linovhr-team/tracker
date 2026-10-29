@@ -713,6 +713,54 @@ it('Dropdown Status di sheet tanpa "Review" (validasi ketat): dilengkapi otomati
   delete sh.validation[sc];
 });
 
+it('Request: buat → klarifikasi (dijeda) → terima → ajukan → pembuat setujui; izin; tidak masuk antrean review admin', () => {
+  const w = post({ action: 'login', username: 'wisnu', password: 'wisnu12345' }).data.token;
+  mails.length = 0;
+  let r = post({ action: 'saveRequest', token: ari, brief: { data: { title: 'Copy landing page reimbursement', body: 'Butuh headline, 3 keunggulan, FAQ.', attachments: [{ label: 'Figma', url: 'https://figma.com/x' }] },
+    assign: { owner: 'wisnu', endDate: '2026-11-06', endTime: '17:00', priority: 'High' } } });
+  assert.ok(r.ok, r.error);
+  const b = r.data.brief, tid = r.data.task.id;
+  assert.strictEqual(b.type, 'Request'); assert.strictEqual(b.status, 'Konfirmasi'); assert.strictEqual(r.data.task.type, 'Request'); assert.strictEqual(r.data.task.owner, 'wisnu');
+  assert.ok(mails.some((m) => m.to === 'wisnu@linovhr.com' && m.subject.startsWith('📨')));
+  // tidak boleh ke diri sendiri; lampiran harus link
+  assert.strictEqual(post({ action: 'saveRequest', token: ari, brief: { data: { title: 'x', body: 'y' }, assign: { owner: 'ari', endDate: '2026-11-06' } } }).ok, false);
+  assert.strictEqual(post({ action: 'saveRequest', token: ari, brief: { data: { title: 'x', body: 'y', attachments: [{ url: 'bukan link' }] }, assign: { owner: 'wisnu', endDate: '2026-11-06' } } }).ok, false);
+  // penerima tidak bisa ubah status biasa; tidak bisa ajukan sebelum terima
+  assert.strictEqual(post({ action: 'updateStatus', token: w, taskId: tid, status: 'On-Progress' }).ok, false);
+  assert.strictEqual(post({ action: 'requestAction', token: w, briefId: b.id, act: 'submit' }).ok, false);
+  // klarifikasi → jawaban + deadline baru
+  r = post({ action: 'requestAction', token: w, briefId: b.id, act: 'message', payload: { text: 'Perlu versi Inggris?' } });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.brief.status, 'Klarifikasi');
+  r = post({ action: 'requestAction', token: ari, briefId: b.id, act: 'message', payload: { text: 'Tidak perlu.', endDate: '2026-11-07', endTime: '12:00' } });
+  assert.strictEqual(r.data.brief.status, 'Konfirmasi'); assert.strictEqual(r.data.task.endDate, '2026-11-07'); assert.strictEqual(r.data.task.endTime, '12:00');
+  // orang lain tidak bisa ikut
+  const adminLess = post({ action: 'requestAction', token: ari, briefId: b.id, act: 'accept' }); assert.strictEqual(adminLess.ok, false);
+  r = post({ action: 'requestAction', token: w, briefId: b.id, act: 'accept' });
+  assert.strictEqual(r.data.brief.status, 'Dikerjakan'); assert.strictEqual(r.data.task.status, 'On-Progress');
+  assert.strictEqual(post({ action: 'requestAction', token: w, briefId: b.id, act: 'submit' }).ok, false, 'butuh hasil kerja');
+  post({ action: 'setResults', token: w, taskId: tid, results: [{ label: 'Copy', url: 'https://docs.google.com/d/1' }] });
+  mails.length = 0;
+  r = post({ action: 'requestAction', token: w, briefId: b.id, act: 'submit' });
+  assert.strictEqual(r.data.brief.status, 'Diajukan'); assert.strictEqual(r.data.task.status, 'Review');
+  assert.ok(mails.some((m) => m.to === 'ari@linovhr.com'), 'pembuat diberi tahu');
+  assert.ok(!post({ action: 'reviewQueue', token: admin }).data.tasks.some((x) => x.id === tid), 'tidak di antrean admin');
+  // penerima tidak bisa menyetujui sendiri; pembuat mengembalikan lalu menyetujui
+  assert.strictEqual(post({ action: 'requestAction', token: w, briefId: b.id, act: 'approve' }).ok, false);
+  r = post({ action: 'requestAction', token: ari, briefId: b.id, act: 'return', payload: { text: 'Headline terlalu panjang' } });
+  assert.strictEqual(r.data.brief.status, 'Dikembalikan'); assert.ok(/Headline terlalu panjang/.test(r.data.task.notes));
+  post({ action: 'requestAction', token: w, briefId: b.id, act: 'submit' });
+  r = post({ action: 'requestAction', token: ari, briefId: b.id, act: 'approve' });
+  assert.strictEqual(r.data.brief.status, 'Selesai'); assert.strictEqual(r.data.task.status, 'Done');
+  const ev = r.data.task.stageLog.map((x) => x.e);
+  assert.deepStrictEqual(Array.from(ev), ['created', 'clar', 'ans', 'acc', 'sub', 'ret', 'sub', 'done']);
+  const full = post({ action: 'getBrief', token: w, briefId: b.id }).data.brief;
+  assert.ok(full.data.thread.length >= 5); assert.strictEqual(full.data.attachments[0].url, 'https://figma.com/x');
+  const sum = post({ action: 'briefs', token: ari }).data.briefs.find((x) => x.id === b.id);
+  assert.strictEqual(sum.data.nAttach, 1); assert.strictEqual(sum.data.body, undefined);
+  // sudah selesai: pembuat tidak bisa ubah
+  assert.strictEqual(post({ action: 'saveRequest', token: ari, brief: { id: b.id, data: full.data } }).ok, false);
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

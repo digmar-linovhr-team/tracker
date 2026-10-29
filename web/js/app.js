@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.20.1';
+const CSS_VERSION = '2.21.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -248,15 +248,15 @@ function renderNav() {
   items.push(['dashboard', 'Dashboard', 'Laporan']);
   items.push(['team', 'Tim', 'Tim']);
   items.push(['org', 'Struktur', 'Struktur']);
-  items.push(['briefs', 'Brief', 'Brief', S.socNew ? S.socNew.size : 0, 'good']);
+  items.push(['briefs', 'Brief', 'Brief', (S.socNew ? S.socNew.size : 0) + (typeof reqTodoCount === 'function' ? reqTodoCount() : 0), 'good']);
   if (admin) {
-    const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review').length : 0;
+    const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review' && !L.isRequest(t)).length : 0;
     items.push(['sect', 'Admin'], ['review', 'Review', 'Review', reviews, 'info'], ['tasks', 'Semua Task', 'Semua'], ['projects', 'Project', 'Project', 0, '', 'secondary'], ['users', 'Pengguna', 'Akun', 0, '', 'secondary']);
   }
   items.push(['sect', ''], ['settings', 'Pengaturan', 'Setelan']);
   $('#nav').innerHTML = items.map((i) => i[0] === 'sect'
     ? `<div class="sect">${esc(i[1])}</div>`
-    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : i[4] === 'good' ? 'Konten sosmed baru disetujui' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
+    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : i[4] === 'good' ? 'Ada request atau konten yang perlu Anda lihat' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
   $$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
 }
 
@@ -282,7 +282,7 @@ async function loadData(quiet) {
       all = await api.call('getAll');
       mine = { tasks: all.tasks.filter((t) => t.owner === S.user.username), projects: all.projects };
       if (S.user.sheetName) api.feedTasks(mine.tasks);
-      api.feedReviews(all.tasks.filter((t) => t.status === 'Review'));
+      api.feedReviews(all.tasks.filter((t) => t.status === 'Review' && !L.isRequest(t)));
     } else {
       mine = S.user.sheetName ? await api.call('myTasks') : { tasks: [], projects: [] };
     }
@@ -421,6 +421,10 @@ function viewMine() {
 
 function banners() {
   const out = [];
+  const todo = typeof reqTodoCount === 'function' ? (S.briefs || []).filter((b) => b.type === 'Request' && b.createdBy === S.user.username && reqTodo(b)) : [];
+  if (todo.length) {
+    out.push(`<div class="banner"><div><b>${todo.length} request Anda perlu ditindaklanjuti</b> — ${esc(todo.slice(0, 2).map((b) => reqTodo(b) + ': ' + reqTitle(b)).join(' · '))}</div><button class="btn sm primary" id="go-req">Buka</button></div>`);
+  }
   if (S.user.sheetName && !S.user.email) {
     out.push(`<div class="banner"><div><b>Masukkan email Anda</b> agar task otomatis masuk Google Calendar dan pengingat deadline dikirim ke email.</div><button class="btn sm primary" data-go="settings">Isi email</button></div>`);
   }
@@ -432,6 +436,7 @@ function banners() {
 
 function bindBanners() {
   $$('[data-go]').forEach((b) => b.onclick = () => go(b.dataset.go));
+  const rq = $('#go-req'); if (rq) rq.onclick = () => { S.bf.kind = 'request'; S.bf.tab = 'todo'; go('briefs'); };
   const n = $('#ask-notif');
   if (n) n.onclick = async () => { const p = await api.requestNotifications(); S.cfg = await api.config(); toast(p === 'granted' ? 'Notifikasi aktif' : 'Notifikasi tidak diizinkan', p !== 'granted'); go(S.view); };
 }
@@ -475,7 +480,7 @@ function whenInfo(t) {
   }
   if (t.status === 'Review') {
     const late = e.reviewAt && end && e.reviewAt > end;
-    return { cls: late ? 'warn' : 'review', main: 'Menunggu review', sub: e.reviewAt ? 'Diajukan ' + shortDT(e.reviewAt) + (late ? ' · lewat deadline' : '') : '' };
+    return { cls: late ? 'warn' : 'review', main: L.isRequest(t) ? 'Menunggu persetujuan' : 'Menunggu review', sub: e.reviewAt ? 'Diajukan ' + shortDT(e.reviewAt) + (late ? ' · lewat deadline' : '') : '' };
   }
   if (t.status === 'Recurring') return { cls: 'muted', main: 'Rutin', sub: '' };
   if (L.isArticle(t)) {
@@ -503,6 +508,11 @@ const HOURGLASS_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="non
 function tickHtml(t, readonly) {
   const id = esc(t.id), admin = S.user.role === 'admin', done = L.isDone(t);
   if (!t.id) return '<span class="tick disabled"></span>';
+  if (L.isRequest(t)) {   // request disetujui pembuatnya lewat halaman request
+    if (done) return `<span class="tick on" title="Disetujui pembuat request">${CHECK_SVG}</span>`;
+    if (t.status === 'Review') return `<span class="tick review" title="Menunggu persetujuan pembuat request">${HOURGLASS_SVG}</span>`;
+    return '<span class="tick ro" title="Request"></span>';
+  }
   if (L.isArticle(t)) {
     const st = L.stageOf(t);
     if (st >= 9) return `<span class="tick on" title="Selesai">${CHECK_SVG}</span>`;
@@ -670,7 +680,7 @@ function taskRow(t, opts) {
   const prio = String(t.priority || '').toLowerCase();
   const admin = S.user.role === 'admin';
   const art = L.isArticle(t);
-  const canStart = !art && !readonly && !done && ['Backlog', 'Hold'].includes(t.status);
+  const canStart = !art && !L.isRequest(t) && !readonly && !done && ['Backlog', 'Hold'].includes(t.status);
   const options = admin ? STATUSES : STATUSES.filter((x) => x !== 'Done');
   const staticPill = `<span class="pill ${ST_CLASS[t.status] || 'st-backlog'}">${esc(t.status)}</span>`;
   const statusSel = readonly || (done && !admin) ? staticPill
@@ -695,7 +705,7 @@ function taskRow(t, opts) {
     </div>
     <div class="t-ctrl">
       ${canStart && t.id ? `<button class="btn sm start" data-st="On-Progress" data-id="${id}">Mulai</button>` : ''}
-      ${!t.id ? '<span class="muted small">Task ID kosong</span>' : String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : art ? artActions(t, readonly) : statusSel}
+      ${!t.id ? '<span class="muted small">Task ID kosong</span>' : String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : art ? artActions(t, readonly) : L.isRequest(t) ? reqTaskCtrl(t, readonly) : statusSel}
     </div>
   </div>`;
 }
@@ -710,6 +720,7 @@ function bindTaskRows(root) {
   });
   $$('[data-res]', root).forEach((b) => b.onclick = () => resultsModal(findTask(b.dataset.res)));
   bindBriefChips(root);
+  bindReqRows(root);
   bindArtActions(root);
 }
 
@@ -793,6 +804,8 @@ function viewDashboard() {
   f.persons = f.persons.filter((x) => users.some((u) => u.username === x));
   if (admin && f.persons.length) { const p = new Set(f.persons); tasks = tasks.filter((t) => p.has(t.owner)); }
   const range = periodRange(f.period);
+  const reqTasks = tasks;
+  tasks = tasks.filter((t) => !L.isRequest(t));   // KPI request punya kategori sendiri
   const sum = L.summarize(tasks, range);
   const team = admin && f.persons.length !== 1;
 
@@ -821,6 +834,7 @@ function viewDashboard() {
       <div class="card"><div class="card-h"><h2>Distribusi hasil</h2></div><div class="card-b" id="dist"></div></div>
     </div>
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
+    ${requestKpiCard(reqTasks, range, team)}
     <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="hist"></div></div>
     <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.<br><b>Task artikel</b>: dihitung dengan jam kerja (Senin–Jumat ${pad(L.WORK.startH)}:00–${L.WORK.endH}:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, dikurangi lama review admin. <b>Terlambat</b> bila waktu kerja melebihi jatah (jadwal mulai → deadline) lebih dari ${L.GRACE_MS / 36e5} jam kerja.</p>`;
 
@@ -1179,7 +1193,7 @@ function dupBanner() {
   return `<div class="banner warn"><div><b>${d.length} Task ID ganda</b> — ada baris task yang disalin di spreadsheet, sehingga review/status bisa mengenai baris yang salah. Hapus baris salinannya di spreadsheet (jalankan menu <b>Setup</b> untuk melihat lokasinya).<br><span class="small">${esc([...new Set(names)].slice(0, 6).join(' · '))}</span></div></div>`;
 }
 function viewReview() {
-  const list = S.all.tasks.filter((t) => t.status === 'Review').sort((a, b) => new Date(a.reviewAt || 0) - new Date(b.reviewAt || 0));
+  const list = S.all.tasks.filter((t) => t.status === 'Review' && !L.isRequest(t)).sort((a, b) => new Date(a.reviewAt || 0) - new Date(b.reviewAt || 0));
   if (!list.length) {
     $('#view').innerHTML = dupBanner() + '<div class="card empty"><b>Tidak ada task yang menunggu review</b>Pengajuan baru dari anggota akan muncul di sini, dan Anda akan diberi tahu lewat notifikasi & email.</div>';
     return;
@@ -1405,8 +1419,8 @@ function renderTaskTable() {
   });
 }
 
-const TYPE_HINT = { 'Non-artikel': 'Alur biasa: Mulai → Ajukan review → Done.', Artikel: 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.', Sosmed: 'Konten sosmed: alur biasa (Mulai → Ajukan review → Done). Brief-nya dibuat dari menu Brief › Sosmed.' };
-const taskType = (t) => L.isArticle(t) ? 'Artikel' : t && t.type === 'Sosmed' ? 'Sosmed' : 'Non-artikel';
+const TYPE_HINT = { 'Non-artikel': 'Alur biasa: Mulai → Ajukan review → Done.', Artikel: 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.', Sosmed: 'Konten sosmed: alur biasa (Mulai → Ajukan review → Done). Brief-nya dibuat dari menu Brief › Sosmed.', Request: 'Task dari menu Brief › Request: penerima menerima/klarifikasi → mengajukan hasil → pembuat request menyetujui.' };
+const taskType = (t) => L.isArticle(t) ? 'Artikel' : t && (t.type === 'Sosmed' || t.type === 'Request') ? t.type : 'Non-artikel';
 function taskModal(t, prefill) {
   const all = S.all, edit = !!t && !prefill;
   t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '18:00', priority: 'Medium', status: 'Backlog' };
@@ -1754,6 +1768,7 @@ function viewSettings() {
     </div></div>`}
     <p class="def">Project Tracker v${esc(c.version)}</p>`;
   $$('[data-go]').forEach((b) => b.onclick = () => go(b.dataset.go));
+  const rq = $('#go-req'); if (rq) rq.onclick = () => { S.bf.kind = 'request'; S.bf.tab = 'todo'; go('briefs'); };
   $('#ef').onsubmit = async (e) => {
     e.preventDefault();
     try {

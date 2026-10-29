@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.20.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.21.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -948,4 +948,49 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
   .bdoc-kv dd { margin-bottom: 6px; }
   .bdoc-2col { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .bdoc-h3 { margin-left: 10px; }
+}
+
+/* ---------- Request ---------- */
+.bkind button em.todo { background: var(--bad); color: #fff; }
+.req-todo { display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent); }
+@media (min-width: 761px) { .req-list .bl-head, .req-list .bl-row { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.1fr) 140px 160px; } }
+.rq-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.rq-steps span { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); background: var(--surface); }
+.rq-steps span.d { background: var(--good-soft); color: var(--good); border-color: transparent; }
+.rq-steps span.c { background: var(--accent-soft); color: var(--accent); border-color: var(--brand); font-weight: 600; }
+.rq-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.rq-doc { max-width: none; }
+.rq-body { font-size: 14px; line-height: 1.65; white-space: normal; word-break: break-word; }
+.rq-body a, .rq-msg a { color: var(--accent); }
+.rq-side { padding: 16px; position: sticky; top: 12px; }
+.rq-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--surface-2); margin-bottom: 14px; font-size: 13px; }
+.rq-box > b { font-size: 14px; }
+.rq-box > span { color: var(--text-2); }
+.rq-box.good { background: var(--good-soft); }
+.rq-box.bad { background: var(--bad-soft, var(--warn-soft)); }
+.rq-box.warn { background: var(--warn-soft); }
+.rq-box .field { margin: 0; }
+.rq-row { display: flex; gap: 8px; justify-content: flex-end; }
+.rq-thread-h { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.rq-thread { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+.rq-msg { background: var(--surface-2); border-radius: 10px; padding: 7px 10px; font-size: 13px; }
+.rq-msg.mine { background: var(--accent-soft); }
+.rq-msg span, .rq-sys span { color: var(--muted); font-size: 11px; }
+.rq-msg p { margin: 3px 0 0; word-break: break-word; }
+.rq-sys { font-size: 12px; color: var(--text-2); text-align: center; padding: 2px 6px; }
+.rq-send { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+.rq-send textarea { flex: 1; }
+.rq-att { display: inline-flex; align-items: center; }
+.tiles-in { margin-bottom: 0; }
+@media (max-width: 900px) {
+  .rq-grid { grid-template-columns: minmax(0, 1fr); }
+  .rq-side { position: static; order: -1; }
+}
+@media (max-width: 760px) {
+  .bkind { gap: 6px; }
+  .bkind button { flex: 1 1 0; min-width: 0; padding: 8px 6px; gap: 5px; font-size: 13px; }
+  .bkind button svg { flex: none; }
+  .bkind button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #rqf .link-r { grid-template-columns: minmax(0, 1fr); }
+  .rq-send { flex-direction: column; align-items: stretch; }
 }

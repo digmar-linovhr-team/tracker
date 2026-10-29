@@ -8,7 +8,8 @@ const MIN_COMPETITORS = 2;
 
 // ---------- data & util ----------
 const isSocial = (b) => !!b && b.type === 'Sosmed';
-const bKw = (b) => isSocial(b) ? ((b.data && b.data.title) || b.title || '') : (b && ((b.data && b.data.kwMain) || b.keyword)) || '';
+const isArtBrief = (b) => !!b && b.type !== 'Sosmed' && b.type !== 'Request';
+const bKw = (b) => b && b.type === 'Request' ? ((b.data && b.data.title) || b.title || '') : isSocial(b) ? ((b.data && b.data.title) || b.title || '') : (b && ((b.data && b.data.kwMain) || b.keyword)) || '';
 const bTitle = (b) => isSocial(b) ? ((b.data && b.data.format) || b.keyword || '') : (b && ((b.data && b.data.h1) || b.title)) || '';
 function allTasksForBrief() {
   if (S.all) return S.all.tasks;
@@ -19,6 +20,7 @@ function briefOf(taskId) { return (S.briefs || []).find((b) => b.taskId === task
 function briefTask(b) { return allTasksForBrief().find((t) => t.id === b.taskId) || findTask(b.taskId) || null; }
 function canEditBrief(b) {
   if (isSocial(b)) return canEditSocial(b);
+  if (b && b.type === 'Request') return S.user.role === 'admin' || b.createdBy === S.user.username;
   if (S.user.role === 'admin') return true;
   const t = briefTask(b);
   if (!t || t.owner !== S.user.username) return false;
@@ -27,6 +29,7 @@ function canEditBrief(b) {
 /** Status brief mengikuti tahap task artikel. */
 function briefStatus(b) {
   if (isSocial(b)) return socStatus(b);
+  if (b && b.type === 'Request') return reqStatus(b);
   const t = briefTask(b);
   if (!t) return ['Task dihapus', 'muted'];
   if (L.isDone(t)) return ['Selesai', 'good'];
@@ -103,24 +106,26 @@ function viewBriefs() {
   }
   const f = S.bf;
   if (!f.kind) f.kind = 'artikel';
-  const soc = f.kind === 'sosmed';
-  const tabs = soc ? SOC_TABS : [['all', 'Semua'], ['mine', 'Milik saya'], ['Draft', 'Draft'], ['Diajukan', 'Diajukan'], ['Disetujui', 'Disetujui'], ['Selesai', 'Selesai']];
+  const soc = f.kind === 'sosmed', rq = f.kind === 'request';
+  const tabs = rq ? REQ_TABS : soc ? SOC_TABS : [['all', 'Semua'], ['mine', 'Milik saya'], ['Draft', 'Draft'], ['Diajukan', 'Diajukan'], ['Disetujui', 'Disetujui'], ['Selesai', 'Selesai']];
   if (!tabs.some(([k]) => k === f.tab)) f.tab = 'all';
-  const nArt = (S.briefs || []).filter((b) => !isSocial(b)).length, nSoc = (S.briefs || []).length - nArt;
+  const nArt = (S.briefs || []).filter(isArtBrief).length, nSoc = (S.briefs || []).filter(isSocial).length, nReq = (S.briefs || []).filter((b) => b.type === 'Request').length, nTodo = reqTodoCount();
   $('#view').innerHTML = `
     <div class="bkind" role="tablist" aria-label="Jenis brief">
-      <button role="tab" data-kind="artikel" aria-selected="${!soc}" class="${soc ? '' : 'on'}">${ICONS.briefs}<span>Artikel</span><em>${nArt}</em></button>
+      <button role="tab" data-kind="artikel" aria-selected="${!soc && !rq}" class="${soc || rq ? '' : 'on'}">${ICONS.briefs}<span>Artikel</span><em>${nArt}</em></button>
       <button role="tab" data-kind="sosmed" aria-selected="${soc}" class="${soc ? 'on' : ''}">${SOC_ICON}<span>Sosmed</span><em>${nSoc}</em></button>
+      <button role="tab" data-kind="request" aria-selected="${rq}" class="${rq ? 'on' : ''}">${REQ_ICON}<span>Request</span><em class="${nTodo ? 'todo' : ''}" title="${nTodo ? nTodo + ' perlu tindakan Anda' : ''}">${nTodo || nReq}</em></button>
     </div>
     <div class="toolbar">
       <div class="seg" id="bftab">${tabs.map(([k, l]) => `<button data-k="${k}" class="${f.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <div class="fbar fbar-sm"><label class="fb-search">${FB.search}<input type="search" id="bfq" placeholder="${soc ? 'Cari judul, orang, platform…' : 'Cari keyword, judul, task…'}" value="${esc(f.q)}"></label></div>
+      <div class="fbar fbar-sm"><label class="fb-search">${FB.search}<input type="search" id="bfq" placeholder="${rq ? 'Cari judul atau orang…' : soc ? 'Cari judul, orang, platform…' : 'Cari keyword, judul, task…'}" value="${esc(f.q)}"></label></div>
       <span class="spacer"></span>
-      ${soc ? '<button class="btn primary" id="newsoc">+ Brief sosmed</button>' : eligibleTasks().length ? '<button class="btn primary" id="newbrief">+ Brief baru</button>' : ''}
+      ${rq ? '<button class="btn primary" id="newreq">+ Request</button>' : soc ? '<button class="btn primary" id="newsoc">+ Brief sosmed</button>' : eligibleTasks().length ? '<button class="btn primary" id="newbrief">+ Brief baru</button>' : ''}
     </div>
     <div id="blist"></div>`;
   $$('.bkind button').forEach((b) => b.onclick = () => { f.kind = b.dataset.kind; f.tab = 'all'; viewBriefs(); });
   if ($('#newsoc')) $('#newsoc').onclick = () => newSocialBrief();
+  if ($('#newreq')) $('#newreq').onclick = () => requestModal();
   $$('#bftab button').forEach((b) => b.onclick = () => { f.tab = b.dataset.k; renderBriefList(); $$('#bftab button').forEach((x) => x.classList.toggle('on', x === b)); });
   $('#bfq').oninput = (e) => { f.q = e.target.value; renderBriefList(); };
   if ($('#newbrief')) $('#newbrief').onclick = () => newBriefModal();
@@ -129,9 +134,10 @@ function viewBriefs() {
 
 function renderBriefList() {
   if (S.bf.kind === 'sosmed') return renderSocialList();
+  if (S.bf.kind === 'request') return renderRequestList();
   const f = S.bf, q = f.q.trim().toLowerCase();
   let list = (S.briefs || []).filter((b) => {
-    if (isSocial(b)) return false;
+    if (!isArtBrief(b)) return false;
     const t = briefTask(b), st = briefStatus(b)[0];
     if (f.tab === 'mine' && !(t && t.owner === S.user.username) && b.createdBy !== S.user.username) return false;
     if (f.tab === 'Draft' && !['Draft', 'Dikembalikan'].includes(st)) return false;
@@ -142,7 +148,7 @@ function renderBriefList() {
   const order = { Diajukan: 0, Dikembalikan: 1, Draft: 2, Disetujui: 3, Selesai: 4, 'Task dihapus': 5 };
   list.sort((a, b) => (order[briefStatus(a)[0]] - order[briefStatus(b)[0]]) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   if (!list.length) {
-    $('#blist').innerHTML = `<div class="card empty"><b>${(S.briefs || []).some((b) => !isSocial(b)) ? 'Tidak ada brief yang cocok' : 'Belum ada brief'}</b>${eligibleTasks().length ? 'Buat brief dari tombol “+ Brief baru” di kanan atas, atau tombol “+ Buat brief” di task artikel.' : 'Brief dibuat untuk task berjenis Artikel.'}</div>`;
+    $('#blist').innerHTML = `<div class="card empty"><b>${(S.briefs || []).some(isArtBrief) ? 'Tidak ada brief yang cocok' : 'Belum ada brief'}</b>${eligibleTasks().length ? 'Buat brief dari tombol “+ Brief baru” di kanan atas, atau tombol “+ Buat brief” di task artikel.' : 'Brief dibuat untuk task berjenis Artikel.'}</div>`;
     return;
   }
   $('#blist').innerHTML = `<div class="card tlist brief-list">
@@ -248,7 +254,7 @@ async function openBrief(id) {
   }
   if (!S.bEdit || S.bEdit.id !== id || !S.bEdit.dirty) {
     const copy = JSON.parse(JSON.stringify(b));
-    copy.data = isSocial(copy) ? normSocial(copy.data) : normBrief(copy.data);
+    copy.data = copy.type === 'Request' ? normRequest(copy.data) : isSocial(copy) ? normSocial(copy.data) : normBrief(copy.data);
     S.bEdit = { id, b: copy, dirty: false, saving: false, savedAt: b.updatedAt ? new Date(b.updatedAt) : null, error: '' };
   }
   go('brief');
@@ -258,6 +264,7 @@ function viewBrief() {
   const E = S.bEdit;
   if (!E) return go('briefs');
   if (isSocial(E.b)) return viewSocial();
+  if (E.b.type === 'Request') return viewRequest();
   const b = E.b, d = b.data, task = briefTask(b), edit = canEditBrief(b);
   const ro = edit ? '' : 'disabled';
   $('#view-title').textContent = bKw(b) || 'Brief';
@@ -604,6 +611,7 @@ window.addEventListener('beforeunload', (e) => { if (S.bEdit && (S.bEdit.dirty |
 function briefChips(t, readonly) {
   const b = briefOf(t.id);
   if (!b) return '';   // brief baru dibuat lewat tombol tahap "+ Buat brief" di task artikel
+  if (b.type === 'Request') return `<button type="button" class="res-chip brief-chip soc" data-openbrief="${esc(b.id)}" title="Buka request: ${esc(bKw(b))}"><span class="res-ico">${REQ_ICON}</span><span class="res-lbl">Request dari ${esc(nameOf(b.createdBy))}</span></button>`;
   if (isSocial(b)) return `<button type="button" class="res-chip brief-chip soc" data-openbrief="${esc(b.id)}" title="Buka brief sosmed: ${esc(bKw(b))}"><span class="res-ico">${SOC_ICON}</span><span class="res-lbl">Brief sosmed · ${esc(bTitle(b) || 'Carousel')}</span></button>`;
   return `<button type="button" class="res-chip brief-chip" data-openbrief="${esc(b.id)}" title="Buka brief: ${esc(bKw(b))}"><span class="res-ico">${ICONS.briefs}</span><span class="res-lbl">Brief${bKw(b) ? ' · ' + esc(bKw(b)) : ''}</span></button>`;
 }

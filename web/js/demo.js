@@ -179,7 +179,67 @@ function build() {
     assign: { owner: '', endDate: '', endTime: '18:00', priority: 'Medium', code: '' } }, stamp(0, 8, 0));
   soc('BSDEMO4', 'Infografis alur reimbursement', 'ari', { format: 'Carousel', title: 'Infografis alur reimbursement', platforms: ['LinkedIn'], sizes: ['1:1 · 1080×1080'],
     slides: [{ text: 'Alur reimbursement 5 langkah', visual: 'Infografis vertikal 5 langkah', refs: [''] }], caption: 'Alur reimbursement yang rapi dalam 5 langkah.' }, stamp(-8, 8, 0));
+  // contoh request: Nadia (desain) meminta Fahmi membuat copy landing page
+  const rqT = { id: 'TDEMORQ1', owner: 'fahmi', ownerName: 'Fahmi', sheet: 'Fahmi', row: 99, code: '', task: 'Copy landing page modul Reimbursement', type: 'Request',
+    startDate: iso(addDays(today, -1)), endDate: iso(addDays(today, 3)), startRaw: '', endRaw: '', startTime: '09:00', endTime: '17:00', status: 'Backlog', priority: 'High',
+    startedAt: '', doneAt: '', reviewAt: '', notes: '', results: [], resultNote: '', stage: 0,
+    stageLog: [{ e: 'created', t: stamp(-1, 10, 0) }, { e: 'clar', t: stamp(-1, 11, 30) }] };
+  tasks.push(rqT);
+  briefs.push({ id: 'RQDEMO1', taskId: rqT.id, owner: 'fahmi', createdBy: 'nadia', type: 'Request', status: 'Klarifikasi', docUrl: '', keyword: '', title: rqT.task,
+    createdAt: stamp(-1, 10, 0), updatedAt: stamp(-1, 11, 30), updatedBy: 'fahmi', statusAt: stamp(-1, 11, 30),
+    data: { v: 1, title: rqT.task, body: 'Copy untuk halaman /fitur/reimbursement versi baru. Target: HR manager perusahaan 100–500 karyawan. Nada profesional, singkat.\n\nYang dibutuhkan:\n- Headline + subheadline (maks 12 kata)\n- 3 keunggulan dengan ikon\n- FAQ 4 pertanyaan\n- CTA "Coba demo gratis"\n\nDesain sudah ada di Figma, tinggal isi teks.',
+      attachments: [{ label: 'Desain Figma', url: 'https://www.figma.com/file/demo-reimb-lp' }, { label: 'Referensi kompetitor', url: 'https://www.talenta.co/fitur/reimbursement/' }],
+      thread: [{ by: 'fahmi', name: 'Fahmi', t: stamp(-1, 11, 30), text: 'Apakah perlu versi bahasa Inggris juga? FAQ boleh ambil dari artikel reimbursement?' }],
+      assign: { owner: 'fahmi', endDate: rqT.endDate, endTime: '17:00', priority: 'High', code: '' } } });
   return { projects, tasks, users, briefs };
+}
+const REQ_TS = { Konfirmasi: 'Backlog', Klarifikasi: 'Backlog', Dikerjakan: 'On-Progress', Dikembalikan: 'On-Progress', Diajukan: 'Review', Selesai: 'Done' };
+function reqLog(t, e) { t.stageLog = (t.stageLog || []).concat({ e, t: new Date().toISOString() }); }
+function saveReq(s, me, br) {
+  const d = br.data || {}, title = String(d.title || '').trim(), now = new Date().toISOString(), admin = me.role === 'admin';
+  let cur = br.id && s.briefs.find((x) => x.id === br.id);
+  if (cur && !admin && cur.createdBy !== me.username) throw new Error('Hanya pembuat request dan admin yang bisa mengubah request ini.');
+  if (!title) throw new Error('Isi judul request.');
+  if (!String(d.body || '').trim()) throw new Error('Tuliskan kebutuhan request.');
+  let task = cur && s.tasks.find((x) => x.id === cur.taskId), newOwner = null;
+  const a = br.assign;
+  if (!cur && !a) throw new Error('Pilih penerima request.');
+  if (a) {
+    const owner = s.users.find((u) => u.username === a.owner && u.sheetName);
+    if (!owner) throw new Error('Pilih penerima request.');
+    if (owner.username === (cur ? cur.createdBy : me.username)) throw new Error('Request tidak bisa ditujukan ke pembuatnya sendiri.');
+    if (!task) { task = { id: 'TDEMO' + Date.now(), startDate: iso(new Date()), startTime: '09:00', status: 'Backlog', startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', notes: '', type: 'Request', stageLog: [{ e: 'created', t: now }] }; s.tasks.push(task); }
+    if (task.owner !== owner.username) newOwner = owner;
+    Object.assign(task, { owner: owner.username, ownerName: owner.name, sheet: owner.name, task: title, code: a.code || '', endDate: a.endDate, endTime: a.endTime || '18:00', priority: a.priority || 'Medium' });
+  } else if (task) task.task = title;
+  const thread = cur ? (cur.data.thread || []) : [];
+  if (!cur) { cur = { id: 'RQDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '', type: 'Request', status: 'Konfirmasi', statusAt: now }; s.briefs.push(cur); }
+  else if (newOwner) { cur.status = 'Konfirmasi'; task.status = 'Backlog'; reqLog(task, 'created'); thread.push({ by: me.username, name: me.name, t: now, text: 'Request dialihkan ke ' + newOwner.name + '.', sys: true }); }
+  Object.assign(cur, { taskId: task.id, owner: task.owner, title, keyword: '', data: { v: 1, title, body: d.body, attachments: d.attachments || [], thread, assign: a || (cur.data && cur.data.assign) }, updatedAt: now, updatedBy: me.username });
+  return { brief: cur, task };
+}
+function reqAction(s, me, id, act, p) {
+  p = p || {};
+  const b = s.briefs.find((x) => x.id === id); if (!b) throw new Error('Request tidak ditemukan');
+  const t = s.tasks.find((x) => x.id === b.taskId); if (!t) throw new Error('Task request tidak ditemukan');
+  const admin = me.role === 'admin', isOwner = t.owner === me.username, isCreator = b.createdBy === me.username, now = new Date().toISOString();
+  const st = b.status; let next = st; const text = String(p.text || '').trim();
+  const say = (m, sys) => b.data.thread.push({ by: me.username, name: me.name, t: now, text: m, sys: !!sys });
+  const need = (ok, m) => { if (!ok) throw new Error(m); };
+  if (act === 'message') {
+    need(text, 'Tulis pesannya dulu.'); need(isOwner || isCreator || admin, 'Tidak diizinkan.'); say(text);
+    if (isOwner && st === 'Konfirmasi') { next = 'Klarifikasi'; reqLog(t, 'clar'); }
+    else if ((isCreator || admin) && !isOwner && st === 'Klarifikasi') { next = 'Konfirmasi'; reqLog(t, 'ans'); if (p.endDate) { t.endDate = p.endDate; t.endTime = p.endTime || t.endTime; say('Deadline diubah ke ' + p.endDate + ' ' + t.endTime + '.', true); } }
+  } else if (act === 'accept') { need(isOwner || admin, 'Hanya penerima yang bisa menerima request.'); need(st === 'Konfirmasi' || st === 'Klarifikasi', 'Request ini sudah diterima.'); next = 'Dikerjakan'; say('Request diterima dan mulai dikerjakan.', true); reqLog(t, 'acc'); if (!t.startedAt) t.startedAt = now; }
+  else if (act === 'submit') { need(isOwner || admin, 'Hanya penerima yang bisa mengajukan hasil.'); need(st === 'Dikerjakan' || st === 'Dikembalikan', 'Terima request dulu.'); need((t.results || []).length || String(t.resultNote || '').trim(), 'Tambahkan hasil kerja (link atau keterangan) sebelum mengajukan.'); next = 'Diajukan'; say('Hasil diajukan untuk disetujui.', true); reqLog(t, 'sub'); t.reviewAt = now; }
+  else if (act === 'approve' || act === 'return') {
+    need(isCreator || admin, 'Hanya pembuat request (atau admin) yang bisa menyetujui hasilnya.'); need(st === 'Diajukan', 'Tidak ada hasil yang menunggu persetujuan. Data dimuat ulang.');
+    if (act === 'approve') { next = 'Selesai'; say('Hasil disetujui. Request selesai.', true); reqLog(t, 'done'); t.doneAt = now; }
+    else { next = 'Dikembalikan'; say('Dikembalikan untuk diperbaiki' + (text ? ': ' + text : '.'), true); reqLog(t, 'ret'); t.reviewAt = ''; }
+  } else throw new Error('Aksi request tidak dikenal');
+  if (next !== st) { b.status = next; b.statusAt = now; }
+  t.status = REQ_TS[b.status]; b.updatedAt = now; b.updatedBy = me.username;
+  return { brief: b, task: t };
 }
 
 let db = null;
@@ -191,6 +251,9 @@ function briefSums(s) {
   const f = (x) => String(x == null ? '' : x).trim() !== '';
   return s.briefs.map((b) => { const d = b.data || {};
     const nm = (u) => ((s.users || []).find((x) => x.username === u) || {}).name || u || '';
+    if (b.type === 'Request') { const th = d.thread || [], last = th[th.length - 1];
+      return Object.assign({}, b, { summary: true, ownerName: nm(b.owner), createdByName: nm(b.createdBy),
+        data: { title: d.title || '', nAttach: (d.attachments || []).length, nMsg: th.length, last: last ? { by: last.by, t: last.t, sys: !!last.sys } : null, assign: d.assign || null } }); }
     if (b.type === 'Sosmed') return Object.assign({}, b, { summary: true, ownerName: nm(b.owner), createdByName: nm(b.createdBy), data: { format: d.format || 'Carousel', title: d.title || '', platforms: d.platforms || [], sizes: d.sizes || [],
       nSlides: (d.slides || []).length, nScenes: (d.scenes || []).length, dur: (d.scenes || []).reduce((a, x) => a + (Number(x && x.dur) || 0), 0), assign: d.assign || null } });
     return Object.assign({}, b, { summary: true, data: { kwMain: d.kwMain || '', h1: d.h1 || '', contentType: d.contentType || '', wordEst: d.wordEst || '', ctaPage: d.ctaPage || '',
@@ -295,10 +358,12 @@ function handle(action, b, session) {
       return { brief: cur };
     }
     case 'saveSocialBrief': return saveSocial(s, me, b.brief || {});
+    case 'saveRequest': return saveReq(s, me, b.brief || {});
+    case 'requestAction': return reqAction(s, me, b.briefId, b.act, b.payload);
     case 'deleteBrief': {
       const cur = s.briefs.find((x) => x.id === b.briefId);
       let taskDeleted = false;
-      if (cur && cur.type === 'Sosmed') {
+      if (cur && (cur.type === 'Sosmed' || cur.type === 'Request')) {
         if (me.role !== 'admin' && cur.createdBy !== me.username) throw new Error('Hanya pembuat brief dan admin yang bisa menghapus brief ini.');
         const t = cur.taskId && s.tasks.find((x) => x.id === cur.taskId);
         if (t && t.status === 'Backlog' && !t.startedAt) { s.tasks = s.tasks.filter((x) => x !== t); taskDeleted = true; }
