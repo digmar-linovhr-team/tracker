@@ -53,6 +53,7 @@ const ss = {
 const pad = (n) => String(n).padStart(2, '0');
 const props = {}; const cache = {};
 const logs = [];
+const docs = {}; let docSeq = 0;
 const events = {}; let evSeq = 0; const mails = []; const triggers = [];
 const mkEvent = (title, s, e, o) => { const id = 'ev' + (++evSeq) + '@google.com'; events[id] = { title, start: s, end: e, guests: o.guests, desc: o.description }; return { getId: () => id, removeAllReminders() {}, deleteEvent: () => { delete events[id]; } }; };
 const calendar = { getId: () => 'cal1', createEvent: mkEvent, getEventById: (id) => events[id] ? { deleteEvent: () => { delete events[id]; } } : null };
@@ -67,6 +68,20 @@ const sandbox = {
   Logger: { log: (x) => logs.push(x) },
   CalendarApp: { getCalendarById: (id) => (id === 'cal1' ? calendar : null), createCalendar: () => calendar, Color: { TEAL: 'teal' } },
   MailApp: { sendEmail: (m) => mails.push(m) },
+  DocumentApp: (() => {
+    const mkBody = (doc) => { const p = () => ({ setHeading() { return this; }, editAsText() { return { setBold() {} }; } });
+      return { clear() { doc.text = []; }, appendParagraph(t) { doc.text.push(t); return p(); }, appendListItem(t) { doc.text.push('• ' + t); return p(); },
+        appendTable(rows) { doc.text.push(rows.map((r) => r.join(' | ')).join('\n')); return { getCell: () => ({ editAsText: () => ({ setBold() {} }) }) }; } }; };
+    const mk = (name) => { const doc = { id: 'doc' + (++docSeq), name, text: [] }; docs[doc.id] = doc;
+      return { getId: () => doc.id, getUrl: () => 'https://docs.google.com/document/d/' + doc.id + '/edit', setName(n) { doc.name = n; }, getBody: () => mkBody(doc), saveAndClose() {} }; };
+    return { ParagraphHeading: { TITLE: 1, SUBTITLE: 2, HEADING2: 3 }, create: mk,
+      openByUrl: (u) => { const id = u.split('/d/')[1].split('/')[0]; const doc = docs[id]; if (!doc) throw new Error('no doc');
+        return { getId: () => id, getUrl: () => u, setName(n) { doc.name = n; }, getBody: () => mkBody(doc), saveAndClose() {} }; } };
+  })(),
+  DriveApp: {
+    getFileById: (id) => ({ moveTo() {}, addEditor: (e) => { (docs[id].editors = docs[id].editors || []).push(e); }, getUrl: () => 'u' }),
+    getFolderById: () => ({}), getFoldersByName: () => ({ hasNext: () => false }), createFolder: () => ({ getId: () => 'f1' })
+  },
   ScriptApp: { getProjectTriggers: () => [], deleteTrigger() {}, newTrigger: trigBuilder },
   Session: { getScriptTimeZone: () => 'Asia/Jakarta' },
   Utilities: {
@@ -408,6 +423,57 @@ it('status project mengikuti task: 1 task = cermin; banyak task = Done bila semu
   // hapus task → kembali 1 task (Done)
   post({ action: 'deleteTask', token: admin, taskId: id2 });
   assert.strictEqual(proj('Z1').status, 'Done');
+});
+
+it('Brief: anggota membuat brief untuk task-nya, satu brief per task, izin & konflik', () => {
+  const tasks = post({ action: 'myTasks', token: ari }).data.tasks;
+  const t = tasks.find((x) => x.status !== 'Done');
+  const data = { kwMain: 'reimbursement karyawan', h1: 'Reimbursement Karyawan: Pengertian & Alur', kwSecondary: ['reimbursement adalah'],
+    outline: [{ level: 2, heading: 'Apa itu reimbursement', words: 200, notes: 'definisi' }],
+    competitors: [{ url: 'https://talenta.co/x', words: 1900, strengths: 'form', gaps: 'pajak' }],
+    links: [{ url: '/fitur/reimbursement', anchor: 'aplikasi reimbursement', kind: 'internal' }],
+    faq: ['Apakah reimbursement kena pajak?'], checklist: [{ text: 'Keyword di H1', done: false }, { text: 'Alt text', done: false }] };
+  let r = post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, type: 'artikel', data } });
+  assert.ok(r.ok, r.error);
+  const b = r.data.brief;
+  assert.strictEqual(b.owner, 'ari'); assert.strictEqual(b.keyword, 'reimbursement karyawan'); assert.strictEqual(b.status, 'Draft');
+  assert.deepStrictEqual(b.data.outline, data.outline);
+  // daftar terbaca semua anggota (lewat myTasks/teamTasks/briefs)
+  assert.ok(post({ action: 'myTasks', token: ari }).data.briefs.some((x) => x.id === b.id));
+  assert.ok(post({ action: 'getAll', token: admin }).data.briefs.some((x) => x.id === b.id));
+  // satu task satu brief
+  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, data: {} } }).ok, false);
+  // tidak bisa membuat brief untuk task orang lain
+  const wTask = post({ action: 'getAll', token: admin }).data.tasks.find((x) => x.owner === 'wisnu');
+  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: wTask.id, data: {} } }).ok, false);
+  // update + konflik versi
+  r = post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, status: 'Siap ditulis', baseUpdatedAt: b.updatedAt, data: Object.assign({}, data, { metaTitle: 'x' }) } });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.brief.status, 'Siap ditulis');
+  const b2 = r.data.brief;
+  if (b2.updatedAt !== b.updatedAt) assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, baseUpdatedAt: b.updatedAt, data } }).ok, false, 'versi lama ditolak');
+  // checklist hanya mengubah satu item
+  r = post({ action: 'briefCheck', token: ari, briefId: b.id, index: 1, done: true });
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(r.data.brief.data.checklist.map((c) => c.done), [false, true]);
+  assert.strictEqual(r.data.brief.data.metaTitle, 'x');
+  // terlalu besar ditolak; keyword diawali = aman
+  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, data: { big: 'x'.repeat(46000) } } }).ok, false);
+  // ekspor Google Doc → dibagikan ke pemilik, url tersimpan; ekspor ulang memakai doc yang sama
+  post({ action: 'setMyEmail', token: ari, email: 'ari@linovhr.com' });
+  r = post({ action: 'exportBriefDoc', token: ari, briefId: b.id });
+  assert.ok(r.ok, r.error); assert.ok(/docs\.google\.com\/document/.test(r.data.url));
+  const doc = Object.values(docs)[0];
+  assert.ok(doc.text.some((x) => x.includes('Reimbursement Karyawan: Pengertian & Alur')));
+  assert.ok(doc.text.some((x) => x.includes('talenta.co/x')));
+  assert.ok((doc.editors || []).includes('ari@linovhr.com'));
+  r = post({ action: 'exportBriefDoc', token: ari, briefId: b.id });
+  assert.strictEqual(Object.keys(docs).length, 1, 'ekspor ulang tidak membuat doc baru');
+  // admin bisa menghapus
+  assert.ok(post({ action: 'deleteBrief', token: admin, briefId: b.id }).ok);
+  assert.ok(!post({ action: 'briefs', token: ari }).data.briefs.some((x) => x.id === b.id));
+  // setup tidak menganggap tab Briefs sebagai tab orang
+  logs.length = 0; sandbox.setup();
+  assert.ok(!post({ action: 'getAll', token: admin }).data.users.some((u) => u.username === 'briefs'));
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

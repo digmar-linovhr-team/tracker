@@ -86,7 +86,49 @@ function build() {
   const users = [['admin', 'Administrator', 'admin', '']].concat(people.map((p) => [p[0], p[1], 'member', p[1]]))
     .map((u) => ({ username: u[0], name: u[1], role: u[2], sheetName: u[3], mustChange: false, active: true, email: u[0] === 'wisnu' ? '' : u[0] + '@contoh.com',
       position: { ari: 'SEO Specialist', ammar: 'Content Writer', fahmi: 'Content Writer', winona: 'Content Writer Intern', dany: 'Frontend Developer', arya: 'Frontend Developer', wisnu: 'Digital Marketing Lead' }[u[0]] || '' }));
-  return { projects, tasks, users };
+  const tid = (frag) => (tasks.find((t) => t.task.includes(frag)) || {}).id;
+  const CK = ['Keyword utama ada di H1, 100 kata pertama, minimal 1 H2, dan meta', 'Semua internal link di brief sudah dipasang', 'FAQ sudah ditulis sesuai brief',
+    'Alt text semua gambar sudah diisi', 'Sumber data maksimal 2 tahun terakhir', 'Lolos cek plagiarisme'];
+  const ck = (n) => CK.map((text, i) => ({ text, done: i < n }));
+  const briefs = [
+    { id: 'BRDEMO1', taskId: tid('/reimbursement/'), owner: 'winona', createdBy: 'wisnu', type: 'artikel', status: 'Siap ditulis', docUrl: '',
+      createdAt: stamp(-2, 10, 0), updatedAt: stamp(-1, 9, 0), updatedBy: 'winona',
+      data: { goal: 'Traffic TOFU → leads demo modul Reimbursement', kpi: 'Top 3 "reimbursement karyawan" dalam 90 hari · 1.500 klik/bulan',
+        kwMain: 'reimbursement karyawan', kwVolume: '2.900', kwKd: '35 · sedang', kwSecondary: ['reimbursement adalah', 'contoh form reimbursement', 'alur reimbursement', 'reimbursement medis'],
+        intent: 'Informasional', serpFeature: 'Featured snippet definisi + People Also Ask', cannibalNote: '',
+        competitors: [{ url: 'https://www.talenta.co/blog/reimbursement/', words: 1900, strengths: 'Contoh form siap unduh', gaps: 'Tidak membahas pajak' },
+          { url: 'https://www.gadjian.com/blog/reimbursement/', words: 1400, strengths: 'Alur visual', gaps: 'Tanpa FAQ, data 2022' }],
+        angle: 'Satu-satunya yang membahas perlakuan pajak PPh 21 + template Excel gratis',
+        persona: 'Staf HR/finance UKM 50–300 karyawan, masih memakai Excel', problem: 'Klaim lambat, bukti hilang, rawan double claim',
+        message: 'Reimbursement yang rapi = karyawan puas + audit aman', tone: 'Santai-profesional, menyapa pembaca dengan "Anda"',
+        h1: 'Reimbursement Karyawan: Pengertian, Alur, Pajak, dan Contoh Form', metaTitle: 'Reimbursement Karyawan: Alur & Contoh Form (2026)',
+        metaDesc: 'Pelajari alur reimbursement karyawan, perlakuan pajaknya, dan unduh contoh form gratis.', slug: '/blog/reimbursement/',
+        outline: [{ level: 1, heading: 'Intro', words: 120, notes: 'Hook masalah klaim; keyword di 100 kata pertama' },
+          { level: 2, heading: 'Apa itu reimbursement karyawan', words: 200, notes: 'Definisi 40–50 kata (target snippet)' },
+          { level: 2, heading: 'Jenis reimbursement', words: 350, notes: 'medis · transportasi · operasional' },
+          { level: 3, heading: 'Reimbursement medis', words: 120, notes: 'Plafon, bukti kwitansi' },
+          { level: 2, heading: 'Alur pengajuan reimbursement', words: 300, notes: 'Langkah bernomor + infografik' },
+          { level: 2, heading: 'Perlakuan pajak', words: 300, notes: 'PPh 21, sumber DJP' },
+          { level: 2, heading: 'Contoh form reimbursement', words: 250, notes: 'Tabel + CTA unduh template' },
+          { level: 2, heading: 'Otomasi reimbursement dengan LinovHR', words: 200, notes: 'Fitur, screenshot, CTA demo' },
+          { level: 2, heading: 'FAQ', words: 250, notes: '4 pertanyaan PAA' }],
+        wordMin: 1800, wordMax: 2200,
+        faq: ['Apakah reimbursement kena pajak?', 'Berapa lama proses reimbursement?', 'Apa bedanya reimbursement dan tunjangan?', 'Bukti apa saja yang dibutuhkan?'],
+        schema: ['Article', 'FAQPage', 'BreadcrumbList'],
+        links: [{ url: '/fitur/reimbursement', anchor: 'aplikasi reimbursement', kind: 'internal' }, { url: '/blog/pph-21/', anchor: 'perhitungan PPh 21', kind: 'internal' },
+          { url: 'https://www.pajak.go.id/', anchor: 'ketentuan DJP', kind: 'external' }],
+        visual: 'Featured image, infografik alur, 2 screenshot LinovHR (alt text berisi keyword)', ctaMid: 'Unduh template Excel reimbursement', ctaEnd: 'Jadwalkan demo modul Reimbursement',
+        checklist: ck(4), writerNotes: 'Sertakan tabel perbandingan jenis reimbursement.' } },
+    { id: 'BRDEMO2', taskId: tid('/aplikasi-absensi/'), owner: 'ammar', createdBy: 'ammar', type: 'optimasi', status: 'Draft', docUrl: '',
+      createdAt: stamp(-3, 11, 0), updatedAt: stamp(-1, 15, 0), updatedBy: 'ammar',
+      data: { kwMain: 'aplikasi absensi', kwSecondary: ['aplikasi absensi online', 'absensi karyawan'], intent: 'Komersial', oldUrl: 'https://www.linovhr.com/blog/aplikasi-absensi/',
+        currentPerf: 'Posisi 14, 320 klik/bulan', changes: 'Tambah FAQ, perbarui data 2026', h1: 'Aplikasi Absensi Online Terbaik 2026',
+        outline: [{ level: 1, heading: 'Intro', words: 150, notes: 'Perbarui hook' }], wordMin: 1500, wordMax: 2000, checklist: ck(1), faq: [], links: [], competitors: [], schema: ['Article'] } },
+    { id: 'BRDEMO3', taskId: tid('/hr-analytics/'), owner: 'winona', createdBy: 'winona', type: 'artikel', status: 'Siap ditulis', docUrl: '',
+      createdAt: stamp(-8, 9, 0), updatedAt: stamp(-4, 9, 0), updatedBy: 'winona',
+      data: { kwMain: 'hr analytics', h1: 'HR Analytics: Pengertian dan Cara Menerapkannya', intent: 'Informasional', kwSecondary: [], outline: [], checklist: ck(6), faq: [], links: [], competitors: [], schema: [] } }
+  ].filter((b) => b.taskId).map((b) => Object.assign(b, { keyword: b.data.kwMain || '', title: b.data.h1 || '' }));
+  return { projects, tasks, users, briefs };
 }
 
 let db = null;
@@ -124,8 +166,35 @@ function handle(action, b, session) {
     case 'me': return me;
     case 'changePassword': return { user: me };
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
-    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me };
-    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects };
+    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me, briefs: s.briefs };
+    case 'briefs': return { briefs: s.briefs };
+    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: s.briefs };
+    case 'saveBrief': {
+      const br = b.brief || {};
+      const t = s.tasks.find((x) => x.id === br.taskId && (me.role === 'admin' || x.owner === me.username));
+      if (!t) throw new Error('Task tidak ditemukan');
+      if (s.briefs.some((x) => x.taskId === br.taskId && x.id !== br.id)) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
+      if (JSON.stringify(br.data || {}).length > 45000) throw new Error('Isi brief terlalu panjang');
+      const now = new Date().toISOString();
+      let cur = br.id && s.briefs.find((x) => x.id === br.id);
+      if (br.id && !cur) throw new Error('Brief tidak ditemukan');
+      if (cur && br.baseUpdatedAt && cur.updatedAt !== br.baseUpdatedAt) throw new Error('Brief ini baru saja diubah oleh ' + cur.updatedBy + '. Muat ulang supaya perubahannya tidak tertimpa.');
+      if (!cur) { cur = { id: 'BRDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '' }; s.briefs.push(cur); }
+      Object.assign(cur, { taskId: br.taskId, owner: t.owner, type: br.type || 'artikel', status: br.status || 'Draft', data: br.data || {},
+        keyword: (br.data && br.data.kwMain) || '', title: (br.data && br.data.h1) || '', updatedAt: now, updatedBy: me.username });
+      return { brief: cur };
+    }
+    case 'deleteBrief': s.briefs = s.briefs.filter((x) => x.id !== b.briefId); return { ok: true };
+    case 'briefCheck': {
+      const cur = s.briefs.find((x) => x.id === b.briefId); if (!cur) throw new Error('Brief tidak ditemukan');
+      cur.data.checklist[b.index].done = !!b.done; cur.updatedAt = new Date().toISOString(); cur.updatedBy = me.username;
+      return { brief: cur };
+    }
+    case 'exportBriefDoc': {
+      const cur = s.briefs.find((x) => x.id === b.briefId); if (!cur) throw new Error('Brief tidak ditemukan');
+      cur.docUrl = cur.docUrl || 'https://docs.google.com/document/d/demo-' + cur.id + '/edit';
+      return { url: cur.docUrl, brief: cur };
+    }
     case 'setResults': {
       const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
       if (!t) throw new Error('Task tidak ditemukan');
@@ -152,7 +221,7 @@ function handle(action, b, session) {
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {
-    case 'getAll': return { tasks: s.tasks, projects: s.projects, users: s.users, notifications: true,
+    case 'getAll': return { tasks: s.tasks, projects: s.projects, users: s.users, notifications: true, briefs: s.briefs,
       statuses: ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'], priorities: ['High', 'Medium', 'Low'] };
     case 'saveTask': {
       const t = b.task; const owner = s.users.find((u) => u.username === t.owner);

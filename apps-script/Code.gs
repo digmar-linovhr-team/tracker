@@ -12,6 +12,8 @@ var CFG = {
   USERS_SHEET: 'Users',
   MAIN_SHEET: 'Main Project',
   LOG_SHEET: 'Activity Log',
+  BRIEF_SHEET: 'Briefs',
+  BRIEF_FOLDER: 'Brief Artikel',   // folder Google Drive untuk ekspor brief ke Google Doc
   TOKEN_DAYS: 14,
   HASH_ROUNDS: 300,
   MAX_LOGIN_FAIL: 5,
@@ -32,6 +34,8 @@ var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
+var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Status', 'Keyword', 'Title',
+  'Data', 'Doc URL', 'Created At', 'Updated At', 'Updated By'];
 
 // Cache sederhana per eksekusi: tab Users & peta kolom cukup dibaca sekali per permintaan.
 var MEMO_ = { users: null, cols: {} };
@@ -72,12 +76,13 @@ function setup() {
   ensureHeaders_(users, USER_HEADERS);
   ensureHeaders_(getOrCreateSheet_(CFG.LOG_SHEET, LOG_HEADERS), LOG_HEADERS);
   ensureHeaders_(getOrCreateSheet_(CFG.MAIN_SHEET, MAIN_HEADERS), MAIN_HEADERS);
+  ensureHeaders_(getOrCreateSheet_(CFG.BRIEF_SHEET, BRIEF_HEADERS), BRIEF_HEADERS);
 
   var existing = {};
   readUsers_().forEach(function (u) { existing[u.username] = u; });
   var created = [];
 
-  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET];
+  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET];
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
     if (system.indexOf(name) >= 0 || name.charAt(0) === '_') return;
@@ -165,7 +170,12 @@ function route_(b) {
 
   switch (a) {
     case 'me': return publicUser_(me);
-    case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me) };
+    case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me), briefs: readBriefs_() };
+    case 'briefs': return { briefs: readBriefs_() };
+    case 'saveBrief': return saveBrief_(me, b.brief);
+    case 'deleteBrief': return deleteBrief_(me, b.briefId);
+    case 'briefCheck': return briefCheck_(me, b.briefId, b.index, b.done);
+    case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'setMyEmail': return setMyEmail_(me, b.email);
     case 'setResults': return setResults_(me, b.taskId, b.results, b.note);
@@ -548,13 +558,13 @@ function allTasks_() {
 function teamTasks_() {
   var users = readUsers_().filter(function (u) { return u.sheetName && u.active; })
     .map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
-  return { tasks: allTasks_(), users: users, projects: readProjects_() };
+  return { tasks: allTasks_(), users: users, projects: readProjects_(), briefs: readBriefs_() };
 }
 
 function getAll_() {
   var tasks = allTasks_();
   return { tasks: tasks, projects: readProjects_(), users: readUsers_().map(publicUser_),
-    statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_() };
+    statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_(), briefs: readBriefs_() };
 }
 
 /** Cari baris task berdasarkan Task ID. Member hanya boleh di tab miliknya. */
@@ -1323,4 +1333,221 @@ function humanLeft_(ms) {
 function shortTitle_(s) {
   s = String(s).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
   return s.length > 70 ? s.slice(0, 67) + '…' : s;
+}
+
+
+// ===================== Brief artikel =====================
+var BRIEF_TYPES = { artikel: 'Artikel baru', optimasi: 'Optimasi artikel lama', landing: 'Landing page', pillar: 'Pillar page' };
+var BRIEF_STATUSES = ['Draft', 'Siap ditulis'];
+var BRIEF_MAX_CHARS = 45000;   // satu sel Sheets maksimal 50.000 karakter
+
+function briefSheet_() {
+  var sh = getOrCreateSheet_(CFG.BRIEF_SHEET, BRIEF_HEADERS);
+  ensureHeaders_(sh, BRIEF_HEADERS);
+  return sh;
+}
+
+function safeCell_(v) { v = String(v == null ? '' : v); return /^[=+\-@]/.test(v) ? "'" + v : v; }
+
+function readBriefs_() {
+  var sh = sheet_(CFG.BRIEF_SHEET);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var col = colMap_(sh);
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+  var out = [];
+  vals.forEach(function (r, i) { var b = rowBrief_(r, col, i + 2); if (b) out.push(b); });
+  return out;
+}
+
+function rowBrief_(r, col, row) {
+  var g = function (k) { return col[k] === undefined ? '' : r[col[k]]; };
+  var id = String(g('brief id') || '').trim();
+  if (!id) return null;
+  var data = {};
+  try { data = JSON.parse(String(g('data') || '{}')) || {}; } catch (e) { data = {}; }
+  return {
+    id: id, row: row, taskId: String(g('task id') || '').trim(), owner: String(g('owner') || ''),
+    createdBy: String(g('created by') || ''), type: String(g('type') || 'artikel'),
+    status: String(g('status') || 'Draft'),
+    keyword: String(g('keyword') || '').replace(/^'(?=[=+\-@])/, ''),
+    title: String(g('title') || '').replace(/^'(?=[=+\-@])/, ''),
+    data: data, docUrl: String(g('doc url') || ''),
+    createdAt: normStamp_(g('created at')), updatedAt: normStamp_(g('updated at')), updatedBy: String(g('updated by') || '')
+  };
+}
+
+function findBrief_(id) {
+  var sh = briefSheet_(), col = colMap_(sh);
+  if (!id || sh.getLastRow() < 2) throw new Error('Brief tidak ditemukan');
+  var cell = sh.getRange(2, col['brief id'] + 1, sh.getLastRow() - 1, 1)
+    .createTextFinder(String(id)).matchEntireCell(true).findNext();
+  if (!cell) throw new Error('Brief tidak ditemukan (mungkin sudah dihapus). Muat ulang data.');
+  var row = cell.getRow();
+  return { sheet: sh, col: col, row: row, brief: rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], col, row) };
+}
+
+/** Admin, atau pemilik task yang terhubung saat ini. */
+function assertBriefEditor_(me, brief) {
+  if (me.role === 'admin') return;
+  try { locateTask_(me, brief.taskId); }
+  catch (e) { throw new Error('Hanya pemilik task dan admin yang bisa mengubah brief ini.'); }
+}
+
+function cleanBriefData_(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) throw new Error('Format brief tidak valid');
+  var json = JSON.stringify(d);
+  if (json.length > BRIEF_MAX_CHARS) throw new Error('Isi brief terlalu panjang (' + json.length + ' karakter, maksimal ' + BRIEF_MAX_CHARS + '). Ringkas beberapa bagian.');
+  return json;
+}
+
+function saveBrief_(me, b) {
+  b = b || {};
+  var type = BRIEF_TYPES[b.type] ? b.type : 'artikel';
+  var status = BRIEF_STATUSES.indexOf(b.status) >= 0 ? b.status : 'Draft';
+  var json = cleanBriefData_(b.data || {});
+  var d = b.data || {};
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var loc = locateTask_(me, b.taskId);   // anggota hanya bisa memilih task miliknya
+    var sh = briefSheet_(), col = colMap_(sh), now = new Date();
+    var others = readBriefs_();
+    var dup = others.filter(function (x) { return x.taskId === String(b.taskId) && x.id !== b.id; })[0];
+    if (dup) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
+    var obj = {
+      'task id': String(b.taskId), 'owner': loc.user.username, 'type': type, 'status': status,
+      'keyword': safeCell_(String(d.kwMain || '').slice(0, 200)), 'title': safeCell_(String(d.h1 || '').slice(0, 300)),
+      'data': json, 'updated at': now, 'updated by': me.username
+    };
+    var id = b.id, row;
+    if (id) {
+      var f = findBrief_(id);
+      assertBriefEditor_(me, f.brief);
+      if (b.baseUpdatedAt && f.brief.updatedAt && b.baseUpdatedAt !== f.brief.updatedAt) {
+        throw new Error('Brief ini baru saja diubah oleh ' + (f.brief.updatedBy || 'orang lain') + '. Muat ulang supaya perubahannya tidak tertimpa.');
+      }
+      row = f.row;
+      writeObj_(sh, row, obj);
+    } else {
+      id = 'BR' + newId_().replace(/^T/, '');
+      obj['brief id'] = id; obj['created by'] = me.username; obj['created at'] = now;
+      row = appendObj_(sh, obj);
+    }
+    log_(me, b.id ? 'update-brief' : 'create-brief', b.taskId, id + ' ' + (d.kwMain || ''));
+    return { brief: rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row) };
+  } finally { lock.releaseLock(); }
+}
+
+function deleteBrief_(me, id) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var f = findBrief_(id);
+    assertBriefEditor_(me, f.brief);
+    f.sheet.deleteRow(f.row);
+    log_(me, 'delete-brief', f.brief.taskId, id);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+/** Penulis mencentang satu item checklist — hanya item itu yang diubah, isi brief lain tidak tertimpa. */
+function briefCheck_(me, id, index, done) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var f = findBrief_(id);
+    assertBriefEditor_(me, f.brief);
+    var d = f.brief.data, list = Array.isArray(d.checklist) ? d.checklist : [];
+    var i = Number(index);
+    if (!(i >= 0 && i < list.length)) throw new Error('Item checklist tidak ditemukan. Muat ulang data.');
+    list[i].done = !!done;
+    var now = new Date();
+    writeObj_(f.sheet, f.row, { 'data': JSON.stringify(d), 'updated at': now, 'updated by': me.username });
+    return { brief: rowBrief_(f.sheet.getRange(f.row, 1, 1, f.sheet.getLastColumn()).getValues()[0], f.col, f.row) };
+  } finally { lock.releaseLock(); }
+}
+
+// ---------- ekspor ke Google Doc ----------
+function briefFolder_() {
+  var props = PropertiesService.getScriptProperties(), fid = props.getProperty('BRIEF_FOLDER_ID');
+  if (fid) { try { return DriveApp.getFolderById(fid); } catch (e) { /* folder dihapus → buat lagi */ } }
+  var it = DriveApp.getFoldersByName(CFG.BRIEF_FOLDER);
+  var folder = it.hasNext() ? it.next() : DriveApp.createFolder(CFG.BRIEF_FOLDER);
+  props.setProperty('BRIEF_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function exportBriefDoc_(me, id) {
+  var f = findBrief_(id), b = f.brief;
+  assertBriefEditor_(me, b);
+  var task = null;
+  try { var loc = locateTask_({ role: 'admin' }, b.taskId); task = rowTask_(loc.sheet.getRange(loc.row, 1, 1, loc.sheet.getLastColumn()).getValues()[0], null, loc.col, loc.sheet, loc.user, loc.row); }
+  catch (e) { /* task sudah dihapus: tetap ekspor */ }
+  var name = 'Brief — ' + (b.keyword || b.title || b.id) + (task && task.code ? ' [' + task.code + ']' : '');
+  var doc = null;
+  if (b.docUrl) { try { doc = DocumentApp.openByUrl(b.docUrl); doc.setName(name); } catch (e) { doc = null; } }
+  if (!doc) {
+    doc = DocumentApp.create(name);
+    try { DriveApp.getFileById(doc.getId()).moveTo(briefFolder_()); } catch (e) { Logger.log('Pindah folder: ' + e); }
+  }
+  writeBriefDoc_(doc, b, task);
+  doc.saveAndClose();
+  var file = DriveApp.getFileById(doc.getId());
+  [task && findUser_(task.owner), findUser_(b.createdBy), me].forEach(function (u) {
+    if (u && u.email) { try { file.addEditor(u.email); } catch (e) { Logger.log('Bagikan ke ' + u.email + ': ' + e); } }
+  });
+  var url = doc.getUrl ? doc.getUrl() : file.getUrl();
+  writeObj_(f.sheet, f.row, { 'doc url': url });
+  log_(me, 'brief-doc', b.taskId, id);
+  return { url: url, brief: rowBrief_(f.sheet.getRange(f.row, 1, 1, f.sheet.getLastColumn()).getValues()[0], f.col, f.row) };
+}
+
+function writeBriefDoc_(doc, b, task) {
+  var d = b.data || {}, body = doc.getBody(), H = DocumentApp.ParagraphHeading;
+  body.clear();
+  var txt = function (v) { return String(v == null ? '' : v).trim(); };
+  var para = function (label, v) {
+    v = txt(v); if (!v) return;
+    var p = body.appendParagraph(label + ': ' + v);
+    p.editAsText().setBold(0, label.length, true);
+  };
+  var head = function (t) { body.appendParagraph(t).setHeading(H.HEADING2); };
+  var table = function (header, rows) {
+    rows = rows.filter(function (r) { return r.some(function (c) { return txt(c); }); });
+    if (!rows.length) return;
+    var t = body.appendTable([header].concat(rows.map(function (r) { return r.map(txt); })));
+    for (var i = 0; i < header.length; i++) t.getCell(0, i).editAsText().setBold(true);
+  };
+  body.appendParagraph(txt(d.h1) || txt(b.keyword) || 'Brief artikel').setHeading(H.TITLE);
+  body.appendParagraph((BRIEF_TYPES[b.type] || '') + ' · ' + b.status +
+    (task ? ' · Task: ' + (task.code ? task.code + ' ' : '') + task.task + ' · ' + task.ownerName +
+      (task.endDate ? ' · Deadline ' + task.endDate + (task.endTime ? ' ' + task.endTime : '') : '') : ''))
+    .setHeading(H.SUBTITLE);
+
+  head('1. Ringkasan & tujuan');
+  para('Tujuan bisnis', d.goal); para('KPI', d.kpi);
+  para('URL lama', d.oldUrl); para('Performa saat ini', d.currentPerf); para('Yang harus diubah', d.changes);
+  head('2. Keyword & intent');
+  para('Keyword utama', [d.kwMain, d.kwVolume ? 'vol ' + d.kwVolume : '', d.kwKd ? 'KD ' + d.kwKd : ''].filter(String).join(' · '));
+  para('Keyword turunan', (d.kwSecondary || []).join(', '));
+  para('Search intent', d.intent); para('Target SERP feature', d.serpFeature); para('Catatan kanibalisasi', d.cannibalNote);
+  head('3. Analisis SERP & kompetitor');
+  table(['URL', 'Jumlah kata', 'Kelebihan', 'Celah'], (d.competitors || []).map(function (c) { return [c.url, c.words, c.strengths, c.gaps]; }));
+  para('Angle pembeda', d.angle);
+  head('4. Audiens & pesan');
+  para('Persona', d.persona); para('Masalah utama', d.problem); para('Pesan kunci', d.message); para('Tone', d.tone);
+  head('5. Judul & metadata');
+  para('H1', d.h1); para('Meta title', d.metaTitle); para('Meta description', d.metaDesc); para('Slug', d.slug);
+  head('6. Outline');
+  table(['Heading', 'Kata', 'Poin wajib & keyword'], (d.outline || []).map(function (o) {
+    return [(o.level === 3 ? '    H3 ' : o.level === 1 ? '' : 'H2 ') + txt(o.heading), o.words, o.notes];
+  }));
+  para('Target total kata', [d.wordMin, d.wordMax].filter(String).join(' – '));
+  head('7. FAQ & schema');
+  (d.faq || []).filter(function (q) { return txt(q); }).forEach(function (q) { body.appendListItem(txt(q)); });
+  para('Schema', (d.schema || []).join(', '));
+  head('8. Link');
+  table(['Tujuan', 'Anchor text', 'Jenis'], (d.links || []).map(function (l) { return [l.url, l.anchor, l.kind === 'external' ? 'Eksternal' : 'Internal']; }));
+  head('9. Visual & CTA');
+  para('Visual', d.visual); para('CTA tengah', d.ctaMid); para('CTA akhir', d.ctaEnd);
+  head('10. Checklist sebelum ajukan review');
+  (d.checklist || []).forEach(function (c) { if (txt(c.text)) body.appendListItem((c.done ? '☑ ' : '☐ ') + txt(c.text)); });
+  if (txt(d.writerNotes)) { head('Catatan untuk penulis'); body.appendParagraph(txt(d.writerNotes)); }
 }

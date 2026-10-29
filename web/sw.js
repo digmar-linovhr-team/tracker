@@ -1,9 +1,9 @@
 /* Service worker: membuat aplikasi bisa dibuka cepat/offline dan menangani klik notifikasi.
  * Naikkan VERSION setiap kali file aplikasi diubah agar semua pengguna mendapat versi baru. */
-const VERSION = 'pt-v2.11.0';
+const VERSION = 'pt-v2.12.0';
 const SHELL = [
   './', 'index.html', 'styles.css', 'config.js', 'manifest.webmanifest',
-  'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/pt-web.js', 'js/app.js', 'vendor/chart.umd.js',
+  'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/pt-web.js', 'js/app.js', 'js/brief.js', 'vendor/chart.umd.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'
 ];
 

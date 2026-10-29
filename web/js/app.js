@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.11.0';
+const CSS_VERSION = '2.12.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -28,7 +28,8 @@ const S = {
     tq: '', towners: [], tstatus: 'active', tcodes: [],
     teamQ: '', teamPeople: [], teamTab: 'active', teamCodes: []
   },
-  team: null, teamAt: 0
+  team: null, teamAt: 0,
+  briefs: [], bEdit: null, bf: { tab: 'all', q: '' }
 };
 
 const STATUSES = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
@@ -42,6 +43,7 @@ const ICONS = {
   projects: svg('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/>'),
   users: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>'),
   team: svg('<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 19a5.5 5.5 0 0 1 11 0M10.5 19a5.5 5.5 0 0 1 11 0"/>'),
+  briefs: svg('<path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 11h8M8 15h5"/>'),
   review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
@@ -220,6 +222,7 @@ async function enterApp() {
     S.mine = cached.mine;
     S.all = cached.all || null;
     S.team = cached.team || null;
+    S.briefs = cached.briefs || [];
     setSyncInfo('Menyinkronkan…');
     go(first);
     if (await loadData(true)) softRender();
@@ -243,6 +246,7 @@ function renderNav() {
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
   items.push(['team', 'Tim', 'Tim']);
+  items.push(['briefs', 'Brief', 'Brief']);
   if (admin) {
     const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review').length : 0;
     items.push(['sect', 'Admin'], ['review', 'Review', 'Review', reviews, 'info'], ['tasks', 'Semua Task', 'Semua'], ['projects', 'Project', 'Project', 0, '', 'secondary'], ['users', 'Pengguna', 'Akun', 0, '', 'secondary']);
@@ -250,19 +254,19 @@ function renderNav() {
   items.push(['sect', ''], ['settings', 'Pengaturan', 'Setelan']);
   $('#nav').innerHTML = items.map((i) => i[0] === 'sect'
     ? `<div class="sect">${esc(i[1])}</div>`
-    : `<button data-v="${i[0]}" class="${S.view === i[0] ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
+    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
   $$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
 }
 
 // ---------- cache lokal: aplikasi langsung tampil dengan data terakhir ----------
 const cacheKey = () => 'pt.cache.' + (S.cfg.demo ? 'demo.' : '') + S.user.username;
 function saveCache() {
-  try { localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), mine: S.mine, all: S.all, team: S.team })); } catch (e) { /* penyimpanan penuh/diblokir */ }
+  try { localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), mine: S.mine, all: S.all, team: S.team, briefs: S.briefs })); } catch (e) { /* penyimpanan penuh/diblokir */ }
 }
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
-function resetSession() { S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; }
+function resetSession() { S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -284,6 +288,9 @@ async function loadData(quiet) {
     const fresh = (mine && mine.me) || (all && all.users.find((u) => u.username === S.user.username));
     if (fresh) { S.user = Object.assign(S.user, fresh); renderMe(); }
     if (all) { S.all = all; if (!S.user.sheetName) S.mine.projects = all.projects; }
+    const br = (all && all.briefs) || (mine && mine.briefs);
+    if (br) S.briefs = br;
+    else if (!S.user.sheetName && S.user.role !== 'admin') { try { S.briefs = (await api.call('briefs')).briefs || []; } catch (e) { /* abaikan */ } }
     S.lastSync = new Date();
     setSyncInfo('Diperbarui ' + pad(S.lastSync.getHours()) + ':' + pad(S.lastSync.getMinutes()));
     saveCache();
@@ -298,6 +305,7 @@ async function loadData(quiet) {
 /** Gambar ulang tampilan aktif tanpa mengganggu (tidak saat form/modal terbuka atau sedang mengetik). */
 function softRender() {
   if (!S.user || $('#modal-root').innerHTML || $('#ms-pop')) return;
+  if (S.view === 'brief' && S.bEdit && (S.bEdit.dirty || S.bEdit.saving)) return;
   const a = document.activeElement;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA') && a.type !== 'checkbox') return;
   go(S.view);
@@ -310,6 +318,7 @@ function refreshInBackground(delay) {
 }
 
 function go(view) {
+  if (S.view === 'brief' && view !== 'brief' && typeof briefFlush === 'function') briefFlush();
   if (S.view !== view) { const m = $('.main'); if (m) m.scrollTop = 0; window.scrollTo(0, 0); }
   S.view = view;
   msClose();
@@ -323,11 +332,13 @@ function go(view) {
     users: ['Pengguna', 'Akun login anggota tim'],
     team: ['Tim', 'Task yang sedang dikerjakan semua anggota (hanya lihat)'],
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
+    briefs: ['Brief', 'Brief artikel yang terhubung ke task'],
+    brief: ['Brief', 'Brief artikel'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']
   };
   $('#view-title').textContent = titles[view][0];
   $('#view-sub').textContent = titles[view][1];
-  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, review: viewReview, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
 }
 
 function projectName(code) {
@@ -602,7 +613,23 @@ async function saveResults(id, results, note, thenReview) {
 /** Anggota mengajukan review: ingatkan bila belum ada link (tidak wajib). */
 function askReview(id) {
   const t = findTask(id);
-  if (!t || resultsOf(t).length || (t.resultNote || '').trim() || S.user.role === 'admin') return setStatus(id, 'Review');
+  if (!t || S.user.role === 'admin') return setStatus(id, 'Review');
+  const b = briefOf(t.id), left = b ? checklistOf(b).filter((c) => !c.done) : [];
+  const noResult = !resultsOf(t).length && !(t.resultNote || '').trim();
+  if (left.length && !noResult) return checklistModal(b.id, { thenReview: () => setStatus(id, 'Review') });
+  if (left.length && noResult) {
+    return modal({
+      title: 'Ajukan review',
+      body: `<p style="margin-top:0">Sebelum diajukan:</p><ul class="pre-list"><li>Checklist brief baru <b>${checklistOf(b).length - left.length}/${checklistOf(b).length}</b></li><li>Belum ada keterangan maupun link hasil kerja</li></ul><p class="muted small" style="margin-bottom:0">Tidak wajib — Anda tetap bisa mengajukan langsung.</p>`,
+      actions: '<button class="btn" id="rv-skip">Ajukan langsung</button><button class="btn" id="rv-ck">Checklist</button><button class="btn primary" id="rv-add">Isi hasil kerja</button>',
+      onMount: (m, close) => {
+        $('#rv-skip', m).onclick = () => { close(); setStatus(id, 'Review'); };
+        $('#rv-ck', m).onclick = () => { close(); checklistModal(b.id, { thenReview: () => askReview(id) }); };
+        $('#rv-add', m).onclick = () => { close(); resultsModal(t, { thenReview: true }); };
+      }
+    });
+  }
+  if (!noResult) return setStatus(id, 'Review');
   modal({
     title: 'Ajukan review',
     body: '<p style="margin-top:0">Task ini belum punya keterangan maupun link hasil kerja. Tambahkan supaya admin bisa langsung mengecek.</p><p class="muted small" style="margin-bottom:0">Tidak wajib — lewati bila tidak diperlukan.</p>',
@@ -616,10 +643,11 @@ function askReview(id) {
 
 function resultsLine(t, readonly) {
   const list = resultsOf(t), note = (t.resultNote || '').trim(), edit = !readonly && canEditResults(t);
-  if (!list.length && !note && !edit) return '';
+  const bc = briefChips(t, readonly);
+  if (!list.length && !note && !edit && !bc) return '';
   const has = list.length || note;
   return `${note ? `<div class="t-rnote" title="${esc(note)}"><b>Hasil:</b> ${esc(note.replace(/\s*\n\s*/g, ' · '))}</div>` : ''}
-    <div class="t-res">${list.map((x) => resChip(x)).join('')}${edit ? `<button type="button" class="res-add" data-res="${esc(t.id)}">${has ? fsvg('<path d="M4 20h4L19 9l-4-4L4 16z"/>') + 'Ubah hasil' : fsvg('<path d="M12 5v14M5 12h14"/>') + 'Hasil kerja'}</button>` : ''}</div>`;
+    <div class="t-res">${bc}${list.map((x) => resChip(x)).join('')}${edit ? `<button type="button" class="res-add" data-res="${esc(t.id)}">${has ? fsvg('<path d="M4 20h4L19 9l-4-4L4 16z"/>') + 'Ubah hasil' : fsvg('<path d="M12 5v14M5 12h14"/>') + 'Hasil kerja'}</button>` : ''}</div>`;
 }
 
 function taskRow(t, opts) {
@@ -670,6 +698,7 @@ function bindTaskRows(root) {
     else setStatus(s.dataset.sel, s.value);
   });
   $$('[data-res]', root).forEach((b) => b.onclick = () => resultsModal(findTask(b.dataset.res)));
+  bindBriefChips(root);
 }
 
 function findTask(id) {
@@ -1042,7 +1071,7 @@ function teamData() {
 
 async function loadTeam() {
   if (S.user.role === 'admin') return true;
-  try { S.team = await api.call('teamTasks'); S.teamAt = Date.now(); saveCache(); return true; }
+  try { S.team = await api.call('teamTasks'); S.teamAt = Date.now(); if (S.team.briefs) S.briefs = S.team.briefs; saveCache(); return true; }
   catch (e) { toast(cleanErr(e), true); return false; }
 }
 
@@ -1122,6 +1151,7 @@ function renderTeamList(d, users) {
   }).join('');
   $('#tmlist').innerHTML = html || '<div class="card empty"><b>Tidak ada task</b>Ubah filter untuk melihat task lain.</div>';
   $$('[data-ext]', $('#tmlist')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
+  bindBriefChips($('#tmlist'));
 }
 
 // ---------- Admin: Review ----------
@@ -1145,7 +1175,8 @@ function viewReview() {
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
         <div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
           ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
-          <div class="rv-res">${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div></div>
+          <div class="rv-res">${briefChips(t, true, true)}${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div>
+          ${rvChecklist(t)}</div>
       </div>
       <div class="t-when ${late ? 'w-warn' : 'w-good'}">
         <b>${late ? 'Lewat deadline' : 'Tepat waktu'}</b>
@@ -1159,6 +1190,7 @@ function viewReview() {
     </div>`; }).join('')}</div>
     <p class="def"><b>Setujui</b> menandai task sebagai Done. <b>Kembalikan</b> mengubahnya menjadi On-Progress; alasan Anda tercatat di Catatan task dan dikirim ke email anggota.</p>`;
   $$('[data-ext]', $('#view')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
+  bindBriefChips($('#view'));
   $$('[data-approve]').forEach((b) => b.onclick = () => decideReview(b.dataset.approve, 'approve'));
   $$('[data-return]').forEach((b) => b.onclick = () => {
     const t = findTask(b.dataset.return);
@@ -1200,6 +1232,15 @@ async function decideReview(id, decision, reason) {
   }
 }
 
+/** Progres checklist brief di halaman Review. */
+function rvChecklist(t) {
+  const b = briefOf(t.id); if (!b) return '';
+  const c = checklistOf(b); if (!c.length) return '';
+  const done = c.filter((x) => x.done).length, left = c.filter((x) => !x.done);
+  return `<div class="rv-ck"><span class="rv-res-h">Checklist</span><div class="bar"><i style="width:${Math.round(done / c.length * 100)}%"></i></div>
+    <span class="${left.length ? 'warn' : 'ok'}" title="${esc(left.map((x) => '☐ ' + x.text).join('\n'))}">${done}/${c.length}${left.length ? ' · ' + left.length + ' belum' : ' ✓'}</span></div>`;
+}
+
 // ---------- Admin: Semua Task ----------
 function viewTasks() {
   const f = S.f, all = S.all;
@@ -1233,8 +1274,10 @@ function viewTasks() {
 function resCell(t) {
   const list = resultsOf(t), note = (t.resultNote || '').trim();
   const noteIco = note ? `<span class="res-chip compact" title="${esc('Keterangan hasil: ' + note)}"><span class="res-ico" style="color:var(--text-2)">${RES_ICO.form}</span></span>` : '';
-  if (!list.length) return note ? `<span class="res-cell">${noteIco}</span>` : '<span class="muted">–</span>';
-  return `<span class="res-cell">${noteIco}${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
+  const b = briefOf(t.id);
+  const briefIco = b ? `<button type="button" class="res-chip compact" data-openbrief="${esc(b.id)}" title="${esc('Brief: ' + bKw(b) + ' · checklist ' + checkCount(b).done + '/' + checkCount(b).total)}"><span class="res-ico" style="color:var(--accent)">${ICONS.briefs}</span></button>` : '';
+  if (!list.length) return note || b ? `<span class="res-cell">${briefIco}${noteIco}</span>` : '<span class="muted">–</span>';
+  return `<span class="res-cell">${briefIco}${noteIco}${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
 }
 
 function renderTaskTable() {
@@ -1265,6 +1308,7 @@ function renderTaskTable() {
       <td style="white-space:nowrap"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></td></tr>`; }).join('')}
   </tbody></table>`;
   $$('[data-ext]', $('#tt')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
+  bindBriefChips($('#tt'));
   $$('[data-edit]').forEach((b) => b.onclick = () => taskModal(S.all.tasks.find((t) => t.id === b.dataset.edit)));
   $$('[data-del]').forEach((b) => b.onclick = async () => {
     const t = S.all.tasks.find((x) => x.id === b.dataset.del);
