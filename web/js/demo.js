@@ -266,6 +266,19 @@ function handle(action, b, session) {
   switch (action) {
     case 'getAll': return { tasks: s.tasks, projects: s.projects, users: s.users, notifications: true, briefs: s.briefs,
       statuses: ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'], priorities: ['High', 'Medium', 'Low'] };
+    case 'bulkSetType': {
+      const out = [], failed = [];
+      (b.taskIds || []).forEach((id) => {
+        const t = s.tasks.find((x) => x.id === id); if (!t) { failed.push(id); return; }
+        const art = b.type === 'Artikel';
+        if ((t.type === 'Artikel') !== art) {
+          t.type = art ? 'Artikel' : 'Non-artikel';
+          if (art && !t.stage) { t.stageLog = [{ s: 1, t: t.startedAt || new Date().toISOString() }]; t.stage = 1; demoStage(t, t.status === 'Done' ? 9 : ['On-Progress', 'Review'].includes(t.status) ? 2 : 1, me); }
+        }
+        out.push(t);
+      });
+      return { tasks: out, failed };
+    }
     case 'saveTask': {
       const t = b.task; const owner = s.users.find((u) => u.username === t.owner);
       if (!owner) throw new Error('Penanggung jawab tidak ditemukan');

@@ -529,6 +529,18 @@ it('Alur artikel 8 tahap: brief → review → menulis → review → publish �
   assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 4); assert.strictEqual(r.data.task.status, 'On-Progress');
 });
 
+it('Admin mengubah jenis banyak task sekaligus; anggota tidak bisa', () => {
+  const mk = (task, status) => post({ action: 'saveTask', token: admin, task: { owner: 'ari', task, status, startDate: '2026-11-02', endDate: '2026-11-03' } }).data.id;
+  const ids = [mk('Artikel lama A', 'Done'), mk('Artikel lama B', 'On-Progress'), mk('Artikel lama C', 'Backlog')];
+  assert.strictEqual(post({ action: 'bulkSetType', token: ari, taskIds: ids, type: 'Artikel' }).ok, false);
+  let r = post({ action: 'bulkSetType', token: admin, taskIds: ids.concat('TIDAKADA'), type: 'Artikel' });
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(r.data.tasks.map((t) => [t.type, t.stage, t.status]), [['Artikel', 9, 'Done'], ['Artikel', 2, 'On-Progress'], ['Artikel', 1, 'Backlog']]);
+  assert.deepStrictEqual(r.data.failed, ['TIDAKADA']);
+  r = post({ action: 'bulkSetType', token: admin, taskIds: [ids[2]], type: 'Non-artikel' });
+  assert.strictEqual(r.data.tasks[0].type, 'Non-artikel');
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

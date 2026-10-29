@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.15.0';
+const CSS_VERSION = '2.16.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1271,7 +1271,8 @@ function viewTasks() {
       <span class="spacer"></span>
       <button class="btn primary" id="newtask">+ Task baru</button>
     </div>
-    <div class="card" style="overflow:auto" id="tt"></div>`;
+    <div class="card" style="overflow:auto" id="tt"></div>
+    <div id="bulkbar" class="bulkbar hidden" role="region" aria-label="Aksi untuk task terpilih"></div>`;
   $('#tq').oninput = (e) => { f.tq = e.target.value; renderTaskTable(); };
   $('#newtask').onclick = () => taskModal(null);
   renderTaskTable();
@@ -1286,6 +1287,44 @@ function resCell(t) {
   return `<span class="res-cell">${briefIco}${noteIco}${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
 }
 
+/** Bilah aksi untuk task yang dicentang di Semua Task. */
+function renderBulkBar(list) {
+  const bar = $('#bulkbar'); if (!bar) return;
+  const n = S.tsel ? S.tsel.size : 0;
+  bar.classList.toggle('hidden', !n);
+  if (!n) { bar.innerHTML = ''; return; }
+  const sel = S.all.tasks.filter((t) => S.tsel.has(t.id));
+  const nArt = sel.filter((t) => L.isArticle(t)).length;
+  bar.innerHTML = `<b>${n} task dipilih</b><span class="muted small">${nArt ? nArt + ' artikel · ' : ''}${n - nArt} non-artikel</span><span class="spacer"></span>
+    <button class="btn sm" id="bk-none">Batal</button>
+    <button class="btn sm" id="bk-non" ${n - nArt === n ? 'disabled' : ''}>Jadikan Non-artikel</button>
+    <button class="btn sm primary" id="bk-art" ${nArt === n ? 'disabled' : ''}>Jadikan Artikel</button>`;
+  $('#bk-none').onclick = () => { S.tsel.clear(); renderTaskTable(); };
+  $('#bk-art').onclick = () => bulkSetType('Artikel');
+  $('#bk-non').onclick = () => bulkSetType('Non-artikel');
+  void list;
+}
+
+async function bulkSetType(type) {
+  const ids = [...S.tsel];
+  const todo = S.all.tasks.filter((t) => ids.includes(t.id) && L.isArticle(t) !== (type === 'Artikel'));
+  if (!todo.length) return;
+  const ok = await confirmBox(type === 'Artikel' ? 'Jadikan task artikel?' : 'Jadikan task non-artikel?',
+    type === 'Artikel'
+      ? `${todo.length} task akan memakai alur artikel 8 tahap. Tahap awal ditebak dari status: Done → selesai, On-Progress/Review → menyusun brief, lainnya → ditugaskan. Bisa dikoreksi lewat Edit.`
+      : `${todo.length} task akan kembali memakai alur biasa (Mulai → Ajukan review → Done). Riwayat tahapnya tetap tersimpan.`,
+    type === 'Artikel' ? 'Jadikan Artikel' : 'Jadikan Non-artikel');
+  if (!ok) return;
+  const btn = $(type === 'Artikel' ? '#bk-art' : '#bk-non');
+  try {
+    const r = await busy(btn, () => api.call('bulkSetType', { taskIds: todo.map((t) => t.id), type }));
+    (r.tasks || []).forEach((nt) => patchTask(nt.id, { type: nt.type, stage: nt.stage, status: nt.status, stageLog: nt.stageLog, startedAt: nt.startedAt, doneAt: nt.doneAt, reviewAt: nt.reviewAt }));
+    S.tsel.clear(); saveCache(); renderTaskTable();
+    toast(`${(r.tasks || []).length} task dijadikan ${type}` + ((r.failed || []).length ? ` · ${r.failed.length} gagal (muat ulang data)` : ''), !!(r.failed || []).length);
+    refreshInBackground(1500);
+  } catch (e) { /* busy sudah menampilkan pesan */ }
+}
+
 function renderTaskTable() {
   const f = S.f, q = f.tq.toLowerCase();
   let list = S.all.tasks.filter((t) =>
@@ -1294,9 +1333,15 @@ function renderTaskTable() {
     (!f.tcodes.length || f.tcodes.includes(t.code)) &&
     (f.tstatus === 'all' || (f.tstatus === 'active' ? !L.isDone(t) : f.tstatus === 'overdue' ? L.bucket(t) === 'overdue' : t.status === f.tstatus)));
   list = list.sort((a, b) => (L.schedule(a).end || Infinity) - (L.schedule(b).end || Infinity));
-  if (!list.length) { $('#tt').innerHTML = '<div class="empty"><b>Tidak ada task</b>Ubah filter atau buat task baru.</div>'; return; }
+  S.tsel = S.tsel || new Set();
+  const visible = new Set(list.map((t) => t.id));
+  [...S.tsel].forEach((id) => { if (!visible.has(id)) S.tsel.delete(id); });   // pilihan mengikuti filter
+  const pick = (t) => t.id ? `<input type="checkbox" class="pick" data-pick="${esc(t.id)}" ${S.tsel.has(t.id) ? 'checked' : ''} aria-label="Pilih task">` : '';
+  const allOn = list.length && list.every((t) => !t.id || S.tsel.has(t.id));
+  if (!list.length) { $('#tt').innerHTML = '<div class="empty"><b>Tidak ada task</b>Ubah filter atau buat task baru.</div>'; renderBulkBar(list); return; }
   if (matchMedia('(max-width: 760px)').matches) {
-    $('#tt').innerHTML = list.map((t) => `<div class="task">
+    $('#tt').innerHTML = `<label class="pick-all"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''}> Pilih semua (${list.length})</label>` + list.map((t) => `<div class="task ${S.tsel.has(t.id) ? 'picked' : ''}">
+      ${pick(t)}
       <div>
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
         <div class="task-title">${prettyTitle(t.task)}</div>
@@ -1305,8 +1350,9 @@ function renderTaskTable() {
       </div>
       <div class="task-actions"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></div>
     </div>`).join('');
-  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th>Code</th><th>Task</th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
-    ${list.map((t) => { const s = L.schedule(t); return `<tr>
+  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
+    ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}">
+      <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
       <td class="clip" title="${esc(t.task)}">${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
@@ -1315,6 +1361,17 @@ function renderTaskTable() {
   </tbody></table>`;
   $$('[data-ext]', $('#tt')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
   bindBriefChips($('#tt'));
+  $$('[data-pick]', $('#tt')).forEach((c) => c.onchange = () => {
+    c.checked ? S.tsel.add(c.dataset.pick) : S.tsel.delete(c.dataset.pick);
+    const row = c.closest('tr, .task'); if (row) row.classList.toggle('picked', c.checked);
+    const all = $('[data-pickall]', $('#tt')); if (all) all.checked = list.every((t) => !t.id || S.tsel.has(t.id));
+    renderBulkBar(list);
+  });
+  $$('[data-pickall]', $('#tt')).forEach((c) => c.onchange = () => {
+    list.forEach((t) => { if (t.id) c.checked ? S.tsel.add(t.id) : S.tsel.delete(t.id); });
+    renderTaskTable();
+  });
+  renderBulkBar(list);
   $$('[data-edit]').forEach((b) => b.onclick = () => taskModal(S.all.tasks.find((t) => t.id === b.dataset.edit)));
   $$('[data-del]').forEach((b) => b.onclick = async () => {
     const t = S.all.tasks.find((x) => x.id === b.dataset.del);

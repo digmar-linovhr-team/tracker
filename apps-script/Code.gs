@@ -111,8 +111,9 @@ function setup() {
   }
 
   var html = '<div style="font-family:Arial;font-size:13px">' +
-    '<p>Struktur sudah siap. Langkah berikutnya: <b>Deploy &gt; New deployment &gt; Web app</b> ' +
-    '(Execute as: <b>Me</b>, Who has access: <b>Anyone</b>), lalu salin URL-nya ke aplikasi.</p>';
+    '<p>Struktur sudah siap.</p>' +
+    '<p><b>Pemasangan pertama:</b> Deploy &gt; New deployment &gt; Web app (Execute as: <b>Me</b>, Who has access: <b>Anyone</b>), lalu salin URL-nya ke aplikasi.</p>' +
+    '<p><b>Memperbarui Code.gs:</b> Deploy &gt; Manage deployments &gt; ✏️ &gt; Version: <b>New version</b> &gt; Deploy. Jangan buat New deployment — URL aplikasi akan berganti.</p>';
   if (created.length) {
     html += '<p><b>Akun baru (password sementara, wajib diganti saat login pertama).</b><br>' +
       'Salin sekarang — password tidak ditampilkan lagi.</p>' +
@@ -146,7 +147,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 10 });
+  return json_({ ok: true, app: 'project-tracker', version: 11 });
 }
 
 function doPost(e) {
@@ -193,6 +194,7 @@ function route_(b) {
   switch (a) {
     case 'getAll': return getAll_();
     case 'saveTask': return saveTask_(me, b.task);
+    case 'bulkSetType': return bulkSetType_(me, b.taskIds, b.type);
     case 'deleteTask': return deleteTask_(me, b.taskId);
     case 'saveProject': return saveProject_(me, b.project);
     case 'deleteProject': return deleteProject_(me, b.row, b.code);
@@ -869,6 +871,35 @@ function briefRowOfTask_(taskId) {
 function setBriefStatus_(taskId, status) {
   var f = briefRowOfTask_(taskId);
   if (f) f.sheet.getRange(f.row, f.col['status'] + 1).setValue(status);
+}
+
+/** Admin: ubah jenis banyak task sekaligus (Artikel / Non-artikel). Tahap awal artikel ditebak dari status. */
+function bulkSetType_(me, ids, type) {
+  if (!Array.isArray(ids) || !ids.length) throw new Error('Pilih minimal satu task');
+  if (ids.length > 300) throw new Error('Maksimal 300 task sekali ubah');
+  var article = type === 'Artikel';
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var out = [], failed = [];
+    ids.forEach(function (id) {
+      try {
+        var loc = locateTask_(me, id), sh = loc.sheet;
+        ensureHeaders_(sh, TASK_HEADERS);
+        var col = colMap_(sh), r = sh.getRange(loc.row, 1, 1, sh.getLastColumn()).getValues()[0];
+        if (isArticleRow_(r, col) === article) { out.push(rowTask_(r, null, col, sh, loc.user, loc.row)); return; }
+        writeObj_(sh, loc.row, { 'type': article ? 'Artikel' : 'Non-artikel' });
+        r[col['type']] = article ? 'Artikel' : 'Non-artikel';
+        var task;
+        if (article && !(Number(r[col['stage']]) > 0)) {
+          var st = String(r[col['status']]).trim();
+          task = setStage_(sh, loc.row, r, col, loc.user, me, st === 'Done' ? 9 : st === 'On-Progress' || st === 'Review' ? 2 : 1);
+        } else task = rowTask_(r, null, col, sh, loc.user, loc.row);
+        out.push(task);
+      } catch (e) { failed.push(id); }
+    });
+    log_(me, 'bulk-type', '', out.length + ' task → ' + (article ? 'Artikel' : 'Non-artikel'));
+    return { tasks: out, failed: failed };
+  } finally { lock.releaseLock(); }
 }
 
 /** Langkah anggota di task Artikel. step: start | submitBrief | submitArticle | publish | submitAiCheck */
