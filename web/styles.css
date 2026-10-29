@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.16.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.17.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;

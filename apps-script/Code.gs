@@ -147,7 +147,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 11 });
+  return json_({ ok: true, app: 'project-tracker', version: 12 });
 }
 
 function doPost(e) {
@@ -163,6 +163,8 @@ function doPost(e) {
   } catch (err) {
     var msg = String(err && err.message || err);
     return json_({ ok: false, error: msg, code: msg === 'UNAUTHORIZED' ? 'UNAUTHORIZED' : undefined });
+  } finally {
+    if (READ_ACTIONS.indexOf(body.action) < 0) dataCacheClear_();   // ada perubahan → data bacaan dimuat ulang
   }
 }
 
@@ -178,8 +180,9 @@ function route_(b) {
 
   switch (a) {
     case 'me': return publicUser_(me);
-    case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me), briefs: readBriefs_() };
-    case 'briefs': return { briefs: readBriefs_() };
+    case 'myTasks': return { tasks: me.sheetName ? myTasks_(me) : [], projects: cachedProjects_(), me: publicUser_(me), briefs: cachedBriefs_() };
+    case 'briefs': return { briefs: cachedBriefs_() };
+    case 'getBrief': return { brief: findBrief_(b.briefId).brief };
     case 'saveBrief': return saveBrief_(me, b.brief);
     case 'deleteBrief': return deleteBrief_(me, b.briefId);
     case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
@@ -201,7 +204,7 @@ function route_(b) {
     case 'saveUser': return saveUser_(me, b.user);
     case 'resetPassword': return { password: resetPassword_(b.username) };
     case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason);
-    case 'reviewQueue': return { tasks: allTasks_().filter(function (t) { return t.status === 'Review'; }) };
+    case 'reviewQueue': return { tasks: cachedTasks_().filter(function (t) { return t.status === 'Review'; }) };
   }
   throw new Error('Aksi tidak dikenal: ' + a);
 }
@@ -496,7 +499,7 @@ function processProjectSync() {
     resetMemo_();
     var codes = JSON.parse(props.getProperty('PROJ_SYNC') || '[]');
     props.deleteProperty('PROJ_SYNC');
-    if (codes.length) syncProjectStatus_(codes);
+    if (codes.length && syncProjectStatus_(codes).length) dataCacheClear_();
   } finally { lock.releaseLock(); }
 }
 
@@ -550,6 +553,47 @@ function personSheets_() {
     if (sh) { seen[u.sheetName] = 1; out.push({ sheet: sh, user: u }); }
   });
   return out;
+}
+
+// ---------- cache data bacaan (dibuang otomatis setiap ada perubahan) ----------
+var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue'];
+var DATA_TTL = 90;   // detik; perubahan langsung di spreadsheet terlihat paling lambat 1,5 menit
+function dataCache_() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
+function dataVer_(c) { return (c && c.get('d_ver')) || '0'; }
+/** Ganti nomor versi → semua data bacaan lama tidak dipakai lagi. */
+function dataCacheClear_() { var c = dataCache_(); if (c) c.put('d_ver', String(Date.now()) + Math.random().toString(36).slice(2, 6), 21600); }
+function cacheGetJson_(c, key) {
+  var n = Number(c.get(key) || 0); if (!n) return null;
+  var keys = []; for (var i = 0; i < n; i++) keys.push(key + '_' + i);
+  var parts = c.getAll(keys), out = '';
+  for (var j = 0; j < n; j++) { if (parts[keys[j]] === undefined || parts[keys[j]] === null) return null; out += parts[keys[j]]; }
+  try { return JSON.parse(out); } catch (e) { return null; }
+}
+function cachePutJson_(c, key, obj) {
+  var json = JSON.stringify(obj), size = 40000, n = Math.ceil(json.length / size) || 1;
+  if (n > 40) return;   // terlalu besar untuk cache
+  var map = {};
+  for (var i = 0; i < n; i++) map[key + '_' + i] = json.slice(i * size, (i + 1) * size);
+  try { c.putAll(map, DATA_TTL); c.put(key, String(n), DATA_TTL); } catch (e) { /* lewati */ }
+}
+/** Baca dari cache; bila tidak ada, hitung lalu simpan — hanya bila tidak ada perubahan selama menghitung. */
+function cached_(name, compute) {
+  var c = dataCache_(); if (!c) return compute();
+  var ver = dataVer_(c), key = 'd_' + name + '_' + ver;
+  var hit = cacheGetJson_(c, key);
+  if (hit) return hit;
+  var val = compute();
+  if (dataVer_(c) === ver) cachePutJson_(c, key, val);
+  return val;
+}
+function cachedTasks_() { return cached_('tasks', allTasks_); }
+function cachedProjects_() { return cached_('projects', readProjects_); }
+function cachedBriefs_() { return cached_('briefs', function () { return readBriefs_().map(briefSummary_); }); }
+/** Tugas milik sendiri: pakai cache semua task bila ada, kalau tidak baca tab sendiri saja (lebih ringan). */
+function myTasks_(me) {
+  var c = dataCache_();
+  var hit = c && cacheGetJson_(c, 'd_tasks_' + dataVer_(c));
+  return hit ? hit.filter(function (t) { return t.owner === me.username; }) : readTasksOf_(me);
 }
 
 function readTasksOf_(user) {
@@ -609,13 +653,12 @@ function allTasks_() {
 function teamTasks_() {
   var users = readUsers_().filter(function (u) { return u.sheetName && u.active; })
     .map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
-  return { tasks: allTasks_(), users: users, projects: readProjects_(), briefs: readBriefs_() };
+  return { tasks: cachedTasks_(), users: users, projects: cachedProjects_(), briefs: cachedBriefs_() };
 }
 
 function getAll_() {
-  var tasks = allTasks_();
-  return { tasks: tasks, projects: readProjects_(), users: readUsers_().map(publicUser_),
-    statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_(), briefs: readBriefs_() };
+  return { tasks: cachedTasks_(), projects: cachedProjects_(), users: readUsers_().map(publicUser_),
+    statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_(), briefs: cachedBriefs_() };
 }
 
 /** Cari baris task berdasarkan Task ID. Member hanya boleh di tab miliknya. */
@@ -1435,8 +1478,11 @@ function runReminders() {
       ensureHeaders_(sh, TASK_HEADERS);
       var col = colMap_(sh);
       var vals = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+      var old = now.getTime() - 14 * 864e5;
       vals.forEach(function (r, i) {
         try {
+          // task Done > 14 hari: event Calendar-nya sudah dihapus, tidak ada pengingat → lewati agar cepat
+          if (String(r[col['status']]).trim() === 'Done' && isDate_(r[col['done at']]) && r[col['done at']].getTime() < old && !r[col['cal start id']] && !r[col['cal due id']]) return;
           syncValues_(sh, i + 2, r, col, p.user, cal);
           emailReminder_(sh, i + 2, r, col, p.user, now);
           collectReview_(sh, i + 2, r, col, p.user, newReviews);
@@ -1445,7 +1491,7 @@ function runReminders() {
     });
     if (newReviews.length) emailReviewsToAdmins_(newReviews);
     PropertiesService.getScriptProperties().deleteProperty('PROJ_SYNC');
-    syncProjectStatus_(null);   // semua project, termasuk perubahan yang diketik langsung di spreadsheet
+    if (syncProjectStatus_(null).length) dataCacheClear_();   // semua project, termasuk perubahan yang diketik langsung di spreadsheet
   } finally { lock.releaseLock(); }
 }
 
@@ -1611,6 +1657,20 @@ function rowBrief_(r, col, row) {
     title: String(g('title') || '').replace(/^'(?=[=+\-@])/, ''),
     data: data, docUrl: String(g('doc url') || ''),
     createdAt: normStamp_(g('created at')), updatedAt: normStamp_(g('updated at')), updatedBy: String(g('updated by') || '')
+  };
+}
+
+/** Ringkasan brief untuk daftar (isi lengkap diambil saat brief dibuka). */
+function briefSummary_(b) {
+  var d = b.data || {}, filled = function (x) { return String(x == null ? '' : x).trim() !== ''; };
+  var nH2 = Array.isArray(d.sections) ? d.sections.filter(function (x) { return x && filled(x.h2); }).length
+    : (d.outline || []).filter(function (o) { return o && o.level !== 1 && o.level !== 3 && filled(o.heading); }).length;
+  return {
+    id: b.id, row: b.row, taskId: b.taskId, owner: b.owner, createdBy: b.createdBy, type: b.type, status: b.status,
+    keyword: b.keyword, title: b.title, docUrl: b.docUrl, createdAt: b.createdAt, updatedAt: b.updatedAt, updatedBy: b.updatedBy, summary: true,
+    data: { kwMain: d.kwMain || '', h1: d.h1 || '', contentType: d.contentType || '', wordEst: d.wordEst || '', ctaPage: d.ctaPage || '',
+      nH2: nH2, nComp: (d.competitors || []).filter(function (x) { return x && filled(x.url); }).length,
+      nFaq: (d.faq || []).filter(function (x) { return x && filled(typeof x === 'string' ? x : x.q); }).length, nSecondary: (d.kwSecondary || []).length }
   };
 }
 

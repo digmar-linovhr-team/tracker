@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.16.0';
+const CSS_VERSION = '2.17.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -689,7 +689,7 @@ function taskRow(t, opts) {
     </div>
     <div class="t-ctrl">
       ${canStart && t.id ? `<button class="btn sm start" data-st="On-Progress" data-id="${id}">Mulai</button>` : ''}
-      ${!t.id ? '<span class="muted small">Task ID kosong</span>' : art ? artActions(t, readonly) : statusSel}
+      ${!t.id ? '<span class="muted small">Task ID kosong</span>' : String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : art ? artActions(t, readonly) : statusSel}
     </div>
   </div>`;
 }
@@ -1336,7 +1336,7 @@ function renderTaskTable() {
   S.tsel = S.tsel || new Set();
   const visible = new Set(list.map((t) => t.id));
   [...S.tsel].forEach((id) => { if (!visible.has(id)) S.tsel.delete(id); });   // pilihan mengikuti filter
-  const pick = (t) => t.id ? `<input type="checkbox" class="pick" data-pick="${esc(t.id)}" ${S.tsel.has(t.id) ? 'checked' : ''} aria-label="Pilih task">` : '';
+  const pick = (t) => t.id && !String(t.id).startsWith('tmp-') ? `<input type="checkbox" class="pick" data-pick="${esc(t.id)}" ${S.tsel.has(t.id) ? 'checked' : ''} aria-label="Pilih task">` : '';
   const allOn = list.length && list.every((t) => !t.id || S.tsel.has(t.id));
   if (!list.length) { $('#tt').innerHTML = '<div class="empty"><b>Tidak ada task</b>Ubah filter atau buat task baru.</div>'; renderBulkBar(list); return; }
   if (matchMedia('(max-width: 760px)').matches) {
@@ -1348,7 +1348,7 @@ function renderTaskTable() {
         <div class="task-meta">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
         ${resultsLine(t, true)}
       </div>
-      <div class="task-actions"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></div>
+      <div class="task-actions">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</div>
     </div>`).join('');
   } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
     ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}">
@@ -1357,7 +1357,7 @@ function renderTaskTable() {
       <td class="clip" title="${esc(t.task)}">${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
       <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
-      <td style="white-space:nowrap"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></td></tr>`; }).join('')}
+      <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</td></tr>`; }).join('')}
   </tbody></table>`;
   $$('[data-ext]', $('#tt')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
   bindBriefChips($('#tt'));
@@ -1443,20 +1443,8 @@ function taskModal(t, prefill) {
         const parsed = parseResultsText(data.results || '');
         if (parsed.error) { $('#terr', m).innerHTML = `<div class="error">${esc(parsed.error)}</div>`; return; }
         data.results = parsed.list;
-        try {
-          const r = await busy($('#save', m), () => api.call('saveTask', { task: data }));
-          close(); toast(edit ? 'Task diperbarui' : 'Task dibuat & dibagikan');
-          if (r && r.task) {
-            const owner = S.all.users.find((u) => u.username === r.task.owner);
-            const nt = Object.assign({}, r.task, { ownerName: owner ? owner.name : r.task.ownerName });
-            S.all.tasks = S.all.tasks.filter((x) => x.id !== nt.id).concat(nt);
-            S.mine.tasks = S.mine.tasks.filter((x) => x.id !== nt.id).concat(nt.owner === S.user.username ? [nt] : []);
-            syncProjects([nt.code, t.code], r.projects);
-            saveCache();
-          }
-          softRender();
-          refreshInBackground(1500);
-        } catch (err) { $('#terr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
+        close();
+        saveTaskOptimistic(data, edit ? t : null);
       };
     }
   });
@@ -1473,6 +1461,40 @@ function parseResultsText(txt) {
   }
   if (list.length > 10) return { error: 'Maksimal 10 link hasil kerja per task.' };
   return { list };
+}
+
+/** Simpan task: tampilan langsung berubah, penyimpanan berjalan di belakang; dibatalkan bila server menolak. */
+async function saveTaskOptimistic(data, orig) {
+  const owner = S.all.users.find((u) => u.username === data.owner) || {};
+  const snapAll = S.all.tasks.slice(), snapMine = S.mine.tasks.slice();
+  const id = orig ? orig.id : 'tmp-' + Date.now();
+  const art = data.type === 'Artikel';
+  const local = Object.assign({}, orig || { startedAt: '', doneAt: '', reviewAt: '', stageLog: [] }, data, {
+    id, ownerName: owner.name || data.owner, results: data.results || [],
+    status: art ? (orig && L.isArticle(orig) ? L.STAGE_STATUS[data.stage || L.stageOf(orig)] : 'Backlog') : (data.status || 'Backlog'),
+    stage: art ? (data.stage || (orig && L.isArticle(orig) ? L.stageOf(orig) : 1)) : (orig ? orig.stage : 0)
+  });
+  S.all.tasks = S.all.tasks.filter((x) => x.id !== id).concat(local);
+  S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id).concat(local.owner === S.user.username ? [local] : []);
+  S.pending.add(id);
+  syncProjects([local.code, orig && orig.code]);
+  softRender();
+  toast(orig ? 'Task diperbarui' : 'Task dibuat & dibagikan');
+  try {
+    const r = await api.call('saveTask', { task: data });
+    S.pending.delete(id);
+    if (r && r.task) {
+      const nt = Object.assign({}, r.task, { ownerName: owner.name || r.task.ownerName });
+      S.all.tasks = S.all.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(nt);
+      S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(nt.owner === S.user.username ? [nt] : []);
+      syncProjects([nt.code, orig && orig.code], r.projects);
+    }
+    saveCache(); softRender();
+  } catch (err) {
+    S.pending.delete(id);
+    S.all.tasks = snapAll; S.mine.tasks = snapMine; syncProjects([data.code, orig && orig.code]); softRender();
+    toast((orig ? 'Perubahan task gagal disimpan: ' : 'Task gagal dibuat: ') + cleanErr(err), true);
+  }
 }
 
 // ---------- Admin: Project ----------
@@ -1545,20 +1567,17 @@ function projectModal(p) {
         }
         const proj = { code: data.code, project: data.project, pic: data.pic, start: data.start, end: data.end, priority: data.priority, status: data.status };
         if (edit) { proj.row = p.row; proj.originalCode = p.code; }
-        try {
-          await busy($('#save', m), async () => {
-            await api.call('saveProject', { project: proj });
-            if (asTask) {
-              const r = await api.call('saveTask', { task: Object.assign(taskFromProject(proj), { owner: data.owner, startTime: data.startTime, endTime: data.endTime }) });
-              if (r && r.task) { const o = S.all.users.find((u) => u.username === r.task.owner); S.all.tasks.push(Object.assign({}, r.task, { ownerName: o ? o.name : r.task.ownerName })); }
-            }
-          });
-          close(); toast(asTask ? 'Project & task dibuat' : 'Project disimpan');
-          const data2 = proj;
-          if (edit) { Object.assign(S.all.projects.find((x) => x.row === p.row) || {}, data2); softRender(); }
-          refreshInBackground(edit ? 800 : 0);
-        }
-        catch (err) { $('#perr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
+        close();
+        // tampilan langsung berubah; penyimpanan berjalan di belakang
+        const snap = S.all.projects.map((x) => Object.assign({}, x));
+        if (edit) Object.assign(S.all.projects.find((x) => x.row === p.row) || {}, proj);
+        else S.all.projects.push(Object.assign({}, proj, { row: -Date.now(), startRaw: '', endRaw: '' }));
+        softRender();
+        toast(asTask ? 'Project & task dibuat' : 'Project disimpan');
+        if (asTask) saveTaskOptimistic(Object.assign(taskFromProject(proj), { owner: data.owner, startTime: data.startTime, endTime: data.endTime }), null);
+        api.call('saveProject', { project: proj })
+          .then(() => refreshInBackground(edit ? 1500 : 300))
+          .catch((err) => { S.all.projects = snap; softRender(); toast('Project gagal disimpan: ' + cleanErr(err), true); });
       };
     }
   });

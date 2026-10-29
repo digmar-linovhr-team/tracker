@@ -146,6 +146,14 @@ let db = null;
 function state() { if (!db) db = build(); return db; }
 function reset() { db = null; }
 
+/** Seperti server: daftar brief hanya ringkasan, isi lengkap lewat getBrief. */
+function briefSums(s) {
+  const f = (x) => String(x == null ? '' : x).trim() !== '';
+  return s.briefs.map((b) => { const d = b.data || {};
+    return Object.assign({}, b, { summary: true, data: { kwMain: d.kwMain || '', h1: d.h1 || '', contentType: d.contentType || '', wordEst: d.wordEst || '', ctaPage: d.ctaPage || '',
+      nH2: (d.sections || []).filter((x) => x && f(x.h2)).length, nComp: (d.competitors || []).filter((x) => x && f(x.url)).length,
+      nFaq: (d.faq || []).filter((x) => x && f(x.q)).length, nSecondary: (d.kwSecondary || []).length } }); });
+}
 function demoStage(t, next, me) {
   const STS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
   const now = new Date().toISOString();
@@ -186,9 +194,10 @@ function handle(action, b, session) {
     case 'me': return me;
     case 'changePassword': return { user: me };
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
-    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me, briefs: s.briefs };
-    case 'briefs': return { briefs: s.briefs };
-    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: s.briefs };
+    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me, briefs: briefSums(s) };
+    case 'briefs': return { briefs: briefSums(s) };
+    case 'getBrief': { const b0 = s.briefs.find((x) => x.id === b.briefId); if (!b0) throw new Error('Brief tidak ditemukan'); return { brief: b0 }; }
+    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s) };
     case 'saveBrief': {
       const br = b.brief || {};
       const t = s.tasks.find((x) => x.id === br.taskId && (me.role === 'admin' || x.owner === me.username));
@@ -264,7 +273,7 @@ function handle(action, b, session) {
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {
-    case 'getAll': return { tasks: s.tasks, projects: s.projects, users: s.users, notifications: true, briefs: s.briefs,
+    case 'getAll': return { tasks: s.tasks, projects: s.projects, users: s.users, notifications: true, briefs: briefSums(s),
       statuses: ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'], priorities: ['High', 'Medium', 'Low'] };
     case 'bulkSetType': {
       const out = [], failed = [];

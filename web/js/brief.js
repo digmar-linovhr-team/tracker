@@ -80,6 +80,15 @@ function guessKeyword(task) {
   try { const seg = new URL(s).pathname.split('/').filter(Boolean).pop() || ''; return decodeURIComponent(seg).replace(/[-_]+/g, ' ').trim(); }
   catch (e) { return ''; }
 }
+/** Ringkasan brief (dari server: data ringkas; dari editor/lokal: dihitung dari data lengkap). */
+function briefSum(b) {
+  if (!b) return null;
+  if (b.summary) return Object.assign({ nH2: 0, nComp: 0, nFaq: 0, nSecondary: 0 }, b.data);
+  const d = normBrief(JSON.parse(JSON.stringify(b.data || {})));
+  return { kwMain: d.kwMain, h1: d.h1, contentType: d.contentType, wordEst: d.wordEst, ctaPage: d.ctaPage,
+    nH2: d.sections.filter((x) => String(x.h2 || '').trim()).length, nComp: filledCompetitors(d),
+    nFaq: d.faq.filter((f) => String(f.q || '').trim()).length, nSecondary: d.kwSecondary.length };
+}
 const filledCompetitors = (d) => (d.competitors || []).filter((c) => String(c.url || '').trim()).length;
 
 // ---------- daftar brief ----------
@@ -124,11 +133,11 @@ function renderBriefList() {
   $('#blist').innerHTML = `<div class="card tlist brief-list">
     <div class="bl-head"><span>Keyword & judul</span><span>Task</span><span>Jenis konten</span><span>Status</span></div>
     ${list.map((b) => {
-      const t = briefTask(b), [st, cls] = briefStatus(b), d = normBrief(JSON.parse(JSON.stringify(b.data || {})));
+      const t = briefTask(b), [st, cls] = briefStatus(b), d = briefSum(b);
       const end = t ? L.schedule(t).end : null;
       return `<button class="bl-row" data-brief="${esc(b.id)}">
         <span class="bl-kw"><b>${esc(bKw(b) || '(tanpa keyword)')}</b><small>${esc(bTitle(b) || 'H1 belum diisi')}</small></span>
-        <span class="bl-task">${t ? `${t.code ? `<span class="code-tag">${esc(t.code)}</span> ` : ''}${esc(t.ownerName)}<small>${end ? 'deadline ' + esc(fmtD(end)) + ' · ' : ''}${d.sections.filter((s) => s.h2.trim()).length} H2${d.wordEst ? ' · ' + esc(d.wordEst) + ' kata' : ''}</small>` : '<small>Task sudah dihapus</small>'}</span>
+        <span class="bl-task">${t ? `${t.code ? `<span class="code-tag">${esc(t.code)}</span> ` : ''}${esc(t.ownerName)}<small>${end ? 'deadline ' + esc(fmtD(end)) + ' · ' : ''}${d.nH2} H2${d.wordEst ? ' · ' + esc(d.wordEst) + ' kata' : ''}</small>` : '<small>Task sudah dihapus</small>'}</span>
         <span class="bl-type">${esc(d.contentType || '')}</span>
         <span><span class="bstat ${cls}">${esc(st)}</span></span>
       </button>`;
@@ -213,9 +222,15 @@ function createBriefOptimistic(task, data, okMsg) {
 }
 
 // ---------- editor ----------
-function openBrief(id) {
-  const b = (S.briefs || []).find((x) => x.id === id);
+async function openBrief(id) {
+  let b = (S.briefs || []).find((x) => x.id === id);
   if (!b) return toast('Brief tidak ditemukan. Muat ulang data.', true);
+  if (b.summary && !(S.bEdit && S.bEdit.id === id && S.bEdit.dirty)) {
+    // daftar hanya berisi ringkasan → ambil isi lengkap saat dibuka
+    if (S.view !== 'brief') { $('#view').innerHTML = '<div class="loading">Membuka brief…</div>'; }
+    try { b = (await api.call('getBrief', { briefId: id })).brief; putBrief(b); }
+    catch (e) { toast('Brief gagal dibuka: ' + cleanErr(e), true); if (S.view !== 'brief') go(S.view); return; }
+  }
   if (!S.bEdit || S.bEdit.id !== id || !S.bEdit.dirty) {
     const copy = JSON.parse(JSON.stringify(b));
     copy.data = normBrief(copy.data);

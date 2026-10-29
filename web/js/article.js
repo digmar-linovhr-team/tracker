@@ -54,11 +54,11 @@ function artStep(id, step) {
     const b = briefOf(id);
     if (!b) return newBriefModal(id);
     if (S.bEdit && S.bEdit.id === b.id && S.bEdit.dirty) briefFlush();
-    const d = normBrief(JSON.parse(JSON.stringify(b.data || {}))), miss = [];
+    const d = briefSum(S.bEdit && S.bEdit.id === b.id ? S.bEdit.b : b), miss = [];
     if (!String(d.kwMain || '').trim()) miss.push('keyword utama');
     if (!String(d.h1 || '').trim()) miss.push('H1');
-    if (filledCompetitors(d) < MIN_COMPETITORS) miss.push(`minimal ${MIN_COMPETITORS} link kompetitor`);
-    if (!d.sections.some((x) => String(x.h2 || '').trim())) miss.push('minimal 1 H2');
+    if (d.nComp < MIN_COMPETITORS) miss.push(`minimal ${MIN_COMPETITORS} link kompetitor`);
+    if (!d.nH2) miss.push('minimal 1 H2');
     if (miss.length) { toast('Lengkapi brief dulu: ' + miss.join(', ') + '.', true); return openBrief(b.id); }
     return confirmBox('Ajukan brief?', `Brief "${bKw(b)}" dikirim ke admin untuk direview. Selama direview, brief tidak bisa diubah.`, 'Ajukan brief')
       .then((ok) => ok && advanceStage(id, step));
@@ -126,10 +126,10 @@ async function advanceStage(id, step, url) {
 function artReviewBlock(t) {
   const st = artStage(t);
   if (st === 3) {
-    const b = briefOf(t.id), d = b ? normBrief(JSON.parse(JSON.stringify(b.data || {}))) : null;
+    const b = briefOf(t.id), d = b ? briefSum(b) : null;
     return `<div class="rv-hasil"><div class="rv-res-h">Brief yang diajukan</div>
-      ${d ? `<div class="rv-brief"><b>${esc(d.h1 || '(H1 belum diisi)')}</b><span>Keyword: ${esc(d.kwMain || '–')}${d.kwSecondary.length ? ' · ' + d.kwSecondary.length + ' turunan' : ''} · ${esc(d.contentType || '')}${d.wordEst ? ' · ±' + esc(d.wordEst) + ' kata' : ''}</span>
-        <span>${d.sections.filter((x) => x.h2.trim()).length} H2 · ${filledCompetitors(d)} kompetitor · ${d.faq.filter((f) => String(f.q || '').trim()).length} FAQ</span></div>` : '<span class="muted small">Brief tidak ditemukan</span>'}
+      ${d ? `<div class="rv-brief"><b>${esc(d.h1 || '(H1 belum diisi)')}</b><span>Keyword: ${esc(d.kwMain || '–')}${d.nSecondary ? ' · ' + d.nSecondary + ' turunan' : ''} · ${esc(d.contentType || '')}${d.wordEst ? ' · ±' + esc(d.wordEst) + ' kata' : ''}</span>
+        <span>${d.nH2} H2 · ${d.nComp} kompetitor · ${d.nFaq} FAQ</span></div>` : '<span class="muted small">Brief tidak ditemukan</span>'}
       <div class="rv-res">${briefChips(t, true)}</div></div>`;
   }
   if (st === 5) {

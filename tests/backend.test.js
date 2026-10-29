@@ -65,7 +65,8 @@ const trigBuilder = (fn) => { const b = { timeBased: () => b, everyMinutes: () =
 const sandbox = {
   SpreadsheetApp: { getActive: () => ss, getUi: () => { throw new Error('no ui'); } },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; } }) },
-  CacheService: { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: (k) => { delete cache[k]; } }) },
+  CacheService: { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: (k) => { delete cache[k]; },
+    getAll: (ks) => Object.fromEntries(ks.filter((k) => k in cache).map((k) => [k, cache[k]])), putAll: (m) => { Object.assign(cache, m); }, removeAll: (ks) => ks.forEach((k) => delete cache[k]) }) },
   LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
   ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) },
   HtmlService: { createHtmlOutput: () => ({ setWidth() { return this; }, setHeight() { return this; } }) },
@@ -539,6 +540,26 @@ it('Admin mengubah jenis banyak task sekaligus; anggota tidak bisa', () => {
   assert.deepStrictEqual(r.data.failed, ['TIDAKADA']);
   r = post({ action: 'bulkSetType', token: admin, taskIds: [ids[2]], type: 'Non-artikel' });
   assert.strictEqual(r.data.tasks[0].type, 'Non-artikel');
+});
+
+it('Cache data bacaan: dipakai ulang, langsung diperbarui setelah ada perubahan; daftar brief berupa ringkasan', () => {
+  const a1 = post({ action: 'getAll', token: admin }).data;
+  // ubah sheet langsung tanpa lewat aplikasi → masih data cache (sampai kedaluwarsa)
+  const sh = ss.getSheetByName('Ari'), col = sh.data[0].indexOf('Task');
+  const old = sh.data[1][col]; sh.data[1][col] = 'DIUBAH LANGSUNG';
+  assert.ok(!post({ action: 'getAll', token: admin }).data.tasks.some((t) => t.task === 'DIUBAH LANGSUNG'), 'pakai cache');
+  // perubahan lewat aplikasi → cache dibuang
+  post({ action: 'setMyEmail', token: ari, email: 'ari@linovhr.com' });
+  assert.ok(post({ action: 'getAll', token: admin }).data.tasks.some((t) => t.task === 'DIUBAH LANGSUNG'), 'cache diperbarui');
+  sh.data[1][col] = old; post({ action: 'setMyEmail', token: ari, email: 'ari@linovhr.com' });
+  // brief: daftar ringkas, isi lengkap lewat getBrief
+  const t = post({ action: 'saveTask', token: admin, task: { owner: 'ari', type: 'Artikel', task: 'Artikel cache', startDate: '2026-11-02', endDate: '2026-11-04' } }).data.task;
+  const b = post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, data: { v: 2, kwMain: 'tes cache', h1: 'Judul', sections: [{ h2: 'A', points: 'x', sources: [''], h3: [] }, { h2: '', points: '', sources: [''], h3: [] }], competitors: [{ url: 'https://a.com' }] } } }).data.brief;
+  const sum = post({ action: 'briefs', token: ari }).data.briefs.find((x) => x.id === b.id);
+  assert.strictEqual(sum.summary, true); assert.strictEqual(sum.data.nH2, 1); assert.strictEqual(sum.data.nComp, 1); assert.strictEqual(sum.data.sections, undefined);
+  const full = post({ action: 'getBrief', token: ari, briefId: b.id }).data.brief;
+  assert.strictEqual(full.data.sections.length, 2);
+  void a1;
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
