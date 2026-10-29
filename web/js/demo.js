@@ -569,6 +569,17 @@ function handle(action, b, session) {
       s.users.push(nu); return u.orgOnly ? { user: nu } : { user: nu, password: 'demo' };
     }
     case 'resetPassword': return { password: 'demo' };
+    case 'deleteUser': {
+      const u = s.users.find((x) => x.username === b.username);
+      if (!u) throw new Error('Pengguna tidak ditemukan');
+      if (u.username === me.username) throw new Error('Anda tidak bisa menghapus akun sendiri');
+      if (u.active) throw new Error('Nonaktifkan akun ini dulu sebelum menghapusnya');
+      const n = s.tasks.filter((t) => t.owner === u.username).length;
+      if (n && String(b.confirm || '').toLowerCase() !== u.username) throw new Error('Ketik username "' + u.username + '" untuk mengonfirmasi penghapusan');
+      s.users = s.users.filter((x) => x !== u); s.tasks = s.tasks.filter((t) => t.owner !== u.username);
+      s.users.forEach((x) => { if (x.reportsTo === u.username) x.reportsTo = ''; });
+      return { ok: true, username: u.username, archived: n && u.sheetName ? '(arsip) ' + u.sheetName : '', tasks: n };
+    }
   }
   throw new Error('Aksi tidak dikenal');
 }

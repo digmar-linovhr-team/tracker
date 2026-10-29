@@ -11,6 +11,8 @@ function col2arr(n) { return Array.from({ length: n }, () => ''); }
 class Sheet {
   constructor(name, rows) { this.name = name; this.data = rows.map((r) => r.slice()); this.maxRows = 1000; this.maxCols = 26; this.validation = {}; }
   getName() { return this.name; }
+  setName(n) { this.name = n; return this; }
+  hideSheet() { this.hidden = true; return this; }
   getLastRow() { for (let i = this.data.length - 1; i >= 0; i--) if (this.data[i].some((v) => v !== '' && v !== null)) return i + 1; return 0; }
   getLastColumn() { let m = 0; this.data.forEach((r) => r.forEach((v, i) => { if (v !== '' && v !== null) m = Math.max(m, i + 1); })); return m; }
   getMaxRows() { return this.maxRows; }
@@ -55,6 +57,7 @@ const sheets = [];
 const ss = {
   getSheets: () => sheets,
   getSheetByName: (n) => sheets.find((s) => s.name === n) || null,
+  deleteSheet: (sh) => { const i = sheets.indexOf(sh); if (i >= 0) sheets.splice(i, 1); },
   insertSheet: (n) => { const s = new Sheet(n, []); sheets.push(s); return s; },
   getSpreadsheetTimeZone: () => 'Asia/Jakarta'
 };
@@ -814,6 +817,30 @@ it('Jadwal kerja: pilih Senin/Kamis, kuota min 2, pengecualian, pengajuan ke adm
   assert.deepStrictEqual(Array.from(r.data.weeks[0].plans.ari.holidays), ['tue']); assert.strictEqual(r.data.weeks[0].count.tue, 0);
   assert.ok(post({ action: 'schedHoliday', token: admin, date: tueW3, remove: true }).ok);
   assert.ok(!Object.keys(post({ action: 'schedule', token: ari, week: W3 }).data.holidays).length);
+});
+
+it('Hapus pengguna: wajib nonaktif dulu, tanpa task → tab dihapus, punya task → konfirmasi username & tab diarsipkan', () => {
+  let r = post({ action: 'saveUser', token: admin, user: { username: 'tes', name: 'Tes Hapus', role: 'member', hasTasks: true, reportsTo: 'ari' } });
+  assert.ok(r.ok, r.error); assert.ok(ss.getSheetByName('Tes Hapus'));
+  assert.strictEqual(post({ action: 'deleteUser', token: admin, username: 'tes' }).ok, false, 'harus nonaktif dulu');
+  assert.ok(post({ action: 'saveUser', token: admin, user: { username: 'tes', name: 'Tes Hapus', role: 'member', active: false } }).ok);
+  assert.strictEqual(post({ action: 'deleteUser', token: ari, username: 'tes' }).ok, false, 'hanya admin');
+  r = post({ action: 'deleteUser', token: admin, username: 'tes' }); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.archived, ''); assert.ok(!ss.getSheetByName('Tes Hapus'), 'tab kosong dihapus');
+  assert.ok(!post({ action: 'getAll', token: admin }).data.users.some((u) => u.username === 'tes'));
+  // wisnu punya task & ari melapor ke wisnu? set dulu
+  assert.ok(post({ action: 'saveUser', token: admin, user: { username: 'ari', name: 'Ari', role: 'member', reportsTo: 'wisnu' } }).ok);
+  assert.ok(post({ action: 'saveUser', token: admin, user: { username: 'wisnu', name: 'Wisnu', role: 'member', active: false } }).ok);
+  const tab = post({ action: 'getAll', token: admin }).data.users.find((u) => u.username === 'wisnu').sheetName;
+  r = post({ action: 'deleteUser', token: admin, username: 'wisnu' }); assert.strictEqual(r.ok, false); assert.ok(/Ketik username/.test(r.error));
+  r = post({ action: 'deleteUser', token: admin, username: 'wisnu', confirm: 'wisnu' }); assert.ok(r.ok, r.error);
+  assert.ok(r.data.tasks > 0); assert.ok(!ss.getSheetByName(tab)); const arc = ss.getSheetByName('(arsip) ' + tab);
+  assert.ok(arc && arc.hidden, 'tab diarsipkan & disembunyikan');
+  const d = post({ action: 'getAll', token: admin }).data;
+  assert.ok(!d.users.some((u) => u.username === 'wisnu')); assert.ok(!d.tasks.some((t) => t.owner === 'wisnu'));
+  assert.strictEqual(d.users.find((u) => u.username === 'ari').reportsTo, '', 'atasan yang dihapus dikosongkan');
+  assert.strictEqual(post({ action: 'deleteUser', token: admin, username: 'admin' }).ok, false, 'tidak bisa hapus diri sendiri');
+  assert.strictEqual(post({ action: 'login', username: 'wisnu', password: 'wisnu12345' }).ok, false);
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

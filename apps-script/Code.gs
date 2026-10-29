@@ -158,7 +158,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 19 });
+  return json_({ ok: true, app: 'project-tracker', version: 20 });
 }
 
 function doPost(e) {
@@ -224,6 +224,7 @@ function route_(b) {
     case 'deleteProject': return deleteProject_(me, b.row, b.code);
     case 'saveUser': return saveUser_(me, b.user);
     case 'resetPassword': return { password: resetPassword_(b.username) };
+    case 'deleteUser': return deleteUser_(me, b.username, b.confirm);
     case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason, b.owner);
     case 'schedSet': return schedSet_(me, b.username, b.week, b.days);
     case 'schedDecide': return schedDecide_(me, b.id, b.decision, b.note);
@@ -411,6 +412,48 @@ function appendUser_(username, name, role, sheetName, password) {
     'active': true, 'created at': new Date()
   });
   invalidateUsers_();
+}
+
+/** Hapus akun secara permanen. Hanya akun yang sudah dinonaktifkan; tab task diarsipkan (diganti nama & disembunyikan), bukan dihapus. */
+function deleteUser_(me, username, confirm) {
+  username = String(username || '').trim().toLowerCase();
+  var lock = lock_(20000);
+  try {
+    invalidateUsers_();
+    var u = findUser_(username);
+    if (!u) throw new Error('Pengguna tidak ditemukan');
+    if (u.username === me.username) throw new Error('Anda tidak bisa menghapus akun sendiri');
+    if (u.active) throw new Error('Nonaktifkan akun ini dulu sebelum menghapusnya');
+    var ss = SpreadsheetApp.getActive(), tab = u.sheetName ? ss.getSheetByName(u.sheetName) : null, taskCount = 0, archived = '';
+    if (tab && tab.getLastRow() > 1) {
+      taskCount = tab.getRange(2, 1, tab.getLastRow() - 1, tab.getLastColumn()).getValues()
+        .filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); }).length;
+    }
+    if (taskCount && String(confirm || '').trim().toLowerCase() !== u.username) {
+      throw new Error('Ketik username "' + u.username + '" untuk mengonfirmasi penghapusan');
+    }
+    var shared = u.sheetName && readUsers_().some(function (x) { return x.username !== u.username && x.sheetName === u.sheetName; });
+    if (tab && !shared) {
+      if (taskCount) {
+        var base = '(arsip) ' + u.sheetName, name = base, n = 2;
+        while (ss.getSheetByName(name)) name = base + ' ' + (n++);
+        tab.setName(name.slice(0, 99)); tab.hideSheet(); archived = tab.getName();
+      } else if (ss.getSheets().length > 1) {
+        ss.deleteSheet(tab);
+      }
+    }
+    var sh = sheet_(CFG.USERS_SHEET), col = colMap_(sh);
+    if (col['reports to'] !== undefined) {
+      readUsers_().forEach(function (x) {
+        if (x.reportsTo === u.username) sh.getRange(x.row, col['reports to'] + 1).setValue('');
+      });
+    }
+    sh.deleteRow(u.row);
+    invalidateUsers_();
+    dataCacheClear_();
+    log_(me, 'delete-user', '', u.username + (archived ? ' → ' + archived : ''));
+    return { ok: true, username: u.username, archived: archived, tasks: taskCount };
+  } finally { unlock_(lock); }
 }
 
 function resetPassword_(username) {

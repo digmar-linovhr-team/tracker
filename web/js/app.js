@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.22.4';
+const CSS_VERSION = '2.22.5';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1704,6 +1704,7 @@ function ownerFromPic(pic) {
 const UL_ICON = {
   key: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 19 4M18 5l2 2M15 8l2 2"/></svg>',
   off: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4M17 17l4 4M21 17l-4 4"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
   edit: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.83 2.83 0 0 0-4-4L4 16v4"/><path d="m13.5 6.5 4 4"/></svg>'
 };
 function viewUsers() {
@@ -1724,12 +1725,12 @@ function viewUsers() {
       <div class="ul-who"><span class="avatar">${initials(u.name)}</span><div class="ul-txt"><span class="ul-name">${esc(u.name)}</span><span class="ul-2${u.position ? '' : ' muted'}">${u.position ? esc(u.position) : (u.role === 'admin' && !u.sheetName ? 'Admin sistem' : 'Jabatan belum diisi')}</span></div></div>
       <div class="ul-txt ul-c"><span class="ul-k">Kontak</span>${email}<span class="ul-2">@${esc(u.username)}</span></div>
       <div class="ul-txt ul-c ul-boss"><span class="ul-k">Atasan</span>${boss ? `<span class="ul-1">${esc(boss)}</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}` : `<span class="ul-1 muted">—</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}`}</div>
-      <div class="ul-act">${!u.active ? `<button class="btn sm" data-uon="${esc(u.username)}">Aktifkan kembali</button>` : `${tags}${u.orgOnly ? '' : `<button class="ul-ib" data-ur="${esc(u.username)}" title="Reset password" aria-label="Reset password ${esc(u.name)}">${UL_ICON.key}</button>`}${u.username === S.user.username ? '' : `<button class="ul-ib" data-uoff="${esc(u.username)}" title="Nonaktifkan" aria-label="Nonaktifkan ${esc(u.name)}">${UL_ICON.off}</button>`}<button class="ul-ib" data-ue="${esc(u.username)}" title="Edit" aria-label="Edit ${esc(u.name)}">${UL_ICON.edit}</button>`}</div>
+      <div class="ul-act">${!u.active ? `<button class="btn sm" data-uon="${esc(u.username)}">Aktifkan kembali</button><button class="ul-ib ul-del" data-udel="${esc(u.username)}" title="Hapus permanen" aria-label="Hapus ${esc(u.name)}">${UL_ICON.trash}</button>` : `${tags}${u.orgOnly ? '' : `<button class="ul-ib" data-ur="${esc(u.username)}" title="Reset password" aria-label="Reset password ${esc(u.name)}">${UL_ICON.key}</button>`}${u.username === S.user.username ? '' : `<button class="ul-ib" data-uoff="${esc(u.username)}" title="Nonaktifkan" aria-label="Nonaktifkan ${esc(u.name)}">${UL_ICON.off}</button>`}<button class="ul-ib" data-ue="${esc(u.username)}" title="Edit" aria-label="Edit ${esc(u.name)}">${UL_ICON.edit}</button>`}</div>
     </div>`;
   };
   $('#view').innerHTML = `${all.notifications === false ? `<div class="banner warn"><div><b>Pengingat Google Calendar & email belum aktif.</b> Buka spreadsheet → menu <b>Project Tracker → 2. Aktifkan Calendar &amp; email pengingat</b>, lalu deploy ulang Web App.</div></div>` : ''}
     <div class="toolbar">${offs.length ? `<div class="seg" role="tablist"><button class="${tab === 'on' ? 'on' : ''}" data-utab="on" role="tab" aria-selected="${tab === 'on'}">Aktif <span class="ul-n">${actives.length}</span></button><button class="${tab === 'off' ? 'on' : ''}" data-utab="off" role="tab" aria-selected="${tab === 'off'}">Nonaktif <span class="ul-n">${offs.length}</span></button></div>` : `<span class="muted small">${actives.length} akun</span>`}<span class="spacer"></span><button class="btn primary" id="newu">+ Pengguna</button></div>
-    ${tab === 'off' ? '<p class="muted small ul-note">Akun nonaktif tidak bisa login dan tidak muncul di pilihan task, tapi task & riwayatnya tetap tersimpan.</p>' : ''}
+    ${tab === 'off' ? '<p class="muted small ul-note">Akun nonaktif tidak bisa login dan tidak muncul di pilihan task, tapi task & riwayatnya tetap tersimpan. Hapus permanen hanya bila akun benar-benar tidak dibutuhkan lagi.</p>' : ''}
     <div class="card ul">
       <div class="ul-row ul-h"><span>Anggota</span><span>Kontak</span><span>Atasan</span><span></span></div>
       ${list.map(row).join('')}
@@ -1749,11 +1750,42 @@ function viewUsers() {
   };
   $$('[data-uoff]').forEach((b) => b.onclick = () => setActive(b.dataset.uoff, false));
   $$('[data-uon]').forEach((b) => b.onclick = () => setActive(b.dataset.uon, true));
+  $$('[data-udel]').forEach((b) => b.onclick = () => deleteUserModal(all.users.find((u) => u.username === b.dataset.udel)));
   $$('[data-ue]').forEach((b) => b.onclick = () => userModal(all.users.find((u) => u.username === b.dataset.ue)));
   $$('[data-ur]').forEach((b) => b.onclick = async () => {
     if (!(await confirmBox('Reset password?', `Password ${nameOf_(b.dataset.ur)} akan diganti dengan password sementara baru.`, 'Reset'))) return;
     const r = await busy(null, () => api.call('resetPassword', { username: b.dataset.ur }));
     showPassword(b.dataset.ur, r.password); await loadData(true); go('users');
+  });
+}
+
+function deleteUserModal(u) {
+  if (!u) return;
+  const tasks = S.all.tasks.filter((t) => t.owner === u.username), open = tasks.filter((t) => !L.isDone(t)).length;
+  const needType = tasks.length > 0;
+  modal({
+    title: `Hapus ${u.name}?`,
+    body: `<div class="udel">
+      ${needType ? `<div class="banner warn"><div><b>${u.name} punya ${tasks.length} task${open ? ` (${open} belum selesai)` : ''}.</b> Task & KPI-nya akan hilang dari aplikasi. Tab <b>${esc(u.sheetName)}</b> di spreadsheet tidak dihapus — diganti nama jadi <b>(arsip) ${esc(u.sheetName)}</b> dan disembunyikan.</div></div>` : `<p>Akun <b>@${esc(u.username)}</b> belum punya task. Akun dan tab kosongnya akan dihapus.</p>`}
+      <p class="muted small">Tindakan ini tidak bisa dibatalkan dari aplikasi. Bila hanya ingin mencabut akses, biarkan akun tetap nonaktif.</p>
+      ${needType ? `<label class="field"><span>Ketik <b>${esc(u.username)}</b> untuk konfirmasi</span><input id="udel-c" autocomplete="off" placeholder="${esc(u.username)}"></label>` : ''}
+      <div id="udel-e"></div></div>`,
+    actions: `<button class="btn" data-close>Batal</button><button class="btn danger" id="udel-ok" ${needType ? 'disabled' : ''}>Hapus permanen</button>`,
+    onMount: (m, close) => {
+      const inp = $('#udel-c', m), ok = $('#udel-ok', m);
+      if (inp) inp.oninput = () => { ok.disabled = inp.value.trim().toLowerCase() !== u.username; };
+      ok.onclick = async () => {
+        try {
+          const r = await busy(ok, () => api.call('deleteUser', { username: u.username, confirm: inp ? inp.value.trim() : '' }));
+          close();
+          S.all.users = S.all.users.filter((x) => x.username !== u.username);
+          S.all.tasks = S.all.tasks.filter((t) => t.owner !== u.username);
+          S.all.users.forEach((x) => { if (x.reportsTo === u.username) x.reportsTo = ''; });
+          softRender(); refreshInBackground(800);
+          toast(r && r.archived ? `${u.name} dihapus · tab diarsipkan sebagai "${r.archived}"` : `${u.name} dihapus`);
+        } catch (e) { $('#udel-e', m).innerHTML = `<div class="error">${esc(cleanErr(e))}</div>`; }
+      };
+    }
   });
 }
 
