@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.23.1';
+const CSS_VERSION = '2.24.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -290,6 +290,7 @@ async function loadData(quiet) {
     }
     S.mine = mine;
     if (mine && 'onboarding' in mine) S.onboarding = mine.onboarding;
+    const cc = (all && all.comments) || (mine && mine.comments); if (cc) S.ccount = cc;
     const fresh = (mine && mine.me) || (all && all.users.find((u) => u.username === S.user.username));
     if (fresh) { S.user = Object.assign(S.user, fresh); renderMe(); }
     if (all) { S.all = all; if (!S.user.sheetName) S.mine.projects = all.projects; }
@@ -754,6 +755,7 @@ function taskRow(t, opts) {
         ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
         ${t.repeat ? `<span class="t-rep" title="Task berulang — salinan baru dibuat otomatis pukul 06.00">↻ ${esc(repeatLabel(t.repeat, t.startDate))}</span>` : t.repeatOf ? '<span class="t-rep muted" title="Dibuat otomatis dari task berulang">↻ otomatis</span>' : ''}
+        ${typeof cmChip === 'function' ? cmChip(t) : ''}
         ${t.leaveDays && !done ? `<span class="t-leave" title="Deadline mundur karena cuti/izin yang disetujui">Deadline +${t.leaveDays} hari kerja (cuti)</span>` : ''}
         ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes.split('\n').pop())}</span>` : ''}
       </div>
@@ -1246,7 +1248,7 @@ function teamData() {
 
 async function loadTeam() {
   if (S.user.role === 'admin') return true;
-  try { S.team = await api.call('teamTasks'); S.teamAt = Date.now(); if (S.team.briefs) S.briefs = S.team.briefs; saveCache(); return true; }
+  try { S.team = await api.call('teamTasks'); S.teamAt = Date.now(); if (S.team.comments) S.ccount = S.team.comments; if (S.team.briefs) S.briefs = S.team.briefs; saveCache(); return true; }
   catch (e) { toast(cleanErr(e), true); return false; }
 }
 
@@ -1355,7 +1357,7 @@ function viewReview() {
       <div class="rv-who"><span class="avatar">${initials(t.ownerName)}</span><div><b>${esc(t.ownerName)}</b>${pos ? `<small>${esc(pos)}</small>` : ''}</div></div>
       <div class="t-main">
         <div class="t-title">${prettyTitle(t.task)}</div>
-        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[artStage(t)] || 'Review')}</span>` : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
+        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[artStage(t)] || 'Review')}</span>` : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}${cmChip(t)}</div>
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
         ${art ? artReviewBlock(t) : `<div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
           ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
@@ -1526,7 +1528,7 @@ function renderTaskTable() {
       <div>
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
         <div class="task-title">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</div>
-        <div class="task-meta">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
+        <div class="task-meta">${cmChip(t)}${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
         ${resultsLine(t, true)}
       </div>
       <div class="task-actions">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</div>
@@ -1535,7 +1537,7 @@ function renderTaskTable() {
     ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}">
       <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
-      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
+      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)} ${cmCounts()[t.id] ? cmChip(t) : ''}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
       <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
       <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</td></tr>`; }).join('')}

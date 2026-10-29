@@ -13,7 +13,7 @@ var CFG = {
   MAIN_SHEET: 'Main Project',
   LOG_SHEET: 'Activity Log',
   BRIEF_SHEET: 'Briefs',
-  SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur', LEAVE_SHEET: 'Cuti',
+  SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur', LEAVE_SHEET: 'Cuti', COMMENT_SHEET: 'Komentar',
   REPORT_TO: 'digmar@linovhr.com',   // penerima laporan mingguan (Senin) & bulanan (tanggal 1)
   DAILY_HOUR: 6,                     // jam tugas harian otomatis: task berulang & laporan
   BRIEF_FOLDER: 'Brief Artikel',   // folder Google Drive untuk ekspor brief ke Google Doc
@@ -91,7 +91,7 @@ function setup() {
   readUsers_().forEach(function (u) { existing[u.username] = u; });
   var created = [];
 
-  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET, CFG.SCHED_SHEET, CFG.SREQ_SHEET, CFG.HOLIDAY_SHEET, CFG.LEAVE_SHEET];
+  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET, CFG.SCHED_SHEET, CFG.SREQ_SHEET, CFG.HOLIDAY_SHEET, CFG.LEAVE_SHEET, CFG.COMMENT_SHEET];
   var seenIds = {}, fixedVal = [];
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
@@ -160,7 +160,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 21 });
+  return json_({ ok: true, app: 'project-tracker', version: 22 });
 }
 
 function doPost(e) {
@@ -198,7 +198,7 @@ function route_(b) {
     case 'me': return publicUser_(me);
     case 'myTasks': {
       var mt = me.sheetName ? withLeaves_(myTasks_(me)) : [];
-      return { tasks: mt, projects: cachedProjects_(), me: publicUser_(me), briefs: cachedBriefs_(), onboarding: onboardInfo_(me, mt) };
+      return { tasks: mt, projects: cachedProjects_(), me: publicUser_(me), briefs: cachedBriefs_(), onboarding: onboardInfo_(me, mt), comments: cachedCommentCounts_() };
     }
     case 'briefs': return { briefs: cachedBriefs_() };
     case 'getBrief': return { brief: findBrief_(b.briefId).brief };
@@ -220,6 +220,10 @@ function route_(b) {
     case 'leaveRequest': return leaveRequest_(me, b.leave || {});
     case 'leaveCancel': return leaveCancel_(me, b.id);
     case 'onboardStep': return onboardStep_(me, b.step);
+    case 'comments': return commentsOf_(me, b.taskId);
+    case 'commentAdd': return commentAdd_(me, b.taskId, b.text, b.mentions);
+    case 'commentEdit': return commentEdit_(me, b.id, b.text);
+    case 'commentDelete': return commentDelete_(me, b.id);
   }
 
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
@@ -698,7 +702,7 @@ function personSheets_() {
 }
 
 // ---------- cache data bacaan (dibuang otomatis setiap ada perubahan) ----------
-var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'sendReport', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue', 'schedule'];
+var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'sendReport', 'comments', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue', 'schedule'];
 var DATA_TTL = 90;   // detik; perubahan langsung di spreadsheet terlihat paling lambat 1,5 menit
 function dataCache_() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
 function dataVer_(c) { return (c && c.get('d_ver')) || '0'; }
@@ -797,14 +801,14 @@ function teamTasks_() {
   var users = readUsers_().filter(function (u) { return u.sheetName && u.active; })
     .map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
   var org = readUsers_().filter(function (u) { return u.active; }).map(orgUser_);
-  return { tasks: withLeaves_(cachedTasks_()), users: users, projects: cachedProjects_(), briefs: cachedBriefs_(), org: org };
+  return { tasks: withLeaves_(cachedTasks_()), users: users, projects: cachedProjects_(), briefs: cachedBriefs_(), org: org, comments: cachedCommentCounts_() };
 }
 
 function getAll_() {
   var tasks = cachedTasks_(), seen = {}, dup = {};
   tasks.forEach(function (t) { if (!t.id) return; if (seen[t.id]) dup[t.id] = true; seen[t.id] = true; });
   ensureDailyTrigger_();
-  return { dupIds: Object.keys(dup), tasks: withLeaves_(tasks), projects: cachedProjects_(), users: readUsers_().map(publicUser_),
+  return { comments: cachedCommentCounts_(), dupIds: Object.keys(dup), tasks: withLeaves_(tasks), projects: cachedProjects_(), users: readUsers_().map(publicUser_),
     statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_(), briefs: cachedBriefs_() };
 }
 
@@ -869,6 +873,7 @@ function updateStatus_(me, taskId, status, owner) {
     writeObj_(sh, row, ch);
     Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
     log_(me, 'status', taskId, prev + ' → ' + status);
+    if (prev !== status) sysNote_(taskId, me, { 'Review': 'mengajukan review', 'Done': 'menandai selesai (Done)', 'Hold': 'menunda task (Hold)', 'On-Progress': prev === 'Review' ? 'menarik kembali dari review' : 'mulai mengerjakan', 'Backlog': 'mengembalikan ke Backlog' }[status] || ('mengubah status → ' + status));
     // Calendar diperbarui oleh trigger berkala (perubahan terdeteksi otomatis), supaya simpan tetap cepat.
     var task = rowTask_(r, null, col, sh, loc.user, row);
     var brief = task.type === 'Sosmed' ? mirrorSocialBrief_(taskId, status, me) : task.type === 'Request' ? mirrorRequestBrief_(taskId, status) : null;
@@ -1153,6 +1158,7 @@ function advanceStage_(me, taskId, step, url) {
     var task = setStage_(sh, row, r, col, loc.user, me, next, extra);
     if (step === 'submitBrief') briefLoc.sheet.getRange(briefLoc.row, briefLoc.col['status'] + 1).setValue('Diajukan');   // setelah tahap benar-benar tersimpan
     log_(me, 'stage', taskId, stage + ' → ' + next);
+    sysNote_(taskId, me, { start: 'mulai menyusun brief', submitBrief: 'mengajukan review brief', submitArticle: 'mengajukan review artikel', publish: 'mempublikasikan artikel', submitAiCheck: 'mengajukan review cek AI' }[step] || STAGE_NAMES[next]);
     return { task: task };
   } finally { unlock_(lock); }
 }
@@ -1183,6 +1189,7 @@ function reviewTask_(me, taskId, decision, reason, owner) {
     writeObj_(sh, row, ch);
     Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
     log_(me, 'review-' + decision, taskId, reason || '');
+    sysNote_(taskId, me, decision === 'approve' ? 'menyetujui · task selesai (Done)' : 'mengembalikan untuk diperbaiki' + (reason ? ': ' + reason : ''), decision === 'return' ? 'return' : 'approve');
     var task = rowTask_(r, null, col, sh, loc.user, row);
     if (decision === 'return' && loc.user.email && loc.user.active) {
       try {
@@ -1225,6 +1232,7 @@ function reviewArticle_(me, loc, r, decision, reason) {
   }
   var task = setStage_(sh, row, r, col, loc.user, me, next, extra);
   log_(me, 'review-' + decision, taskId, what + (reason ? ': ' + reason : ''));
+  sysNote_(taskId, me, decision === 'approve' ? 'menyetujui ' + what + (stage === 8 ? ' · artikel selesai' : ' · lanjut ' + STAGE_NAMES[next].toLowerCase()) : 'mengembalikan ' + what + (reason ? ': ' + reason : ''), decision === 'return' ? 'return' : 'approve');
   if (loc.user.email && loc.user.active) {
     var subj = decision === 'approve'
       ? (stage === 8 ? '✅ Artikel selesai: ' : '✅ ' + what.charAt(0).toUpperCase() + what.slice(1) + ' disetujui: ') + shortTitle_(task.task)
@@ -2958,6 +2966,120 @@ function sendTeamReport_(kind, now) {
   var subject = '📊 ' + rg.title + ' · ' + rg.label + ': ' + pct(sum.onTimeRate) + ' tepat waktu, ' + sum.done + ' task selesai';
   MailApp.sendEmail({ to: CFG.REPORT_TO, name: 'Project Tracker', subject: subject, htmlBody: emailShell_(esc_(rg.title) + ' — ' + esc_(rg.label), body) });
   return { to: CFG.REPORT_TO, subject: subject, period: rg.label };
+}
+
+
+// ===================== Komentar task =====================
+var COMMENT_HEADERS = ['ID', 'Task ID', 'Author', 'Kind', 'Text', 'Mentions', 'Created At', 'Edited At', 'Deleted'];
+var COMMENT_EDIT_MIN = 15;
+function readComments_(taskId) {
+  var sh = sheet_(CFG.COMMENT_SHEET), out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  var col = colMap_(sh);
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (r, i) {
+    var id = String(r[col['id']] || ''); if (!id) return;
+    var tid = String(r[col['task id']] || '');
+    if (taskId && tid !== taskId) return;
+    out.push({ id: id, row: i + 2, taskId: tid, author: String(r[col['author']] || ''), kind: String(r[col['kind']] || 'user'),
+      text: String(r[col['text']] || '').replace(/^'(?=[=+\-@])/, ''), mentions: String(r[col['mentions']] || '').split(',').filter(Boolean),
+      createdAt: normStamp_(r[col['created at']]), editedAt: normStamp_(r[col['edited at']]), deleted: bool_(r[col['deleted']]) });
+  });
+  return out;
+}
+/** Jumlah komentar (tanpa catatan sistem & yang dihapus) per task + waktu & penulis komentar terakhir — ringan, ikut cache data. */
+function cachedCommentCounts_() {
+  try {
+    return cached_('ccounts', function () {
+      var m = {};
+      readComments_().forEach(function (c) {
+        if (c.deleted || c.kind.indexOf('sys') === 0) return;
+        var x = m[c.taskId] || (m[c.taskId] = { n: 0, last: '', by: '' });
+        x.n++; if (!x.last || c.createdAt >= x.last) { x.last = c.createdAt; x.by = c.author; }
+      });
+      return m;
+    });
+  } catch (e) { return {}; }
+}
+function sysNote_(taskId, me, text, tone) {
+  if (!taskId || !text) return;
+  try {
+    appendObj_(schedSheet_(CFG.COMMENT_SHEET, COMMENT_HEADERS), { 'id': 'KM' + newId_().replace(/^T/, ''), 'task id': taskId, 'author': me.username,
+      'kind': tone ? 'sys:' + tone : 'sys', 'text': safeCell_(String(text).slice(0, 600)), 'created at': new Date() });
+  } catch (e) { Logger.log('catatan sistem: ' + e); }
+}
+function commentPeople_() {
+  return readUsers_().filter(function (u) { return u.active && !u.orgOnly; }).map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
+}
+function commentsOf_(me, taskId) {
+  taskId = String(taskId || '');
+  if (!taskId) throw new Error('Task ID kosong');
+  var names = {}; readUsers_().forEach(function (u) { names[u.username] = u.name; });
+  var list = readComments_(taskId).filter(function (c) { return !c.deleted; }).map(function (c) {
+    var o = { id: c.id, author: c.author, authorName: names[c.author] || (c.author === 'otomatis' ? 'Otomatis' : c.author), kind: c.kind.indexOf('sys') === 0 ? 'sys' : 'user',
+      tone: c.kind.split(':')[1] || '', text: c.text, mentions: c.mentions, createdAt: c.createdAt, editedAt: c.editedAt };
+    o.canEdit = o.kind === 'user' && c.author === me.username && Date.now() - new Date(c.createdAt).getTime() < COMMENT_EDIT_MIN * 6e4;
+    o.canDelete = o.kind === 'user' && (o.canEdit || me.role === 'admin');
+    return o;
+  }).sort(function (a, b) { return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0; });
+  return { taskId: taskId, comments: list, people: commentPeople_() };
+}
+function commentAdd_(me, taskId, text, mentions) {
+  taskId = String(taskId || ''); text = String(text || '').trim();
+  if (!text) throw new Error('Komentar kosong');
+  if (text.length > 2000) throw new Error('Komentar maksimal 2.000 karakter.');
+  var task = cachedTasks_().filter(function (t) { return t.id === taskId; })[0];
+  if (!task) throw new Error('Task tidak ditemukan. Muat ulang data.');
+  var people = readUsers_().filter(function (u) { return u.active && !u.orgOnly; });
+  var ment = (Array.isArray(mentions) ? mentions : []).map(function (x) { return String(x).toLowerCase(); })
+    .filter(function (un, i, a) { return a.indexOf(un) === i && un !== me.username; })
+    .map(function (un) { return people.filter(function (u) { return u.username === un; })[0]; })
+    .filter(function (u) { return u && text.indexOf('@' + u.name) >= 0; });
+  var lock = lock_(20000), out;
+  try {
+    appendObj_(schedSheet_(CFG.COMMENT_SHEET, COMMENT_HEADERS), { 'id': 'KM' + newId_().replace(/^T/, ''), 'task id': taskId, 'author': me.username, 'kind': 'user',
+      'text': safeCell_(text), 'mentions': ment.map(function (u) { return u.username; }).join(','), 'created at': new Date() });
+    log_(me, 'comment', taskId, text.slice(0, 80));
+    out = commentsOf_(me, taskId);
+  } finally { unlock_(lock); }
+  ment.forEach(function (u) {
+    if (!u.email) return;
+    try {
+      MailApp.sendEmail({ to: u.email, name: 'Project Tracker', subject: '💬 ' + me.name + ' menyebut Anda: ' + shortTitle_(task.task),
+        htmlBody: emailShell_('Halo ' + esc_(u.name) + ',', esc_(me.name) + ' menyebut Anda di komentar task:<blockquote style="margin:10px 0;padding:8px 12px;border-left:3px solid #255473;background:#f4f6f8">' +
+          esc_(text).replace(/\n/g, '<br>') + '</blockquote>' + taskTableHtml_([task], true)) });
+    } catch (e) { Logger.log('Email sebutan: ' + e); }
+  });
+  return out;
+}
+function findComment_(id) {
+  var c = readComments_().filter(function (x) { return x.id === id; })[0];
+  if (!c || c.deleted) throw new Error('Komentar tidak ditemukan. Muat ulang.');
+  return c;
+}
+function commentEdit_(me, id, text) {
+  text = String(text || '').trim();
+  if (!text) throw new Error('Komentar kosong');
+  if (text.length > 2000) throw new Error('Komentar maksimal 2.000 karakter.');
+  var lock = lock_(20000);
+  try {
+    var c = findComment_(id);
+    if (c.kind !== 'user' || c.author !== me.username) throw new Error('Hanya penulis yang bisa mengubah komentar ini.');
+    if (Date.now() - new Date(c.createdAt).getTime() >= COMMENT_EDIT_MIN * 6e4) throw new Error('Komentar hanya bisa diubah dalam ' + COMMENT_EDIT_MIN + ' menit setelah dikirim.');
+    writeObj_(schedSheet_(CFG.COMMENT_SHEET, COMMENT_HEADERS), c.row, { 'text': safeCell_(text), 'edited at': new Date() });
+    return commentsOf_(me, c.taskId);
+  } finally { unlock_(lock); }
+}
+function commentDelete_(me, id) {
+  var lock = lock_(20000);
+  try {
+    var c = findComment_(id);
+    if (c.kind !== 'user') throw new Error('Catatan sistem tidak bisa dihapus.');
+    var own = c.author === me.username && Date.now() - new Date(c.createdAt).getTime() < COMMENT_EDIT_MIN * 6e4;
+    if (!own && me.role !== 'admin') throw new Error('Komentar hanya bisa dihapus penulisnya dalam ' + COMMENT_EDIT_MIN + ' menit, atau oleh admin.');
+    writeObj_(schedSheet_(CFG.COMMENT_SHEET, COMMENT_HEADERS), c.row, { 'deleted': true });
+    log_(me, 'comment-delete', c.taskId, id);
+    return commentsOf_(me, c.taskId);
+  } finally { unlock_(lock); }
 }
 
 // ===== LOGIKA BERSAMA (salinan otomatis web/js/logic.js — jangan diedit di sini) =====

@@ -152,3 +152,10 @@ TZ=Asia/Jakarta node tests/backend.test.js # backend dengan simulasi Sheets/Cale
 - **Cuti, sakit & izin** — menu Jadwal, tab `Cuti`, tanpa batas jumlah. Anggota mengajukan → admin menyetujui (admin juga bisa mencatat langsung). Hari yang disetujui tidak dihitung di kuota kantor dan deadline task di rentang itu mundur sesuai hari kerjanya (`leaveDays`).
 - **Laporan** — email ke `CFG.REPORT_TO` (digmar@linovhr.com): mingguan tiap Senin, bulanan tiap tanggal 1. Tombol uji di Pengaturan. Hitungan KPI memakai salinan `web/js/logic.js` di akhir Code.gs — jalankan `node tools/embed-logic.js` setiap kali logic.js berubah (tes backend memeriksanya).
 - **Onboarding** — akun baru (kolom Users `Onboard` = `pending`) melihat checklist 5 langkah di Task Saya; panduan alur kerja juga bisa dibuka dari Pengaturan.
+
+## Komentar task (v2.24 · Code.gs v22)
+
+- Penanda 💬 di setiap task (Task Saya, Tim, Semua Task, Review) membuka panel utas. Semua anggota boleh berkomentar.
+- `@nama` menyebut rekan → hanya yang disebut mendapat email. Komentar bisa diubah/dihapus penulisnya dalam 15 menit; admin bisa menghapus komentar mana pun.
+- Catatan sistem otomatis masuk ke utas: mulai dikerjakan, diajukan review, dikembalikan (beserta alasan), disetujui, tahap artikel.
+- Data di tab `Komentar`. Saat aplikasi dibuka hanya jumlah komentar per task yang dimuat (ikut cache); isi utas dimuat saat panel dibuka. Tanda "baru" disimpan per perangkat.

@@ -907,6 +907,43 @@ it('Onboarding: akun baru pending, langkah otomatis & manual, selesai menyembuny
   assert.strictEqual(post({ action: 'myTasks', token: ari }).data.onboarding, null, 'akun lama tidak ditampilkan onboarding');
 });
 
+it('Komentar: semua anggota boleh, sebut → email, catatan sistem otomatis, ubah/hapus 15 menit, jumlah ikut data', () => {
+  const tasks = post({ action: 'getAll', token: admin }).data.tasks;
+  const tk = tasks.find((t) => t.owner === 'ari' && t.status !== 'Done' && t.type !== 'Artikel' && t.type !== 'Request');
+  assert.ok(tk, 'ada task ari');
+  assert.strictEqual(post({ action: 'commentAdd', token: ari, taskId: tk.id, text: '   ' }).ok, false);
+  assert.strictEqual(post({ action: 'commentAdd', token: ari, taskId: 'TIDAKADA', text: 'x' }).ok, false);
+  assert.ok(post({ action: 'setMyEmail', token: ari, email: 'ari@linovhr.com' }).ok);
+  const n0 = mails.length;
+  let r = post({ action: 'commentAdd', token: admin, taskId: tk.id, text: '@Ari tolong cek ulang link-nya ya', mentions: ['ari', 'wisnu'] });
+  assert.ok(r.ok, r.error);
+  const c1 = r.data.comments.find((c) => c.kind === 'user'); assert.deepStrictEqual(Array.from(c1.mentions), ['ari'], 'hanya yang benar-benar disebut di teks');
+  assert.strictEqual(mails.length, n0 + 1); assert.ok(/menyebut Anda/.test(mails[mails.length - 1].subject)); assert.strictEqual(mails[mails.length - 1].to, 'ari@linovhr.com');
+  assert.ok(r.data.people.some((p) => p.username === 'ari'));
+  // anggota lain (bukan pemilik) boleh berkomentar; tanpa sebutan → tanpa email
+  r = post({ action: 'commentAdd', token: ari, taskId: tk.id, text: 'Siap, sudah dicek.' }); assert.ok(r.ok, r.error); assert.strictEqual(mails.length, n0 + 1);
+  const mine = r.data.comments.find((c) => c.text === 'Siap, sudah dicek.'); assert.ok(mine.canEdit);
+  assert.strictEqual(r.data.comments.find((c) => c.id === c1.id).canEdit, false, 'bukan penulis');
+  r = post({ action: 'commentEdit', token: ari, id: mine.id, text: 'Siap, sudah dicek & diperbaiki.' }); assert.ok(r.ok, r.error);
+  assert.ok(r.data.comments.find((c) => c.id === mine.id).editedAt);
+  assert.strictEqual(post({ action: 'commentEdit', token: ari, id: c1.id, text: 'hack' }).ok, false);
+  assert.strictEqual(post({ action: 'commentDelete', token: ari, id: c1.id }).ok, false, 'bukan penulis & bukan admin');
+  // catatan sistem: ajukan review → kembalikan dengan alasan
+  assert.ok(post({ action: 'updateStatus', token: ari, taskId: tk.id, status: 'Review' }).ok);
+  assert.ok(post({ action: 'reviewTask', token: admin, taskId: tk.id, decision: 'return', reason: 'Link internal belum ada' }).ok);
+  r = post({ action: 'comments', token: ari, taskId: tk.id }); assert.ok(r.ok, r.error);
+  const sys = r.data.comments.filter((c) => c.kind === 'sys');
+  assert.ok(sys.some((c) => /mengajukan review/.test(c.text)));
+  const ret = sys.find((c) => /mengembalikan/.test(c.text)); assert.ok(ret && /Link internal belum ada/.test(ret.text) && ret.tone === 'return');
+  // jumlah komentar (tanpa catatan sistem) ikut di data
+  const cnt = post({ action: 'myTasks', token: ari }).data.comments[tk.id]; assert.strictEqual(cnt.n, 2); assert.strictEqual(cnt.by, 'ari');
+  assert.strictEqual(post({ action: 'teamTasks', token: ari }).data.comments[tk.id].n, 2);
+  // admin boleh menghapus komentar siapa pun
+  r = post({ action: 'commentDelete', token: admin, id: mine.id }); assert.ok(r.ok, r.error);
+  assert.ok(!r.data.comments.some((c) => c.id === mine.id));
+  assert.strictEqual(post({ action: 'getAll', token: admin }).data.comments[tk.id].n, 1);
+});
+
 it('Hapus pengguna: wajib nonaktif dulu, tanpa task → tab dihapus, punya task → konfirmasi username & tab diarsipkan', () => {
   let r = post({ action: 'saveUser', token: admin, user: { username: 'tes', name: 'Tes Hapus', role: 'member', hasTasks: true, reportsTo: 'ari' } });
   assert.ok(r.ok, r.error); assert.ok(ss.getSheetByName('Tes Hapus'));

@@ -203,8 +203,31 @@ function build() {
   const leaves = [{ id: 'CTDEMO1', username: 'nadia', kind: 'Sakit', from: wd(2), to: wd(2), reason: 'Demam', status: 'Disetujui', createdAt: new Date().toISOString(), decidedBy: 'admin', note: '' },
     { id: 'CTDEMO2', username: 'ammar', kind: 'Cuti', from: iso(schDay(schAddWk(wk0, 1), 'thu')), to: iso(schDay(schAddWk(wk0, 1), 'fri')), reason: 'Acara keluarga di kampung', status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', note: '' }];
   users.forEach((u) => { if (u.username === 'winona') u.onboard = 'pending'; });
-  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves };
+  const ago = (h) => new Date(Date.now() - h * 36e5).toISOString();
+  const rv = tasks.find((t) => t.owner === 'winona' && t.status === 'Review') || tasks.find((t) => t.status === 'Review') || tasks[0];
+  const op = tasks.find((t) => t.owner === 'ari' && t.status === 'On-Progress') || tasks[1];
+  const comments = [
+    { id: 'KMD1', taskId: rv.id, author: 'admin', kind: 'sys:return', text: 'mengembalikan review artikel: Internal link ke /fitur/reimbursement belum ada.', createdAt: ago(30) },
+    { id: 'KMD2', taskId: rv.id, author: rv.owner, kind: 'user', text: 'Sudah saya tambahkan 2 internal link. @Administrator boleh dicek lagi?', mentions: ['admin'], createdAt: ago(26) },
+    { id: 'KMD3', taskId: rv.id, author: rv.owner, kind: 'sys', text: 'mengajukan review artikel', createdAt: ago(25.9) },
+    { id: 'KMD4', taskId: op.id, author: 'wisnu', kind: 'user', text: 'Ari, untuk report minggu ini tolong tambahkan data AI Overview juga ya. Contoh format: https://docs.google.com/spreadsheets/d/contoh', mentions: [], createdAt: ago(3) }];
+  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves, comments };
 }
+// ---------- komentar (meniru server) ----------
+function cmCountsD(s) {
+  const m = {};
+  (s.comments || []).forEach((c) => { if (c.deleted || c.kind.startsWith('sys')) return; const x = m[c.taskId] || (m[c.taskId] = { n: 0, last: '', by: '' }); x.n++; if (c.createdAt >= x.last) { x.last = c.createdAt; x.by = c.author; } });
+  return m;
+}
+function cmListD(s, me, taskId) {
+  const nm = (u) => (s.users.find((x) => x.username === u) || {}).name || u;
+  const comments = s.comments.filter((c) => c.taskId === taskId && !c.deleted).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((c) => {
+    const kind = c.kind.startsWith('sys') ? 'sys' : 'user', canEdit = kind === 'user' && c.author === me.username && Date.now() - new Date(c.createdAt) < 15 * 6e4;
+    return { id: c.id, author: c.author, authorName: nm(c.author), kind, tone: c.kind.split(':')[1] || '', text: c.text, mentions: c.mentions || [], createdAt: c.createdAt, editedAt: c.editedAt || '', canEdit, canDelete: kind === 'user' && (canEdit || me.role === 'admin') };
+  });
+  return { taskId, comments, people: s.users.filter((u) => u.active && !u.orgOnly).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })) };
+}
+function cmSysD(s, taskId, me, text, tone) { s.comments.push({ id: 'KMD' + Date.now() + Math.random().toString(36).slice(2, 5), taskId, author: me.username, kind: tone ? 'sys:' + tone : 'sys', text, createdAt: new Date().toISOString() }); }
 // ---------- jadwal kerja (meniru server) ----------
 const SCH_D = ['mon', 'tue', 'wed', 'thu', 'fri'], SCH_W = ['mon', 'tue', 'thu'], SCH_N = { mon: 'Senin', tue: 'Selasa', wed: 'Rabu', thu: 'Kamis', fri: 'Jumat' };
 function schWeekOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); }
@@ -395,7 +418,25 @@ function handle(action, b, session) {
         onboarding = { steps: { account: !!me.email, wfo: !!me.wfoExempt || Object.keys(s.sched).some((k) => k.split('|')[1] === me.username), guide: man.includes('guide'), org: man.includes('org'),
           task: mt.some((t) => t.status === 'Done' || t.status === 'Review') } };
       }
-      return { tasks: mt, projects: s.projects, me, briefs: briefSums(s), onboarding };
+      return { tasks: mt, projects: s.projects, me, briefs: briefSums(s), onboarding, comments: cmCountsD(s) };
+    }
+    case 'comments': return cmListD(s, me, b.taskId);
+    case 'commentAdd': {
+      const text = String(b.text || '').trim(); if (!text) throw new Error('Komentar kosong');
+      if (!s.tasks.some((t) => t.id === b.taskId)) throw new Error('Task tidak ditemukan. Muat ulang data.');
+      const ment = (b.mentions || []).filter((un) => { const u = s.users.find((x) => x.username === un); return u && un !== me.username && text.includes('@' + u.name); });
+      s.comments.push({ id: 'KMD' + Date.now(), taskId: b.taskId, author: me.username, kind: 'user', text, mentions: ment, createdAt: new Date().toISOString() });
+      return cmListD(s, me, b.taskId);
+    }
+    case 'commentEdit': {
+      const c = s.comments.find((x) => x.id === b.id && !x.deleted); if (!c) throw new Error('Komentar tidak ditemukan.');
+      if (c.author !== me.username || Date.now() - new Date(c.createdAt) >= 15 * 6e4) throw new Error('Komentar hanya bisa diubah penulisnya dalam 15 menit.');
+      c.text = String(b.text || '').trim(); c.editedAt = new Date().toISOString(); return cmListD(s, me, c.taskId);
+    }
+    case 'commentDelete': {
+      const c = s.comments.find((x) => x.id === b.id && !x.deleted); if (!c) throw new Error('Komentar tidak ditemukan.');
+      if (!(me.role === 'admin' || (c.author === me.username && Date.now() - new Date(c.createdAt) < 15 * 6e4))) throw new Error('Komentar hanya bisa dihapus penulisnya dalam 15 menit, atau oleh admin.');
+      c.deleted = true; return cmListD(s, me, c.taskId);
     }
     case 'onboardStep': {
       if (!me.onboard || me.onboard === 'done') return { onboard: me.onboard || '' };
@@ -424,7 +465,7 @@ function handle(action, b, session) {
     }
     case 'briefs': return { briefs: briefSums(s) };
     case 'getBrief': { const b0 = s.briefs.find((x) => x.id === b.briefId); if (!b0) throw new Error('Brief tidak ditemukan'); return { brief: b0 }; }
-    case 'teamTasks': return { tasks: withLv(s, s.tasks), users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s),
+    case 'teamTasks': return { comments: cmCountsD(s), tasks: withLv(s, s.tasks), users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s),
       org: s.users.filter((u) => u.active).map((u) => ({ username: u.username, name: u.name, position: u.position || '', reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, hasTasks: !!u.sheetName, role: u.role })) };
     case 'setMySkills': me.skills = String(b.skills || '').trim().slice(0, 120); return { user: me };
     case 'saveBrief': {
@@ -532,13 +573,14 @@ function handle(action, b, session) {
       if (b.status === 'On-Progress' && !t.startedAt) t.startedAt = new Date().toISOString();
       if (b.status === 'Done') t.doneAt = new Date().toISOString();
       else if (t.status === 'Done') t.doneAt = '';
+      if (t.status !== b.status) cmSysD(s, t.id, me, { Review: 'mengajukan review', Done: 'menandai selesai (Done)', Hold: 'menunda task (Hold)', 'On-Progress': t.status === 'Review' ? 'menarik kembali dari review' : 'mulai mengerjakan', Backlog: 'mengembalikan ke Backlog' }[b.status]);
       t.status = b.status;
       return { task: t, projects: syncProj(s, [t.code]), brief: socMirror(s, t) };
     }
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {
-    case 'getAll': return { tasks: withLv(s, s.tasks), projects: s.projects, users: s.users, notifications: true, briefs: briefSums(s),
+    case 'getAll': return { comments: cmCountsD(s), tasks: withLv(s, s.tasks), projects: s.projects, users: s.users, notifications: true, briefs: briefSums(s),
       statuses: ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'], priorities: ['High', 'Medium', 'Low'] };
     case 'bulkSetType': {
       const out = [], failed = [];
@@ -585,6 +627,7 @@ function handle(action, b, session) {
         const br = s.briefs.find((x) => x.taskId === t.id);
         if (st === 3 && br) br.status = b.decision === 'approve' ? 'Disetujui' : 'Dikembalikan';
         if (b.decision !== 'approve') { const d = new Date(), what = { 3: 'Brief', 5: 'Artikel', 8: 'Hasil cek AI' }[st]; const line = `[${what} dikembalikan ${d.getDate()}/${d.getMonth() + 1} oleh ${me.name}]` + (b.reason ? ' ' + b.reason : ''); t.notes = t.notes ? t.notes + '\n' + line : line; }
+        cmSysD(s, t.id, me, (b.decision === 'approve' ? 'menyetujui ' : 'mengembalikan ') + { 3: 'review brief', 5: 'review artikel', 8: 'review cek AI' }[st] + (b.decision !== 'approve' && b.reason ? ': ' + b.reason : ''), b.decision === 'approve' ? 'approve' : 'return');
         demoStage(t, next, me);
         return { task: t, projects: syncProj(s, [t.code]) };
       }
@@ -594,6 +637,7 @@ function handle(action, b, session) {
         const d = new Date(); const line = `[Dikembalikan ${d.getDate()}/${d.getMonth() + 1} oleh ${me.name}]` + (b.reason ? ' ' + b.reason : '');
         t.notes = t.notes ? t.notes + '\n' + line : line;
       }
+      cmSysD(s, t.id, me, b.decision === 'approve' ? 'menyetujui · task selesai (Done)' : 'mengembalikan untuk diperbaiki' + (b.reason ? ': ' + b.reason : ''), b.decision === 'approve' ? 'approve' : 'return');
       return { task: t, projects: syncProj(s, [t.code]), brief: socMirror(s, t) };
     }
     case 'saveProject': {
