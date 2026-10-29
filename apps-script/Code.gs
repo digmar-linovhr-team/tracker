@@ -27,7 +27,7 @@ var CFG = {
 
 var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
-  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At'];
+  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
@@ -134,7 +134,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 4 });
+  return json_({ ok: true, app: 'project-tracker', version: 5 });
 }
 
 function doPost(e) {
@@ -168,6 +168,7 @@ function route_(b) {
     case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me) };
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'setMyEmail': return setMyEmail_(me, b.email);
+    case 'setResults': return setResults_(me, b.taskId, b.results);
     case 'teamTasks': return teamTasks_();
   }
 
@@ -484,7 +485,8 @@ function rowTask_(r, disp, col, sh, user, row) {
     startedAt: normStamp_(g('started at')),
     doneAt: normStamp_(g('done at')),
     reviewAt: normStamp_(g('review at')),
-    notes: String(g('notes') || '')
+    notes: String(g('notes') || ''),
+    results: parseResults_(g('result'))
   };
 }
 
@@ -565,6 +567,7 @@ function saveTask_(me, t) {
       'status': t.status || 'Backlog', 'priority': t.priority || 'Medium',
       'notes': t.notes || ''
     };
+    if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
     var id = t.id;
     if (obj.status === 'Review' && !t.reviewAt) obj['review at'] = new Date();
     if (id) {
@@ -573,6 +576,7 @@ function saveTask_(me, t) {
         // pindah penanggung jawab: salin timestamp lalu hapus baris lama
         obj['started at'] = loc.sheet.getRange(loc.row, loc.col['started at'] + 1).getValue();
         obj['done at'] = loc.sheet.getRange(loc.row, loc.col['done at'] + 1).getValue();
+        if (obj['result'] === undefined && loc.col['result'] !== undefined) obj['result'] = loc.sheet.getRange(loc.row, loc.col['result'] + 1).getValue();
         obj['task id'] = id;
         trashRowEvents_(loc.sheet, loc.row);
         loc.sheet.deleteRow(loc.row);
@@ -597,6 +601,74 @@ function saveTask_(me, t) {
     var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
     return { id: id, task: saved };
   } finally { lock.releaseLock(); }
+}
+
+// ---------- Result: link hasil kerja ----------
+var MAX_RESULTS = 10;
+
+/** Sel "Result": satu link per baris, format "Nama | URL" atau URL saja. */
+function parseResults_(v) {
+  return String(v || '').split(/\r?\n/).map(function (line) {
+    line = line.trim();
+    if (!line) return null;
+    var i = line.lastIndexOf('|'), label = '', url = line;
+    if (i >= 0) { label = line.slice(0, i).trim(); url = line.slice(i + 1).trim(); }
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      var m = line.match(/https?:\/\/\S+/i);   // isian manual di sheet yang formatnya bebas
+      if (!m) return null;
+      url = m[0]; label = line.replace(m[0], '').replace(/[|\-–:]+\s*$/, '').trim();
+    }
+    return { label: label.slice(0, 80), url: url };
+  }).filter(Boolean).slice(0, MAX_RESULTS);
+}
+
+function serializeResults_(list) {
+  if (!Array.isArray(list)) throw new Error('Format link tidak valid');
+  var out = [];
+  list.forEach(function (x) {
+    var url = String(x && x.url || '').trim(), label = String(x && x.label || '').replace(/[|\r\n]+/g, ' ').trim().slice(0, 80);
+    if (!url) return;
+    if (!/^https?:\/\/\S+$/i.test(url) || url.length > 1500) throw new Error('Link tidak valid: ' + url.slice(0, 60) + ' (harus diawali http:// atau https://)');
+    out.push(label ? label + ' | ' + url : url);
+  });
+  if (out.length > MAX_RESULTS) throw new Error('Maksimal ' + MAX_RESULTS + ' link per task');
+  return out.join('\n');
+}
+
+/** Pemilik task (atau admin) mengatur link hasil kerja. Anggota tidak bisa mengubah task yang sudah Done. */
+function setResults_(me, taskId, results) {
+  var value = serializeResults_(results || []);
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var loc = locateTask_(me, taskId), sh = loc.sheet, row = loc.row;
+    ensureHeaders_(sh, TASK_HEADERS);
+    var col = colMap_(sh);
+    var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+    if (me.role !== 'admin' && String(r[col['status']]).trim() === 'Done') throw new Error('Task ini sudah disetujui admin, link tidak bisa diubah lagi.');
+    writeObj_(sh, row, { 'result': value });
+    r[col['result']] = value;
+    log_(me, 'results', taskId, (results || []).length + ' link');
+    return { task: rowTask_(r, null, col, sh, loc.user, row) };
+  } finally { lock.releaseLock(); }
+}
+
+function resultsHtml_(t) {
+  if (!t.results || !t.results.length) return '';
+  return '<div style="margin-top:6px;font-size:13px">' + t.results.map(function (x) {
+    return '<a href="' + esc_(x.url) + '" style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border:1px solid #c9d6e0;border-radius:999px;color:#255473;text-decoration:none">📎 ' + esc_(x.label || resultKind_(x.url)) + '</a>';
+  }).join('') + '</div>';
+}
+
+function resultKind_(url) {
+  var u = String(url).toLowerCase();
+  if (u.indexOf('docs.google.com/document') >= 0) return 'Google Docs';
+  if (u.indexOf('docs.google.com/spreadsheets') >= 0) return 'Google Sheets';
+  if (u.indexOf('docs.google.com/presentation') >= 0) return 'Google Slides';
+  if (u.indexOf('docs.google.com/forms') >= 0 || u.indexOf('forms.gle') >= 0) return 'Google Forms';
+  if (u.indexOf('drive.google.com') >= 0) return 'Google Drive';
+  if (u.indexOf('figma.com') >= 0) return 'Figma';
+  if (u.indexOf('canva.com') >= 0) return 'Canva';
+  return u.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
 }
 
 /** Admin: setujui (Done) atau kembalikan (On-Progress + alasan di Catatan) task yang direview. */
@@ -1160,7 +1232,8 @@ function taskTableHtml_(tasks, withOwner) {
     var tm = taskTimes_(t);
     return '<tr>' + (withOwner ? '<td ' + td + '><b>' + esc_(t.ownerName) + '</b></td>' : '') +
       '<td ' + td + '>' + (t.code ? '<span style="font-family:monospace;background:#f1f2ef;padding:1px 6px;border-radius:8px">' + esc_(t.code) + '</span> ' : '') +
-      (/^https?:\/\//.test(t.task) ? '<a href="' + esc_(t.task) + '">' + esc_(t.task.replace(/^https?:\/\/(www\.)?/, '')) + '</a>' : esc_(t.task)) + '</td>' +
+      (/^https?:\/\//.test(t.task) ? '<a href="' + esc_(t.task) + '">' + esc_(t.task.replace(/^https?:\/\/(www\.)?/, '')) + '</a>' : esc_(t.task)) +
+      resultsHtml_(t) + '</td>' +
       '<td ' + td + ' nowrap>' + (tm.end ? Utilities.formatDate(tm.end, tz_(), 'd MMM, HH:mm') : '–') + '</td></tr>';
   }).join('');
   return '<table style="border-collapse:collapse;width:100%;font-size:14px;margin-top:8px">' +

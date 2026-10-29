@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.9.0';
+const CSS_VERSION = '2.10.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -491,6 +491,133 @@ function tickHtml(t, readonly) {
     : `<button class="tick" data-st="Review" data-id="${id}" title="Selesai? Ajukan review ke admin" aria-label="Ajukan review">${CHECK_SVG}</button>`;
 }
 
+// ---------- Result: link hasil kerja ----------
+const RES_ICO = {
+  doc: fsvg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
+  sheet: fsvg('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16"/>'),
+  slide: fsvg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8"/>'),
+  drive: fsvg('<path d="M9 4h6l6 10-3 6H6l-3-6z"/><path d="M9 4l6 10H3M15 4L9 14l-3 6"/>'),
+  form: fsvg('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>'),
+  design: fsvg('<circle cx="12" cy="12" r="8"/><path d="M12 4v16M4 12h16"/>'),
+  link: fsvg('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>')
+};
+const RES_KINDS = [
+  [/docs\.google\.com\/document/i, 'Google Docs', 'doc', '#2f6fd6'],
+  [/docs\.google\.com\/spreadsheets/i, 'Google Sheets', 'sheet', '#1e8e3e'],
+  [/docs\.google\.com\/presentation/i, 'Google Slides', 'slide', '#e8a200'],
+  [/docs\.google\.com\/forms|forms\.gle/i, 'Google Forms', 'form', '#7248b9'],
+  [/drive\.google\.com/i, 'Google Drive', 'drive', '#1a9b7a'],
+  [/figma\.com/i, 'Figma', 'design', '#d0583a'],
+  [/canva\.com/i, 'Canva', 'design', '#1aa6c4'],
+  [/\.pdf(\?|#|$)/i, 'PDF', 'doc', '#c93636']
+];
+function resKind(url) {
+  const k = RES_KINDS.find(([re]) => re.test(url));
+  if (k) return { name: k[1], ico: RES_ICO[k[2]], color: k[3] };
+  let host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { host = 'Link'; }
+  return { name: host, ico: RES_ICO.link, color: 'var(--muted)' };
+}
+const isHttp = (u) => /^https?:\/\/\S+$/i.test(String(u || '').trim());
+function resChip(x, compact) {
+  const k = resKind(x.url), label = x.label || k.name;
+  return `<a class="res-chip ${compact ? 'compact' : ''}" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" title="${esc(label + ' — ' + x.url)}"><span class="res-ico" style="color:${k.color}">${k.ico}</span>${compact ? '' : `<span class="res-lbl">${esc(label)}</span>`}</a>`;
+}
+function resultsOf(t) { return Array.isArray(t.results) ? t.results : []; }
+function canEditResults(t) {
+  if (!t || !t.id) return false;
+  return S.user.role === 'admin' || (t.owner === S.user.username && !L.isDone(t));
+}
+
+/** Kelola link hasil kerja satu task. opts.thenReview: setelah simpan langsung ajukan review. */
+function resultsModal(t, opts) {
+  opts = opts || {};
+  let items = resultsOf(t).map((x) => ({ label: x.label || '', url: x.url }));
+  const listHtml = () => items.length ? items.map((x, i) => { const k = resKind(x.url); return `<div class="res-item">
+      <span class="res-ico" style="color:${k.color}">${k.ico}</span>
+      <div class="res-item-b"><input type="text" data-lbl="${i}" value="${esc(x.label)}" placeholder="${esc(k.name)}" aria-label="Nama link" maxlength="80">
+        <a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" class="res-url">${esc(x.url.replace(/^https?:\/\//, ''))}</a></div>
+      <button type="button" class="btn sm ghost danger" data-rm="${i}" aria-label="Hapus link">Hapus</button></div>`; }).join('')
+    : '<p class="muted small" style="margin:0 0 4px">Belum ada link. Tempel link dokumen hasil kerja di bawah.</p>';
+  modal({
+    title: 'Hasil kerja',
+    body: `<p class="muted small" style="margin:0 0 12px">${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</p>
+      <div id="res-list">${listHtml()}</div>
+      <div class="res-add-form">
+        <label class="field"><span>Link</span><input type="url" id="res-url" placeholder="https://docs.google.com/document/d/…" autocomplete="off"></label>
+        <label class="field"><span>Nama (opsional)</span><input type="text" id="res-label" placeholder="mis. Brief konten" maxlength="80"></label>
+        <p class="muted small" id="res-kind" style="margin:-4px 0 10px">Docs, Sheets, Slides, Drive, Forms, Figma, Canva, atau link lain.</p>
+        <button type="button" class="btn sm" id="res-addbtn">+ Tambah ke daftar</button>
+      </div><div id="res-err"></div>`,
+    actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="res-save">${opts.thenReview ? 'Simpan & ajukan review' : 'Simpan'}</button>`,
+    onMount: (m, close) => {
+      const url = $('#res-url', m), lbl = $('#res-label', m), err = (msg) => { $('#res-err', m).innerHTML = msg ? `<div class="error">${esc(msg)}</div>` : ''; };
+      const draw = () => {
+        $('#res-list', m).innerHTML = listHtml();
+        $$('[data-rm]', m).forEach((b) => b.onclick = () => { items.splice(+b.dataset.rm, 1); draw(); });
+        $$('[data-lbl]', m).forEach((inp) => inp.oninput = () => { items[+inp.dataset.lbl].label = inp.value; });
+      };
+      const add = () => {
+        const u = url.value.trim();
+        if (!u) return false;
+        if (!isHttp(u)) { err('Link harus diawali http:// atau https://'); url.focus(); return null; }
+        if (items.length >= 10) { err('Maksimal 10 link per task.'); return null; }
+        items.push({ label: lbl.value.trim(), url: u }); url.value = ''; lbl.value = ''; err(''); draw();
+        $('#res-kind', m).textContent = 'Ditambahkan. Tempel link lain bila perlu.';
+        url.focus(); return true;
+      };
+      url.oninput = () => { err(''); const u = url.value.trim(); $('#res-kind', m).textContent = isHttp(u) ? 'Terdeteksi: ' + resKind(u).name : 'Docs, Sheets, Slides, Drive, Forms, Figma, Canva, atau link lain.'; };
+      [url, lbl].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }));
+      $('#res-addbtn', m).onclick = add;
+      draw();
+      url.focus();
+      $('#res-save', m).onclick = () => {
+        if (url.value.trim() && add() === null) return;   // link yang masih di kolom ikut disimpan
+        close();
+        saveResults(t.id, items.map((x) => ({ label: x.label.trim(), url: x.url })), opts.thenReview);
+      };
+    }
+  });
+}
+
+async function saveResults(id, results, thenReview) {
+  const t = findTask(id);
+  if (!t) return;
+  const before = resultsOf(t).slice();
+  patchTask(id, { results });
+  S.pending.add(id); softRender();
+  if (!thenReview) toast(results.length ? `${results.length} link hasil kerja disimpan` : 'Link hasil kerja dihapus');
+  try {
+    const r = await api.call('setResults', { taskId: id, results });
+    if (r && r.task) patchTask(id, { results: r.task.results });
+    S.pending.delete(id); saveCache(); softRender();
+    if (thenReview) setStatus(id, 'Review');
+  } catch (e) {
+    S.pending.delete(id); patchTask(id, before); softRender();
+    toast('Gagal menyimpan link: ' + cleanErr(e), true);
+  }
+}
+
+/** Anggota mengajukan review: ingatkan bila belum ada link (tidak wajib). */
+function askReview(id) {
+  const t = findTask(id);
+  if (!t || resultsOf(t).length || S.user.role === 'admin') return setStatus(id, 'Review');
+  modal({
+    title: 'Ajukan review',
+    body: '<p style="margin-top:0">Task ini belum punya link hasil kerja. Tambahkan supaya admin bisa langsung mengecek.</p><p class="muted small" style="margin-bottom:0">Tidak wajib — lewati bila task ini memang tidak punya dokumen.</p>',
+    actions: '<button class="btn" id="rv-skip">Ajukan tanpa link</button><button class="btn primary" id="rv-add">Tambah link</button>',
+    onMount: (m, close) => {
+      $('#rv-skip', m).onclick = () => { close(); setStatus(id, 'Review'); };
+      $('#rv-add', m).onclick = () => { close(); resultsModal(t, { thenReview: true }); };
+    }
+  });
+}
+
+function resultsLine(t, readonly) {
+  const list = resultsOf(t), edit = !readonly && canEditResults(t);
+  if (!list.length && !edit) return '';
+  return `<div class="t-res">${list.map((x) => resChip(x)).join('')}${edit ? `<button type="button" class="res-add" data-res="${esc(t.id)}">${list.length ? fsvg('<path d="M4 20h4L19 9l-4-4L4 16z"/>') + 'Ubah' : fsvg('<path d="M12 5v14M5 12h14"/>') + 'Link hasil'}</button>` : ''}</div>`;
+}
+
 function taskRow(t, opts) {
   opts = opts || {};
   const readonly = !!opts.readonly;
@@ -516,6 +643,7 @@ function taskRow(t, opts) {
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
         ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes.split('\n').pop())}</span>` : ''}
       </div>
+      ${resultsLine(t, readonly)}
     </div>
     <div class="t-when w-${w.cls}">
       <b>${esc(w.main)}</b>
@@ -531,15 +659,20 @@ function taskRow(t, opts) {
 
 function bindTaskRows(root) {
   $$('[data-ext]', root).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
-  $$('[data-st]', root).forEach((b) => b.onclick = () => setStatus(b.dataset.id, b.dataset.st));
-  $$('[data-sel]', root).forEach((s) => s.onchange = () => { if (s.value) setStatus(s.dataset.sel, s.value); });
+  $$('[data-st]', root).forEach((b) => b.onclick = () => b.dataset.st === 'Review' ? askReview(b.dataset.id) : setStatus(b.dataset.id, b.dataset.st));
+  $$('[data-sel]', root).forEach((s) => s.onchange = () => {
+    if (!s.value) return;
+    if (s.value === 'Review') { const t = findTask(s.dataset.sel); s.value = t ? t.status : s.value; askReview(s.dataset.sel); }
+    else setStatus(s.dataset.sel, s.value);
+  });
+  $$('[data-res]', root).forEach((b) => b.onclick = () => resultsModal(findTask(b.dataset.res)));
 }
 
 function findTask(id) {
-  return (S.mine.tasks || []).find((x) => x.id === id) || (S.all && S.all.tasks.find((x) => x.id === id)) || null;
+  return (S.mine.tasks || []).find((x) => x.id === id) || (S.all && S.all.tasks.find((x) => x.id === id)) || (S.team && S.team.tasks.find((x) => x.id === id)) || null;
 }
 function patchTask(id, patch) {
-  [S.mine.tasks, S.all && S.all.tasks].forEach((list) => { if (!list) return; const t = list.find((x) => x.id === id); if (t) Object.assign(t, patch); });
+  [S.mine.tasks, S.all && S.all.tasks, S.team && S.team.tasks].forEach((list) => { if (!list) return; const t = list.find((x) => x.id === id); if (t) Object.assign(t, patch); });
 }
 
 /** Ubah status: tampilan langsung berubah, penyimpanan berjalan di belakang; dibatalkan bila gagal. */
@@ -982,6 +1115,7 @@ function viewReview() {
         <div class="t-title">${prettyTitle(t.task)}</div>
         <div class="t-sub">${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
+        <div class="rv-res"><span class="rv-res-h">Hasil kerja</span>${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : '<span class="muted small">Tidak ada link</span>'}</div>
       </div>
       <div class="t-when ${late ? 'w-warn' : 'w-good'}">
         <b>${late ? 'Lewat deadline' : 'Tepat waktu'}</b>
@@ -1064,6 +1198,12 @@ function viewTasks() {
   renderTaskTable();
 }
 
+function resCell(t) {
+  const list = resultsOf(t);
+  if (!list.length) return '<span class="muted">–</span>';
+  return `<span class="res-cell">${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
+}
+
 function renderTaskTable() {
   const f = S.f, q = f.tq.toLowerCase();
   let list = S.all.tasks.filter((t) =>
@@ -1079,15 +1219,16 @@ function renderTaskTable() {
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
         <div class="task-title">${prettyTitle(t.task)}</div>
         <div class="task-meta">${statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
+        ${resultsOf(t).length ? `<div class="t-res">${resultsOf(t).map((x) => resChip(x)).join('')}</div>` : ''}
       </div>
       <div class="task-actions"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></div>
     </div>`).join('');
-  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th>Code</th><th>Task</th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
+  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th>Code</th><th>Task</th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
     ${list.map((t) => { const s = L.schedule(t); return `<tr>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
       <td class="clip" title="${esc(t.task)}">${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
-      <td class="nw">${statusChip(t.status)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
+      <td class="nw">${statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
       <td style="white-space:nowrap"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></td></tr>`; }).join('')}
   </tbody></table>`;
   $$('[data-ext]', $('#tt')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
@@ -1130,6 +1271,7 @@ function taskModal(t) {
         <label class="field"><span>Status</span><select name="status">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
       </div>
       <label class="field"><span>Catatan</span><textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>
+      <label class="field"><span>Hasil kerja — satu link per baris, boleh diberi nama: <code>Nama | URL</code></span><textarea name="results" rows="2" placeholder="Brief konten | https://docs.google.com/document/d/…">${esc(resultsOf(t).map((x) => x.label ? x.label + ' | ' + x.url : x.url).join('\n'))}</textarea></label>
       <div id="terr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">${edit ? 'Simpan' : 'Buat task'}</button>`,
     onMount: (m, close) => {
@@ -1141,6 +1283,9 @@ function taskModal(t) {
         const s = L.at(data.startDate, data.startTime), e = L.at(data.endDate, data.endTime);
         if (s && e && e < s) { $('#terr', m).innerHTML = '<div class="error">Deadline tidak boleh sebelum waktu mulai.</div>'; return; }
         if (edit) data.id = t.id;
+        const parsed = parseResultsText(data.results || '');
+        if (parsed.error) { $('#terr', m).innerHTML = `<div class="error">${esc(parsed.error)}</div>`; return; }
+        data.results = parsed.list;
         try {
           const r = await busy($('#save', m), () => api.call('saveTask', { task: data }));
           close(); toast(edit ? 'Task diperbarui' : 'Task dibuat & dibagikan');
@@ -1157,6 +1302,19 @@ function taskModal(t) {
       };
     }
   });
+}
+
+function parseResultsText(txt) {
+  const list = [];
+  for (const raw of String(txt).split(/\r?\n/)) {
+    const line = raw.trim(); if (!line) continue;
+    const i = line.lastIndexOf('|');
+    const label = i >= 0 ? line.slice(0, i).trim() : '', url = i >= 0 ? line.slice(i + 1).trim() : line;
+    if (!isHttp(url)) return { error: 'Link hasil kerja tidak valid: "' + line.slice(0, 60) + '" — harus diawali http:// atau https://' };
+    list.push({ label, url });
+  }
+  if (list.length > 10) return { error: 'Maksimal 10 link hasil kerja per task.' };
+  return { list };
 }
 
 // ---------- Admin: Project ----------

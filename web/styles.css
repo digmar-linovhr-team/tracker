@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.9.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.10.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -548,3 +548,29 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 .tp-system i:nth-child(2) { background: linear-gradient(90deg, #fff 26%, #15253a 26%); box-shadow: 0 0 0 1px #c9d3dc; }
 .tp-system i:nth-child(3) { background: linear-gradient(90deg, #255473 50%, #6cb4e6 50%); }
 @media (max-width: 760px) { .theme-pick { gap: 8px; } .tp-prev { height: 50px; } .tp-lbl { font-size: 12px; } }
+
+/* ---------- Result: link hasil kerja ---------- */
+.t-res { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.res-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 3px 10px 3px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 500; text-decoration: none; transition: border-color .12s, background .12s; }
+.res-chip:hover { border-color: var(--brand); background: var(--hover-2); }
+.res-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.res-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-ico { display: inline-flex; flex: none; }
+.res-ico svg { width: 14px; height: 14px; }
+.res-chip.compact { padding: 4px; }
+.res-cell { display: inline-flex; align-items: center; gap: 4px; }
+.res-add { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px dashed var(--line-strong); border-radius: 999px; background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.res-add svg { width: 13px; height: 13px; }
+.res-add:hover { border-color: var(--brand); color: var(--accent); border-style: solid; }
+.rv-res { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.rv-res-h { font-size: 11.5px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+.res-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: var(--surface-2); }
+.res-item .res-ico svg { width: 18px; height: 18px; }
+.res-item-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.res-item-b input { border: 0; background: transparent; padding: 2px 0; font-weight: 600; box-shadow: none; }
+.res-item-b input:focus { outline: none; box-shadow: inset 0 -1.5px 0 var(--brand); }
+.res-url { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.res-url:hover { color: var(--accent); text-decoration: underline; }
+.res-add-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.trow.is-ro .t-res { margin-top: 6px; }
+@media (max-width: 760px) { .res-chip { max-width: 100%; } }

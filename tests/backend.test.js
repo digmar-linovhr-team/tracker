@@ -326,4 +326,41 @@ it('ringkasan pagi terkirim ke anggota & rekap ke admin (jika hari kerja)', () =
   assert.ok(mails.some((m) => m.to === 'digmar@linovhr.com' && m.subject.startsWith('📋')));
 });
 
+it('Result: anggota menambah link hasil kerja, terbaca & ikut di email review', () => {
+  const t = post({ action: 'saveTask', token: admin, task: { owner: 'ari', task: 'Landing page payroll', code: 'A3', startDate: '2026-10-28', endDate: '2026-10-30', status: 'On-Progress' } }).data;
+  let r = post({ action: 'setResults', token: ari, taskId: t.id, results: [
+    { label: 'Brief konten', url: 'https://docs.google.com/document/d/1Ab/edit' },
+    { label: '', url: 'https://www.figma.com/file/k2P/Landing' }] });
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(r.data.task.results, [{ label: 'Brief konten', url: 'https://docs.google.com/document/d/1Ab/edit' }, { label: '', url: 'https://www.figma.com/file/k2P/Landing' }]);
+  // tersimpan di sel Result satu link per baris
+  const mine = post({ action: 'myTasks', token: ari }).data.tasks.find((x) => x.id === t.id);
+  assert.strictEqual(mine.results.length, 2);
+  // validasi
+  assert.strictEqual(post({ action: 'setResults', token: ari, taskId: t.id, results: [{ url: 'javascript:alert(1)' }] }).ok, false);
+  assert.strictEqual(post({ action: 'setResults', token: ari, taskId: t.id, results: Array.from({ length: 11 }, (_, i) => ({ url: 'https://a.com/' + i })) }).ok, false);
+  // anggota lain tidak bisa mengubah
+  const wl = post({ action: 'login', username: 'wisnu', password: pw.wisnu }); const wisnu = wl.ok && !wl.data.user.mustChange ? wl.data.token : null;
+  if (wisnu) assert.strictEqual(post({ action: 'setResults', token: wisnu, taskId: t.id, results: [] }).ok, false);
+  // tim bisa melihat
+  assert.strictEqual(post({ action: 'teamTasks', token: ari }).data.tasks.find((x) => x.id === t.id).results.length, 2);
+  // saveTask admin tanpa field results tidak menghapus link
+  post({ action: 'saveTask', token: admin, task: Object.assign({}, mine, { results: undefined, task: 'Landing page payroll v2' }) });
+  assert.strictEqual(post({ action: 'myTasks', token: ari }).data.tasks.find((x) => x.id === t.id).results.length, 2);
+  // email review ke admin memuat link
+  post({ action: 'updateStatus', token: ari, taskId: t.id, status: 'Review' });
+  mails.length = 0; sandbox.runReminders();
+  const m = mails.find((x) => x.subject.includes('menunggu review'));
+  assert.ok(m && m.htmlBody.includes('docs.google.com/document/d/1Ab') && m.htmlBody.includes('Brief konten'));
+  // setelah Done anggota tidak bisa mengubah, admin bisa
+  post({ action: 'reviewTask', token: admin, taskId: t.id, decision: 'approve' });
+  assert.strictEqual(post({ action: 'setResults', token: ari, taskId: t.id, results: [] }).ok, false);
+  assert.ok(post({ action: 'setResults', token: admin, taskId: t.id, results: [] }).ok);
+});
+
+it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
+  const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);
+});
+
 console.log(`\n${n} uji backend lulus`);

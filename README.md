@@ -49,7 +49,7 @@ Total waktu setup: ±20 menit, sekali saja.
 2. Buat repository baru di GitHub, mis. `project-tracker`. Di akun GitHub gratis, GitHub Pages butuh repo **Public** — aman, karena repo hanya berisi kode tampilan; data tetap di spreadsheet.
 3. Unggah **seluruh isi** folder `project-tracker` (termasuk folder `.github`) ke repo: *Add file → Upload files*, atau lewat GitHub Desktop.
 4. Di repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-5. Buka tab **Actions** dan tunggu workflow *Deploy ke GitHub Pages* selesai (±1 menit). Alamat aplikasi: `https://digmar-linovhr-team.github.io/tracker/`
+5. Buka tab **Actions** dan tunggu workflow *Deploy ke GitHub Pages* selesai (±1 menit). Alamat aplikasi: `https://<username>.github.io/project-tracker/`
 
 Setiap kali file di `web/` diubah dan di-push, website otomatis diperbarui. Jika mengubah file aplikasi, naikkan juga `VERSION` di `web/sw.js` agar perangkat yang sudah memasang aplikasi langsung memuat versi baru.
 
@@ -92,6 +92,8 @@ Kirim link aplikasi + username & password sementara masing-masing. Setiap orang:
 **Anggota tim — "Task Saya"**: task dikelompokkan *Terlambat / Hari ini & berjalan / Akan datang / Tanpa jadwal / Selesai*. **▶ Mulai** mencatat waktu mulai dikerjakan, **✓ Done** mencatat waktu selesai, **Buka lagi** bila ternyata belum selesai. Task berupa URL artikel bisa diklik.
 
 **Selesai → Review → Done**: anggota menekan lingkaran centang untuk **mengajukan review** (status *Review*). Admin diberi tahu lewat angka di menu **Review**, notifikasi browser, dan email, lalu memilih **Setujui** (Done) atau **Kembalikan** (kembali ke On-Progress, alasan tercatat di Catatan dan dikirim ke email anggota). Hanya admin yang bisa menandai Done. Waktu selesai di dashboard dihitung dari saat anggota mengajukan review.
+
+**Hasil kerja (kolom *Result*)**: di setiap task ada tombol **Link hasil** untuk menempel link dokumen (Google Docs/Sheets/Slides/Drive/Forms, Figma, Canva, atau link lain), maksimal 10 per task. Bisa diubah selama task belum Done. Saat mengajukan review tanpa link, aplikasi mengingatkan (tidak wajib). Admin melihat link di menu **Review**, di kolom *Hasil* Semua Task, dan di email notifikasi review. Di spreadsheet tersimpan di kolom **Result**, satu link per baris: `Nama | URL` atau URL saja — boleh juga diisi langsung dari sheet.
 
 **Tim**: semua anggota bisa melihat task setiap orang (judul, project, status, jadwal, catatan) beserta ringkasan beban kerja — hanya lihat, tidak bisa mengubah. Server menolak setiap perubahan pada task milik orang lain.
 

@@ -40,7 +40,7 @@ function build() {
       id: 'TDEMO' + (++n), owner, ownerName: name, sheet: name, row: n + 1, code, task,
       startDate: sd === null ? '' : iso(addDays(today, sd)), endDate: ed === null ? '' : iso(addDays(today, ed)),
       startRaw: '', endRaw: '', startTime: st, endTime: et, status, priority: 'Medium',
-      startedAt: '', doneAt: '', reviewAt: '', notes: ''
+      startedAt: '', doneAt: '', reviewAt: '', notes: '', results: []
     }, extra));
   };
   const stamp = (d, h, m) => addDays(today, d, h, m).toISOString();
@@ -48,7 +48,7 @@ function build() {
   const nowH = now.getHours();
 
   // Ari
-  add('ari', 'A1', 'https://www.linovhr.com/blog/aplikasi-hr-terbaik-era-digital/', -2, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(-2, 9, 20), priority: 'High' });
+  add('ari', 'A1', 'https://www.linovhr.com/blog/aplikasi-hr-terbaik-era-digital/', -2, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(-2, 9, 20), priority: 'High', results: [{ label: 'Brief konten', url: 'https://docs.google.com/document/d/1demoBrief/edit' }, { label: '', url: 'https://www.figma.com/file/demoHero/Hero' }] });
   add('ari', 'B2', 'Fixing Technical Issue - Page with Redirect URL', 0, '13:00', 33, '17:00', 'Backlog', { priority: 'Low' });
   add('ari', 'A1', 'https://www.linovhr.com/blog/talent-management-strategy/', 1, '09:00', 5, '17:00', 'Backlog');
   add('ari', 'A7', 'Weekly Report SEO', 5, '09:00', 5, '12:00', 'Backlog');
@@ -64,14 +64,19 @@ function build() {
   add('fahmi', 'A1', 'https://www.linovhr.com/blog/offboarding/', 0, '09:00', 3, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 5) });
   // Winona
   add('winona', 'A1', 'https://www.linovhr.com/blog/hr-analytics/', -7, '09:00', -4, '17:00', 'Done', { startedAt: stamp(-7, 9, 0), doneAt: stamp(-3, 10, 30) });
-  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Sudah tambah 3 internal link' });
+  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Sudah tambah 3 internal link', results: [
+    { label: 'Draft artikel', url: 'https://docs.google.com/document/d/1demoReimburse/edit' },
+    { label: 'Folder gambar', url: 'https://drive.google.com/drive/folders/1demoImg' }] });
   // Dany
   add('dany', 'A5', 'Page Solusi — Logistik', -5, '09:00', -3, '17:00', 'Done', { startedAt: stamp(-5, 9, 0), doneAt: stamp(-4, 15, 0) });
   add('dany', 'A5', 'Page Solusi — Construction', -3, '09:00', -1, '17:00', 'Done', { startedAt: stamp(-3, 9, 0), doneAt: stamp(-1, 17, 0) });
   add('dany', 'A5', 'Page Solusi — Mining', 0, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 10) });
   // Arya
   add('arya', 'A3', 'NavBar — struktur menu & mega menu', -2, '09:00', 0, '17:00', 'Done', { startedAt: stamp(-2, 9, 0), doneAt: stamp(-1, 13, 0) });
-  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString() });
+  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString(), results: [
+    { label: 'Dashboard AIO', url: 'https://docs.google.com/spreadsheets/d/1demoAIO/edit' },
+    { label: 'Slides laporan', url: 'https://docs.google.com/presentation/d/1demoSlides/edit' },
+    { label: '', url: 'https://lookerstudio.google.com/reporting/demo' }] });
   // Wisnu
   add('wisnu', 'A6', 'Discuss dengan Koh Yos terkait competitor Lawencon + report', -2, '09:00', 0, '12:00', 'Backlog', { priority: 'High' });
   add('wisnu', 'B3', 'Skema FAQ untuk semua landing page LinovHR', 1, '09:00', 1, '17:00', 'Backlog', { priority: 'High' });
@@ -105,6 +110,16 @@ function handle(action, b, session) {
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
     case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me };
     case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects };
+    case 'setResults': {
+      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
+      if (!t) throw new Error('Task tidak ditemukan');
+      if (me.role !== 'admin' && t.status === 'Done') throw new Error('Task ini sudah disetujui admin, link tidak bisa diubah lagi.');
+      const list = (b.results || []).filter((x) => x && x.url);
+      if (list.some((x) => !/^https?:\/\/\S+$/i.test(x.url))) throw new Error('Link harus diawali http:// atau https://');
+      if (list.length > 10) throw new Error('Maksimal 10 link per task');
+      t.results = list.map((x) => ({ label: String(x.label || '').slice(0, 80), url: x.url }));
+      return { task: t };
+    }
     case 'updateStatus': {
       const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
       if (!t) throw new Error('Task tidak ditemukan');
