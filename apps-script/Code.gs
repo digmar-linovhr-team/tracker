@@ -40,7 +40,11 @@ var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Stat
 // Cache sederhana per eksekusi: tab Users & peta kolom cukup dibaca sekali per permintaan.
 var MEMO_ = { users: null, cols: {} };
 function resetMemo_() { MEMO_ = { users: null, cols: {} }; }
-function invalidateUsers_() { MEMO_.users = null; delete MEMO_.cols[CFG.USERS_SHEET]; }
+function invalidateUsers_() {
+  MEMO_.users = null; delete MEMO_.cols[CFG.USERS_SHEET];
+  try { CacheService.getScriptCache().remove(USERS_CACHE_KEY); } catch (e) { /* abaikan */ }
+}
+var USERS_CACHE_KEY = 'users_v1';   // tab Users di-cache 60 detik: tiap permintaan tidak perlu membaca sheet lagi
 
 var STATUSES = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
 var PRIORITIES = ['High', 'Medium', 'Low'];
@@ -97,6 +101,8 @@ function setup() {
     }
   });
 
+  ensureSyncTrigger_();
+
   if (!existing['admin']) {
     var apw = tempPassword_();
     appendUser_('admin', 'Administrator', 'admin', '', apw);
@@ -139,7 +145,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 8 });
+  return json_({ ok: true, app: 'project-tracker', version: 9 });
 }
 
 function doPost(e) {
@@ -275,6 +281,10 @@ function tempPassword_() {
 // ===================== Users =====================
 function readUsers_() {
   if (MEMO_.users) return MEMO_.users;
+  try {
+    var hit = CacheService.getScriptCache().get(USERS_CACHE_KEY);
+    if (hit) { MEMO_.users = JSON.parse(hit); return MEMO_.users; }
+  } catch (e) { /* cache tidak tersedia → baca sheet */ }
   var sh = sheet_(CFG.USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return [];
   var col = colMap_(sh);
@@ -298,6 +308,7 @@ function readUsers_() {
     });
   });
   MEMO_.users = out;
+  try { CacheService.getScriptCache().put(USERS_CACHE_KEY, JSON.stringify(out), 60); } catch (e) { /* terlalu besar → lewati */ }
   return out;
 }
 
@@ -459,6 +470,39 @@ function taskStatusByCode_() {
   return out;
 }
 
+/** Catat code project yang perlu disinkronkan; diproses trigger 1 menit (processProjectSync) supaya simpan task tetap cepat. */
+function queueProjectSync_(codes) {
+  try {
+    var list = (codes || []).map(function (c) { return String(c || '').trim(); }).filter(String);
+    if (!list.length) return;
+    var props = PropertiesService.getScriptProperties();
+    var cur = JSON.parse(props.getProperty('PROJ_SYNC') || '[]');
+    list.forEach(function (c) { if (cur.indexOf(c) < 0) cur.push(c); });
+    props.setProperty('PROJ_SYNC', JSON.stringify(cur.slice(-200)));
+  } catch (e) { Logger.log('queueProjectSync_: ' + e); }
+}
+
+/** Trigger tiap 1 menit: sinkronkan status project yang antre. Tidak melakukan apa-apa bila antrean kosong. */
+function processProjectSync() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('PROJ_SYNC')) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return;
+  try {
+    resetMemo_();
+    var codes = JSON.parse(props.getProperty('PROJ_SYNC') || '[]');
+    props.deleteProperty('PROJ_SYNC');
+    if (codes.length) syncProjectStatus_(codes);
+  } finally { lock.releaseLock(); }
+}
+
+function ensureSyncTrigger_() {
+  try {
+    var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'processProjectSync'; });
+    if (!has) ScriptApp.newTrigger('processProjectSync').timeBased().everyMinutes(1).create();
+  } catch (e) { Logger.log('ensureSyncTrigger_: ' + e); }
+}
+
 /** Perbarui kolom Status di Main Project. codes = daftar code yang berubah, atau null untuk semua. */
 function syncProjectStatus_(codes) {
   try {
@@ -571,12 +615,26 @@ function locateTask_(me, taskId) {
   if (!taskId) throw new Error('Task ID kosong');
   var list = me.role === 'admin' ? personSheets_()
     : personSheets_().filter(function (p) { return p.user.username === me.username; });
-  for (var i = 0; i < list.length; i++) {
-    var sh = list[i].sheet, col = colMap_(sh);
-    if (col['task id'] === undefined || sh.getLastRow() < 2) continue;
+  var cache = null, key = 'loc_' + taskId;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+  var find = function (p) {
+    var sh = p.sheet, col = colMap_(sh);
+    if (col['task id'] === undefined || sh.getLastRow() < 2) return null;
     var cell = sh.getRange(2, col['task id'] + 1, sh.getLastRow() - 1, 1)
       .createTextFinder(String(taskId)).matchEntireCell(true).findNext();
-    if (cell) return { sheet: sh, row: cell.getRow(), col: col, user: list[i].user };
+    return cell ? { sheet: sh, row: cell.getRow(), col: col, user: p.user } : null;
+  };
+  // tab terakhir tempat task ini ditemukan dicoba lebih dulu (hemat 1 pencarian per tab orang)
+  var hint = cache && cache.get(key);
+  if (hint) {
+    var hp = list.filter(function (p) { return p.sheet.getName() === hint; })[0];
+    var hr = hp && find(hp);
+    if (hr) return hr;
+  }
+  for (var i = 0; i < list.length; i++) {
+    if (hint && list[i].sheet.getName() === hint) continue;
+    var r = find(list[i]);
+    if (r) { if (cache) cache.put(key, r.sheet.getName(), 21600); return r; }
   }
   throw new Error('Task tidak ditemukan (mungkin sudah dihapus). Muat ulang data.');
 }
@@ -601,7 +659,8 @@ function updateStatus_(me, taskId, status) {
     log_(me, 'status', taskId, prev + ' → ' + status);
     // Calendar diperbarui oleh trigger berkala (perubahan terdeteksi otomatis), supaya simpan tetap cepat.
     var task = rowTask_(r, null, col, sh, loc.user, row);
-    return { task: task, projects: syncProjectStatus_([task.code]) };
+    queueProjectSync_([task.code]);
+    return { task: task };
   } finally { lock.releaseLock(); }
 }
 
@@ -661,7 +720,8 @@ function saveTask_(me, t) {
     }
     var savedRow = findRowById_(target, id);
     var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
-    return { id: id, task: saved, projects: syncProjectStatus_([obj.code, oldCode]) };
+    queueProjectSync_([obj.code, oldCode]);
+    return { id: id, task: saved };
   } finally { lock.releaseLock(); }
 }
 
@@ -776,7 +836,8 @@ function reviewTask_(me, taskId, decision, reason) {
         });
       } catch (e) { /* email tidak boleh menggagalkan keputusan */ }
     }
-    return { task: task, projects: syncProjectStatus_([task.code]) };
+    queueProjectSync_([task.code]);
+    return { task: task };
   } finally { lock.releaseLock(); }
 }
 
@@ -814,7 +875,8 @@ function deleteTask_(me, taskId) {
     trashRowEvents_(loc.sheet, loc.row);
     loc.sheet.deleteRow(loc.row);
     log_(me, 'delete-task', taskId, title);
-    return { ok: true, projects: syncProjectStatus_([code]) };
+    queueProjectSync_([code]);
+    return { ok: true };
   } finally { lock.releaseLock(); }
 }
 
@@ -1207,7 +1269,8 @@ function runReminders() {
       });
     });
     if (newReviews.length) emailReviewsToAdmins_(newReviews);
-    syncProjectStatus_(null);   // perubahan yang diketik langsung di spreadsheet
+    PropertiesService.getScriptProperties().deleteProperty('PROJ_SYNC');
+    syncProjectStatus_(null);   // semua project, termasuk perubahan yang diketik langsung di spreadsheet
   } finally { lock.releaseLock(); }
 }
 
@@ -1417,9 +1480,10 @@ function saveBrief_(me, b) {
   try {
     var loc = locateTask_(me, b.taskId);   // anggota hanya bisa memilih task miliknya
     var sh = briefSheet_(), col = colMap_(sh), now = new Date();
-    var others = readBriefs_();
-    var dup = others.filter(function (x) { return x.taskId === String(b.taskId) && x.id !== b.id; })[0];
-    if (dup) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
+    var dupRow = sh.getLastRow() < 2 ? null : sh.getRange(2, col['task id'] + 1, sh.getLastRow() - 1, 1)
+      .createTextFinder(String(b.taskId)).matchEntireCell(true).findAll()
+      .filter(function (c) { return String(sh.getRange(c.getRow(), col['brief id'] + 1).getValue()) !== String(b.id || ''); })[0];
+    if (dupRow) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
     var obj = {
       'task id': String(b.taskId), 'owner': loc.user.username, 'type': type, 'status': status,
       'keyword': safeCell_(String(d.kwMain || '').slice(0, 200)), 'title': safeCell_(String(d.h1 || '').slice(0, 300)),
@@ -1439,7 +1503,7 @@ function saveBrief_(me, b) {
       obj['brief id'] = id; obj['created by'] = me.username; obj['created at'] = now;
       row = appendObj_(sh, obj);
     }
-    log_(me, b.id ? 'update-brief' : 'create-brief', b.taskId, id + ' ' + (d.kwMain || ''));
+    if (!b.id) log_(me, 'create-brief', b.taskId, id + ' ' + (d.kwMain || ''));   // simpan otomatis tidak dicatat agar cepat
     return { brief: rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row) };
   } finally { lock.releaseLock(); }
 }

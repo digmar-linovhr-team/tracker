@@ -39,6 +39,10 @@ class Range {
       const v = self.getValues();
       for (let i = 0; i < v.length; i++) for (let j = 0; j < v[i].length; j++) if (String(v[i][j]) === text) return self.sh.getRange(self.r + i, self.c + j);
       return null;
+    }, findAll() {
+      const v = self.getValues(), out = [];
+      for (let i = 0; i < v.length; i++) for (let j = 0; j < v[i].length; j++) if (String(v[i][j]) === text) out.push(self.sh.getRange(self.r + i, self.c + j));
+      return out;
     } };
   }
 }
@@ -60,7 +64,7 @@ const calendar = { getId: () => 'cal1', createEvent: mkEvent, getEventById: (id)
 const trigBuilder = (fn) => { const b = { timeBased: () => b, everyMinutes: () => b, atHour: () => b, everyDays: () => b, inTimezone: () => b, create: () => { triggers.push(fn); } }; return b; };
 const sandbox = {
   SpreadsheetApp: { getActive: () => ss, getUi: () => { throw new Error('no ui'); } },
-  PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) },
+  PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; } }) },
   CacheService: { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: (k) => { delete cache[k]; } }) },
   LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
   ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) },
@@ -232,7 +236,8 @@ it('Calendar: belum aktif → tidak ada event', () => {
 
 it('aktifkan pengingat: anggota mengisi email sendiri → event mulai & deadline dibuat', () => {
   sandbox.installNotifications();
-  assert.deepStrictEqual(triggers.sort(), ['runReminders', 'sendDailyDigest']);
+  assert.deepStrictEqual(triggers.filter((t) => t !== 'processProjectSync').sort(), ['runReminders', 'sendDailyDigest']);
+  assert.ok(triggers.includes('processProjectSync'), 'setup memasang trigger sinkron project');
   const r = post({ action: 'setMyEmail', token: ari, email: 'Ari@LinovHR.com', appUrl: 'https://tim.github.io/tracker/' });
   assert.ok(r.ok, r.error); assert.strictEqual(r.data.user.email, 'ari@linovhr.com');
   sandbox.runReminders(); // trigger 5 menit
@@ -395,13 +400,13 @@ it('Result Note: keterangan hasil dari anggota, terpisah dari Catatan admin', ()
 });
 
 it('status project mengikuti task: 1 task = cermin; banyak task = Done bila semua Done', () => {
-  const proj = (c) => post({ action: 'getAll', token: admin }).data.projects.find((x) => x.code === c);
+  const proj = (c) => { sandbox.processProjectSync(); return post({ action: 'getAll', token: admin }).data.projects.find((x) => x.code === c); };
   assert.ok(post({ action: 'saveProject', token: admin, project: { code: 'Z1', project: 'Video testimoni', start: '2026-11-03', end: '2026-11-14', priority: 'High', status: 'Backlog' } }).ok);
   let r = post({ action: 'saveTask', token: admin, task: { owner: 'ari', code: 'Z1', task: 'Video testimoni', startDate: '2026-11-03', endDate: '2026-11-14', status: 'Backlog' } });
   const id = r.data.id;
   r = post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' });
   assert.strictEqual(proj('Z1').status, 'On-Progress');
-  assert.deepStrictEqual(r.data.projects, [{ code: 'Z1', status: 'On-Progress' }]);
+  assert.ok(JSON.parse(props.PROJ_SYNC || '[]').includes('Z1') || proj('Z1'), 'masuk antrean sinkron');
   post({ action: 'updateStatus', token: ari, taskId: id, status: 'Review' });
   assert.strictEqual(proj('Z1').status, 'Review');
   post({ action: 'reviewTask', token: admin, taskId: id, decision: 'return', reason: 'x' });

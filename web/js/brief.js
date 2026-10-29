@@ -165,16 +165,40 @@ function newBriefModal(taskId, copyFrom) {
             sections: src.sections.map((s) => Object.assign({}, s, { sources: [''] }))
           }));
         }
-        try {
-          const r = await busy($('#nbok', m), () => api.call('saveBrief', { brief: { taskId: task.id, type: data.contentType, status: 'Draft', data } }));
-          close();
-          putBrief(r.brief);
-          toast(copyFrom ? 'Brief diduplikat' : 'Brief dibuat');
-          openBrief(r.brief.id);
-        } catch (err) { $('#nberr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
+        close();
+        createBriefOptimistic(task, data, copyFrom ? 'Brief diduplikat' : 'Brief dibuat');
       };
     }
   });
+}
+
+/** Brief baru langsung dibuka; penyimpanan ke server berjalan di belakang. */
+function createBriefOptimistic(task, data, okMsg) {
+  const tmp = { id: 'tmp-' + Date.now(), taskId: task.id, owner: task.owner, createdBy: S.user.username, type: data.contentType, status: 'Draft',
+    keyword: data.kwMain || '', title: '', data: JSON.parse(JSON.stringify(data)), docUrl: '', createdAt: '', updatedAt: '', updatedBy: S.user.username, pending: true };
+  putBrief(tmp);
+  openBrief(tmp.id);
+  const E = S.bEdit;
+  E.creating = api.call('saveBrief', { brief: { taskId: task.id, type: data.contentType, status: 'Draft', data } })
+    .then((r) => {
+      S.briefs = S.briefs.filter((x) => x.id !== tmp.id);
+      putBrief(r.brief);
+      if (S.bEdit && S.bEdit.id === tmp.id) {
+        S.bEdit.id = r.brief.id; S.bEdit.b.id = r.brief.id; S.bEdit.b.updatedAt = r.brief.updatedAt; S.bEdit.savedAt = new Date();
+        const el = $('#bsave'); if (el && S.view === 'brief') el.textContent = saveText();
+        const act = $('#bactions');
+        if (act && S.view === 'brief') { act.innerHTML = actionsHtml(S.bEdit.b, canEditBrief(S.bEdit.b), briefStatus(S.bEdit.b)[0]); bindBriefActions(); }
+      }
+      toast(okMsg);
+      return r.brief.id;
+    })
+    .catch((err) => {
+      S.briefs = S.briefs.filter((x) => x.id !== tmp.id); saveCache();
+      if (S.bEdit && S.bEdit.id === tmp.id) { S.bEdit = null; if (S.view === 'brief') go('briefs'); }
+      toast('Brief gagal dibuat: ' + cleanErr(err), true);
+      throw err;
+    })
+    .finally(() => { if (S.bEdit) S.bEdit.creating = null; });
 }
 
 // ---------- editor ----------
@@ -205,13 +229,7 @@ function viewBrief() {
       <div class="bed-task">${task ? `${task.code ? `<span class="code-tag">${esc(task.code)}</span> ` : ''}<b>${prettyTitle(task.task)}</b> <span class="muted">· ${esc(task.ownerName)}${L.schedule(task).end ? ' · deadline ' + esc(fmtD(L.schedule(task).end)) : ''}</span>` : '<span class="muted">Task sudah dihapus</span>'}</div>
       <span class="bstat ${stc}">${esc(st)}</span>
       <span class="muted small" id="bsave">${saveText()}</span>
-      <div class="bed-actions">
-        ${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
-        ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
-        ${edit && eligibleTasks().length ? '<button class="btn sm" id="bdup">Duplikat</button>' : ''}
-        ${edit && st !== 'Selesai' ? (b.status === 'Siap ditulis' ? '<button class="btn sm" id="bstat" data-to="Draft">Kembali ke draft</button>' : '<button class="btn sm primary" id="bstat" data-to="Siap ditulis">Tandai siap ditulis</button>') : ''}
-        ${edit ? '<button class="btn sm ghost danger" id="bdel" title="Hapus brief">Hapus</button>' : ''}
-      </div>
+      <div class="bed-actions" id="bactions">${actionsHtml(b, edit, st)}      </div>
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}
     ${edit ? '' : '<div class="banner"><div>Hanya bisa dilihat. Brief ini hanya bisa diubah oleh pemilik task dan admin.</div></div>'}
@@ -262,6 +280,15 @@ function viewBrief() {
         ${fText('extraNote', 'Catatan', 'mis. Infografik alur pengajuan 5 langkah', ro)}`)}
     </div>`;
   bindBriefEditor(edit);
+}
+
+function actionsHtml(b, edit, st) {
+  if (String(b.id).startsWith('tmp-')) return '<span class="muted small">Membuat brief…</span>';
+  return `${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
+        ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
+        ${edit && eligibleTasks().length ? '<button class="btn sm" id="bdup">Duplikat</button>' : ''}
+        ${edit && st !== 'Selesai' ? (b.status === 'Siap ditulis' ? '<button class="btn sm" id="bstat" data-to="Draft">Kembali ke draft</button>' : '<button class="btn sm primary" id="bstat" data-to="Siap ditulis">Tandai siap ditulis</button>') : ''}
+        ${edit ? '<button class="btn sm ghost danger" id="bdel" title="Hapus brief">Hapus</button>' : ''}`;
 }
 
 function h2Block(s, i, n, ro) {
@@ -412,6 +439,13 @@ function bindBriefEditor(edit) {
       [o[i], o[j]] = [o[j], o[i]]; markDirty(); rerenderBrief(`[data-mv="${j}"][data-dir="${ds.dir}"]`);
     }
   });
+  bindBriefActions();
+}
+
+/** Tombol di bagian atas editor (status, duplikat, Google Doc, hapus). */
+function bindBriefActions() {
+  const E = S.bEdit; if (!E) return;
+  const d = E.b.data;
   if ($('#bstat')) $('#bstat').onclick = () => {
     const to = $('#bstat').dataset.to;
     if (to === 'Siap ditulis') {
@@ -454,6 +488,7 @@ function putBrief(nb) {
 async function briefSave() {
   const E = S.bEdit;
   if (!E || !E.dirty || E.saving) return;
+  if (E.creating) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 1200); return; }   // tunggu brief baru selesai dibuat dulu
   clearTimeout(E.timer);
   E.saving = true; E.dirty = false;
   const el = $('#bsave'); if (el && S.view === 'brief') el.textContent = saveText();
