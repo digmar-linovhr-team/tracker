@@ -402,6 +402,7 @@ function saveText() {
   const E = S.bEdit;
   if (!E) return '';
   if (E.saving) return 'Menyimpan…';
+  if (E.isNew && !String((E.b.data && E.b.data.title) || '').trim()) return 'Isi judul untuk menyimpan';
   if (E.dirty) return 'Belum tersimpan';
   return E.savedAt ? 'Tersimpan ' + pad(E.savedAt.getHours()) + ':' + pad(E.savedAt.getMinutes()) : '';
 }
@@ -580,6 +581,20 @@ async function briefSave() {
   if (!E || !E.dirty || E.saving) return;
   if (E.creating) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 1200); return; }   // tunggu brief baru selesai dibuat dulu
   clearTimeout(E.timer);
+  if (E.isNew) {   // brief sosmed baru: dibuat di server begitu judulnya diisi
+    if (!String((E.b.data && E.b.data.title) || '').trim()) { const el0 = $('#bsave'); if (el0 && S.view === 'brief') el0.textContent = saveText(); return; }
+    E.saving = true; E.dirty = false;
+    const el1 = $('#bsave'); if (el1 && S.view === 'brief') el1.textContent = saveText();
+    const snap0 = JSON.stringify(E.b.data);
+    try { E.creating = socCreate(E); await E.creating; E.savedAt = new Date(); if (JSON.stringify(E.b.data) !== snap0) E.dirty = true; }
+    catch (e) { E.dirty = true; toast('Brief belum tersimpan: ' + cleanErr(e), true); }
+    finally {
+      E.creating = null; E.saving = false;
+      const el2 = $('#bsave'); if (el2 && S.view === 'brief') el2.textContent = saveText();
+      if (E.dirty && !E.isNew) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 2500); }
+    }
+    return;
+  }
   E.saving = true; E.dirty = false;
   const el = $('#bsave'); if (el && S.view === 'brief') el.textContent = saveText();
   const snap = JSON.parse(JSON.stringify(E.b));
@@ -603,7 +618,11 @@ async function briefSave() {
   }
 }
 /** Dipanggil saat meninggalkan editor: simpan perubahan yang tertunda di belakang layar. */
-function briefFlush() { if (S.bEdit && S.bEdit.dirty && !S.bEdit.error) briefSave(); }
+function briefFlush() {
+  const E = S.bEdit;
+  if (E && E.isNew && !String((E.b.data && E.b.data.title) || '').trim()) { if (E.dirty) toast('Brief sosmed tanpa judul tidak disimpan.'); S.bEdit = null; return; }
+  if (E && E.dirty && !E.error) briefSave();
+}
 window.addEventListener('beforeunload', (e) => { if (S.bEdit && (S.bEdit.dirty || S.bEdit.saving) && !S.bEdit.error) { briefSave(); e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- integrasi dengan task ----------

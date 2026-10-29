@@ -124,32 +124,30 @@ function renderSocialList() {
 }
 
 // ---------- buat baru ----------
+/** Brief sosmed baru hanya ada di layar dulu. Baru disimpan ke server setelah judulnya diisi (atau saat ditugaskan),
+ *  jadi menekan "+ Brief sosmed" lalu kembali tidak meninggalkan brief tanpa judul. */
 function newSocialBrief(copyFrom) {
   const base = copyFrom ? normSocial(JSON.parse(JSON.stringify(copyFrom.data || {}))) : null;
   const data = base
     ? normSocial(Object.assign(base, { title: base.title ? base.title + ' (salinan)' : '', assign: { owner: '', endDate: '', endTime: '18:00', priority: 'Medium', code: '' } }))
     : normSocial({ format: 'Carousel', platforms: ['Instagram', 'LinkedIn'], sizes: [SOC_DEFAULT_SIZE.Carousel], slides: [blankSlide(), blankSlide(), blankSlide()] });
   const tmp = { id: 'tmp-' + Date.now(), taskId: '', owner: '', createdBy: S.user.username, type: 'Sosmed', status: 'Draft', keyword: data.format, title: data.title,
-    data: JSON.parse(JSON.stringify(data)), docUrl: '', createdAt: '', updatedAt: '', updatedBy: S.user.username, pending: true };
-  putBrief(tmp);
-  openBrief(tmp.id);
-  const E = S.bEdit;
-  E.creating = api.call('saveSocialBrief', { brief: { data } })
-    .then((r) => {
-      S.briefs = S.briefs.filter((x) => x.id !== tmp.id);
-      putBrief(Object.assign({}, r.brief, { data: JSON.parse(JSON.stringify(E.b.data)) }));
-      if (S.bEdit === E) {
-        E.id = r.brief.id; E.b.id = r.brief.id; E.b.updatedAt = r.brief.updatedAt; E.b.createdAt = r.brief.createdAt; E.savedAt = new Date();
-        if (S.view === 'brief') { const el = $('#bsave'); if (el) el.textContent = saveText(); renderSocActions(); }
-      }
-      toast(copyFrom ? 'Brief sosmed diduplikat' : 'Brief sosmed dibuat');
-    })
-    .catch((err) => {
-      S.briefs = S.briefs.filter((x) => x.id !== tmp.id); saveCache();
-      if (S.bEdit === E) { S.bEdit = null; if (S.view === 'brief') { S.bf.kind = 'sosmed'; go('briefs'); } }
-      toast('Brief sosmed gagal dibuat: ' + cleanErr(err), true);
-    })
-    .finally(() => { E.creating = null; });
+    data, docUrl: '', createdAt: '', updatedAt: '', updatedBy: S.user.username };
+  S.bEdit = { id: tmp.id, b: tmp, dirty: !!copyFrom, saving: false, savedAt: null, error: '', isNew: true };
+  go('brief');
+  if (copyFrom) { toast('Salinan dibuat. Ubah seperlunya — tersimpan otomatis.'); briefSave(); }
+  else setTimeout(() => { const el = $('[data-k="title"]'); if (el) el.focus(); }, 50);
+}
+/** Simpan brief sosmed baru untuk pertama kali (dipanggil oleh simpan otomatis bila judul sudah diisi). */
+async function socCreate(E) {
+  const snap = JSON.parse(JSON.stringify(E.b));
+  const r = await api.call('saveSocialBrief', { brief: { data: snap.data } });
+  E.isNew = false; E.id = r.brief.id;
+  Object.assign(E.b, { id: r.brief.id, updatedAt: r.brief.updatedAt, createdAt: r.brief.createdAt, updatedBy: r.brief.updatedBy });
+  putBrief(Object.assign({}, r.brief, { data: JSON.parse(JSON.stringify(E.b.data)) }));
+  if (S.bEdit === E && S.view === 'brief') renderSocActions();
+  toast('Brief sosmed disimpan');
+  return r;
 }
 
 // ---------- editor ----------
@@ -267,10 +265,15 @@ function capText(d) {
 function renderSocActions() {
   const E = S.bEdit, el = $('#bactions'); if (!E || !el) return;
   const b = E.b;
-  el.innerHTML = String(b.id).startsWith('tmp-') ? '<span class="muted small">Membuat brief…</span>'
+  el.innerHTML = E.isNew ? '<button class="btn sm ghost" id="sdiscard">Batal</button>'
     : `<button class="btn sm" id="sdup">Duplikat</button>${canDeleteSocial(b) ? '<button class="btn sm ghost danger" id="sdel" title="Hapus brief">Hapus</button>' : ''}`;
   if ($('#sdup')) $('#sdup').onclick = () => { briefFlush(); newSocialBrief(E.b); };
   if ($('#sdel')) $('#sdel').onclick = socDelete;
+  if ($('#sdiscard')) $('#sdiscard').onclick = async () => {
+    const d = E.b.data, filled = String(d.title || '').trim() || d.slides.some((x) => (x.text + x.visual).trim()) || d.scenes.some((x) => (x.visual + x.audio).trim()) || String(d.caption || '').trim();
+    if (filled && !(await confirmBox('Buang brief ini?', 'Isinya belum disimpan dan akan hilang.', 'Buang'))) return;
+    clearTimeout(E.timer); E.dirty = false; S.bEdit = null; S.bf.kind = 'sosmed'; go('briefs');
+  };
 }
 
 /** Ringkasan task yang terhubung (penanggung jawab, deadline, status, hasil kerja). */
@@ -332,7 +335,7 @@ async function socialAssign() {
   const btn = $('#soc-go'); if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
   if (E.creating) { try { await E.creating; } catch (e) { return; } }
   while (E.saving) await sleep(150);
-  if (S.bEdit !== E || String(b.id).startsWith('tmp-')) return;
+  if (S.bEdit !== E) return;
   clearTimeout(E.timer); E.dirty = false; E.saving = true;
   const snap = JSON.parse(JSON.stringify(b)), person = socPeople().find((u) => u.username === a.owner) || {};
   const prev = { taskId: b.taskId, owner: b.owner, status: b.status }, isNew = !b.taskId;
@@ -347,8 +350,10 @@ async function socialAssign() {
     E.reassign = false; renderSocAssign(); socRefreshStatus();
     toast(`Ditugaskan ke ${person.name || a.owner}. Task-nya dibuat.`);
   } else toast('Menyimpan penugasan…');
-  E.creating = api.call('saveSocialBrief', { brief: { id: snap.id, data: snap.data, baseUpdatedAt: snap.updatedAt, assign: Object.assign({}, a) } })
+  const wasNew = !!E.isNew;
+  E.creating = api.call('saveSocialBrief', { brief: { id: wasNew ? undefined : snap.id, data: snap.data, baseUpdatedAt: wasNew ? undefined : snap.updatedAt, assign: Object.assign({}, a) } })
     .then((r) => {
+      if (wasNew) { E.isNew = false; E.id = r.brief.id; b.id = r.brief.id; b.createdAt = r.brief.createdAt; }
       if (tmpTask) removeTaskLocal(tmpTask.id);
       if (r.task) upsertTaskLocal(Object.assign({}, r.task, { ownerName: person.name || r.task.ownerName }));
       Object.assign(b, { taskId: r.brief.taskId, owner: r.brief.owner, status: r.brief.status, statusAt: r.brief.statusAt, updatedAt: r.brief.updatedAt, updatedBy: r.brief.updatedBy });
