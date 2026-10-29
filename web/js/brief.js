@@ -109,7 +109,7 @@ function renderBriefList() {
   const order = { 'Siap ditulis': 0, Draft: 1, Selesai: 2, 'Task dihapus': 3 };
   list.sort((a, b) => (order[briefStatus(a)[0]] - order[briefStatus(b)[0]]) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   if (!list.length) {
-    $('#blist').innerHTML = `<div class="card empty"><b>${(S.briefs || []).length ? 'Tidak ada brief yang cocok' : 'Belum ada brief'}</b>${eligibleTasks().length ? 'Buat brief dari tombol <b>+ Brief baru</b> atau tombol <b>+ Brief</b> di task.' : 'Brief dibuat dari task yang sedang dikerjakan.'}</div>`;
+    $('#blist').innerHTML = `<div class="card empty"><b>${(S.briefs || []).length ? 'Tidak ada brief yang cocok' : 'Belum ada brief'}</b>${eligibleTasks().length ? 'Buat brief dari tombol “+ Brief baru” di kanan atas, atau tombol “+ Brief” di task.' : 'Brief dibuat dari task yang sedang dikerjakan.'}</div>`;
     return;
   }
   $('#blist').innerHTML = `<div class="card tlist brief-list">

@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.13.0';
+const CSS_VERSION = '2.13.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1690,6 +1690,8 @@ api.on('install:available', async () => { S.cfg = await api.config(); if (S.user
 
 // ---------- mulai ----------
 (async function boot() {
+  // tunggu semua script (termasuk brief.js) selesai dimuat sebelum menggambar tampilan
+  if (document.readyState === 'loading') await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
   S.cfg = await api.config();
   if (!S.cfg.apiUrl && !S.cfg.demo) return showSetup();
   if (!S.cfg.user) return showLogin();
