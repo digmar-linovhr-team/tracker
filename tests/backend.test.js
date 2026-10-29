@@ -627,6 +627,28 @@ it('Brief sosmed: anggota membuat & menugaskan → task Sosmed di tab orang lain
   assert.strictEqual(post({ action: 'bulkSetType', token: admin, taskIds: [task.id], type: 'Sosmed' }).data.tasks[0].type, 'Sosmed');
 });
 
+it('Struktur tim: atasan, divisi, keahlian; anggota tanpa akun; cegah struktur berputar', () => {
+  let r = post({ action: 'saveUser', token: admin, user: { username: 'owner', name: 'Pak Owner', position: 'Direktur', orgOnly: true, hasTasks: false } });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.password, undefined); assert.strictEqual(r.data.user.orgOnly, true);
+  r = post({ action: 'saveUser', token: admin, user: { username: 'wisnu', name: 'Wisnu', role: 'member', reportsTo: 'owner', division: 'Digital marketing', joined: '2023-03' } });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.user.reportsTo, 'owner'); assert.strictEqual(r.data.user.joined, '2023-03');
+  assert.ok(post({ action: 'saveUser', token: admin, user: { username: 'ari', name: 'Ari', role: 'member', reportsTo: 'wisnu', division: 'SEO dan konten' } }).ok);
+  // berputar: wisnu di bawah ari → ditolak; diri sendiri → ditolak
+  assert.strictEqual(post({ action: 'saveUser', token: admin, user: { username: 'wisnu', name: 'Wisnu', role: 'member', reportsTo: 'ari' } }).ok, false);
+  assert.strictEqual(post({ action: 'saveUser', token: admin, user: { username: 'ari', name: 'Ari', role: 'member', reportsTo: 'ari' } }).ok, false);
+  assert.strictEqual(post({ action: 'saveUser', token: admin, user: { username: 'ari', name: 'Ari', role: 'member', reportsTo: 'tidakada' } }).ok, false);
+  // anggota tanpa akun tidak bisa login
+  assert.strictEqual(post({ action: 'login', username: 'owner', password: 'x' }).ok, false);
+  // anggota mengisi keahlian sendiri; data struktur terlihat semua anggota tanpa email
+  r = post({ action: 'setMySkills', token: ari, skills: '=Riset keyword, technical SEO' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.user.skills, '=Riset keyword, technical SEO');
+  const org = post({ action: 'teamTasks', token: ari }).data.org;
+  const a = org.find((u) => u.username === 'ari'), o = org.find((u) => u.username === 'owner');
+  assert.strictEqual(a.reportsTo, 'wisnu'); assert.strictEqual(a.division, 'SEO dan konten'); assert.ok(o && o.orgOnly);
+  assert.ok(org.every((u) => u.email === undefined));
+  assert.strictEqual(post({ action: 'saveUser', token: ari, user: { username: 'ari', reportsTo: '' } }).ok, false, 'anggota tidak bisa ubah struktur');
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

@@ -32,7 +32,8 @@ var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result', 'Result Note',
   'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
-  'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
+  'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position',
+  'Reports To', 'Division', 'Skills', 'Joined', 'Org Only'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
 var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Status', 'Keyword', 'Title',
@@ -147,7 +148,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 13 });
+  return json_({ ok: true, app: 'project-tracker', version: 14 });
 }
 
 function doPost(e) {
@@ -190,6 +191,7 @@ function route_(b) {
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'advanceStage': return advanceStage_(me, b.taskId, b.step, b.url);
     case 'setMyEmail': return setMyEmail_(me, b.email);
+    case 'setMySkills': return setMySkills_(me, b.skills);
     case 'setResults': return setResults_(me, b.taskId, b.results, b.note);
     case 'teamTasks': return teamTasks_();
   }
@@ -220,7 +222,7 @@ function login_(username, password) {
     throw new Error('Terlalu banyak percobaan. Coba lagi dalam ' + CFG.LOCK_MINUTES + ' menit.');
   }
   var u = findUser_(username);
-  if (!u || !u.active || hash_(String(password || ''), u.salt) !== u.hash) {
+  if (!u || !u.active || u.orgOnly || hash_(String(password || ''), u.salt) !== u.hash) {
     cache.put(failKey, String(fails + 1), CFG.LOCK_MINUTES * 60);
     throw new Error('Username atau password salah');
   }
@@ -261,7 +263,7 @@ function auth_(token) {
   var p = payload.split('|');
   if (Number(p[1]) < Date.now()) throw new Error('UNAUTHORIZED');
   var u = findUser_(p[0]);
-  if (!u || !u.active) throw new Error('UNAUTHORIZED');
+  if (!u || !u.active || u.orgOnly) throw new Error('UNAUTHORIZED');
   return u;
 }
 
@@ -312,7 +314,12 @@ function readUsers_() {
       mustChange: bool_(r[col['must change']]),
       active: r[col['active']] === '' ? true : bool_(r[col['active']]),
       email: col['email'] === undefined ? '' : String(r[col['email']] || '').trim(),
-      position: col['position'] === undefined ? '' : String(r[col['position']] || '').trim()
+      position: col['position'] === undefined ? '' : String(r[col['position']] || '').trim(),
+      reportsTo: col['reports to'] === undefined ? '' : String(r[col['reports to']] || '').trim().toLowerCase(),
+      division: col['division'] === undefined ? '' : String(r[col['division']] || '').trim(),
+      skills: col['skills'] === undefined ? '' : String(r[col['skills']] || '').trim().replace(/^'(?=[=+\-@])/, ''),
+      joined: col['joined'] === undefined ? '' : normMonth_(r[col['joined']]),
+      orgOnly: col['org only'] === undefined ? false : bool_(r[col['org only']])
     });
   });
   MEMO_.users = out;
@@ -326,7 +333,52 @@ function findUser_(username) {
 
 function publicUser_(u) {
   return { username: u.username, name: u.name, role: u.role, sheetName: u.sheetName,
-    mustChange: u.mustChange, active: u.active, email: u.email || '', position: u.position || '' };
+    mustChange: u.mustChange, active: u.active, email: u.email || '', position: u.position || '',
+    reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly };
+}
+/** Data struktur tim untuk semua anggota (tanpa email/akun). */
+function orgUser_(u) {
+  return { username: u.username, name: u.name, position: u.position || '', reportsTo: u.reportsTo || '', division: u.division || '',
+    skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, hasTasks: !!u.sheetName, role: u.role };
+}
+function normMonth_(v) {
+  if (isDate_(v)) return Utilities.formatDate(v, tz_(), 'yyyy-MM');
+  var m = String(v || '').trim().replace(/^'/, '').match(/^(\d{4})-(\d{1,2})/);
+  return m ? m[1] + '-' + pad_(m[2]) : '';
+}
+/** Atasan harus pengguna yang ada, bukan diri sendiri, dan tidak membuat struktur berputar. */
+function checkReportsTo_(username, boss) {
+  if (!boss) return '';
+  boss = String(boss).toLowerCase();
+  if (boss === username) throw new Error('Atasan tidak boleh diri sendiri');
+  var users = readUsers_(), by = {};
+  users.forEach(function (u) { by[u.username] = u; });
+  if (!by[boss]) throw new Error('Atasan tidak ditemukan');
+  var cur = boss, seen = {};
+  while (cur && by[cur] && !seen[cur]) {
+    if (cur === username) throw new Error('Struktur berputar: ' + by[boss].name + ' sudah berada di bawah orang ini.');
+    seen[cur] = true; cur = by[cur].reportsTo;
+  }
+  return boss;
+}
+function cleanSkills_(v) { return safeCell_(String(v || '').replace(/\s+/g, ' ').trim().slice(0, 120)); }
+function orgFields_(username, data) {
+  var o = {};
+  if (data.reportsTo !== undefined) o['reports to'] = checkReportsTo_(username, data.reportsTo);
+  if (data.division !== undefined) o['division'] = safeCell_(String(data.division).trim().slice(0, 60));
+  if (data.skills !== undefined) o['skills'] = cleanSkills_(data.skills);
+  if (data.joined !== undefined) o['joined'] = /^\d{4}-\d{2}$/.test(String(data.joined)) ? "'" + data.joined : '';
+  return o;
+}
+function setMySkills_(me, skills) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var sh = sheet_(CFG.USERS_SHEET);
+    ensureHeaders_(sh, USER_HEADERS);
+    writeObj_(sh, me.row, { 'skills': cleanSkills_(skills) });
+    invalidateUsers_();
+    return { user: publicUser_(findUser_(me.username)) };
+  } finally { lock.releaseLock(); }
 }
 
 function appendUser_(username, name, role, sheetName, password) {
@@ -371,7 +423,13 @@ function saveUser_(me, data) {
       sh.getRange(existing.row, col['active'] + 1).setValue(data.active !== false);
       if (data.email !== undefined) sh.getRange(existing.row, col['email'] + 1).setValue(cleanEmail_(data.email));
       if (data.position !== undefined) sh.getRange(existing.row, col['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
-      if (data.hasTasks && !existing.sheetName) {
+      var of = orgFields_(username, data);
+      if (data.orgOnly !== undefined) {
+        if (data.orgOnly && existing.username === me.username) throw new Error('Akun Anda sendiri tidak bisa dijadikan "tanpa akun"');
+        of['org only'] = !!data.orgOnly;
+      }
+      if (Object.keys(of).length) writeObj_(sh, existing.row, of);
+      if (data.hasTasks && !existing.sheetName && !data.orgOnly) {
         var sn = ensurePersonSheet_(data.name || existing.name);
         sh.getRange(existing.row, col['sheet name'] + 1).setValue(sn);
       }
@@ -380,15 +438,19 @@ function saveUser_(me, data) {
       log_(me, 'update-user', '', username);
       return { user: publicUser_(findUser_(username)) };
     }
-    var sheetName = data.hasTasks === false ? '' : ensurePersonSheet_(data.name || username);
+    var ofNew = orgFields_(username, data);
+    var orgOnly = !!data.orgOnly;
+    var sheetName = data.hasTasks === false || orgOnly ? '' : ensurePersonSheet_(data.name || username);
     var pw = tempPassword_();
-    appendUser_(username, data.name || username, role, sheetName, pw);
+    appendUser_(username, data.name || username, orgOnly ? 'member' : role, sheetName, pw);
     var nu = findUser_(username), ucol = colMap_(sh);
+    if (orgOnly) ofNew['org only'] = true;
+    if (Object.keys(ofNew).length) writeObj_(sh, nu.row, ofNew);
     if (data.email) sh.getRange(nu.row, ucol['email'] + 1).setValue(cleanEmail_(data.email));
     if (data.position) sh.getRange(nu.row, ucol['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
     invalidateUsers_();
     log_(me, 'create-user', '', username);
-    return { user: publicUser_(findUser_(username)), password: pw };
+    return orgOnly ? { user: publicUser_(findUser_(username)) } : { user: publicUser_(findUser_(username)), password: pw };
   } finally { lock.releaseLock(); }
 }
 
@@ -654,7 +716,8 @@ function allTasks_() {
 function teamTasks_() {
   var users = readUsers_().filter(function (u) { return u.sheetName && u.active; })
     .map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
-  return { tasks: cachedTasks_(), users: users, projects: cachedProjects_(), briefs: cachedBriefs_() };
+  var org = readUsers_().filter(function (u) { return u.active; }).map(orgUser_);
+  return { tasks: cachedTasks_(), users: users, projects: cachedProjects_(), briefs: cachedBriefs_(), org: org };
 }
 
 function getAll_() {

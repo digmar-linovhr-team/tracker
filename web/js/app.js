@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.18.0';
+const CSS_VERSION = '2.19.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -43,6 +43,7 @@ const ICONS = {
   projects: svg('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/>'),
   users: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>'),
   team: svg('<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 19a5.5 5.5 0 0 1 11 0M10.5 19a5.5 5.5 0 0 1 11 0"/>'),
+  org: svg('<rect x="9" y="2.5" width="6" height="5" rx="1.5"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.5"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.5"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>'),
   briefs: svg('<path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 11h8M8 15h5"/>'),
   review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
@@ -246,6 +247,7 @@ function renderNav() {
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
   items.push(['team', 'Tim', 'Tim']);
+  items.push(['org', 'Struktur', 'Struktur']);
   items.push(['briefs', 'Brief', 'Brief', S.socNew ? S.socNew.size : 0, 'good']);
   if (admin) {
     const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review').length : 0;
@@ -332,6 +334,7 @@ function go(view) {
     projects: ['Project', 'Daftar project dari tab Main Project'],
     users: ['Pengguna', 'Akun login anggota tim'],
     team: ['Tim', 'Task yang sedang dikerjakan semua anggota (hanya lihat)'],
+    org: ['Struktur', 'Siapa mengerjakan apa: atasan, posisi, divisi, dan keahlian'],
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
     briefs: ['Brief', 'Brief artikel & konten sosmed'],
     brief: ['Brief', 'Brief'],
@@ -339,7 +342,7 @@ function go(view) {
   };
   $('#view-title').textContent = titles[view][0];
   $('#view-sub').textContent = titles[view][1];
-  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, org: viewOrg, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
 }
 
 function projectName(code) {
@@ -1610,18 +1613,19 @@ function ownerFromPic(pic) {
 // ---------- Admin: Pengguna ----------
 function viewUsers() {
   const all = S.all;
-  const noEmail = all.users.filter((u) => u.sheetName && u.active && !u.email).length;
+  const noEmail = all.users.filter((u) => u.sheetName && u.active && !u.email && !u.orgOnly).length;
   $('#view').innerHTML = `${all.notifications === false ? `<div class="banner warn"><div><b>Pengingat Google Calendar & email belum aktif.</b> Buka spreadsheet → menu <b>Project Tracker → 2. Aktifkan Calendar &amp; email pengingat</b>, lalu deploy ulang Web App.</div></div>` : ''}
     ${noEmail ? `<div class="banner"><div><b>${noEmail} anggota belum punya email</b> — task mereka belum masuk Google Calendar. Isi lewat tombol Edit, atau minta mereka mengisinya di Pengaturan.</div></div>` : ''}
     <div class="toolbar"><span class="muted small">${all.users.length} akun</span><span class="spacer"></span><button class="btn primary" id="newu">+ Pengguna</button></div>
-    <div class="card" style="overflow:auto"><table class="tbl"><thead><tr><th>Nama</th><th>Jabatan</th><th>Username</th><th>Email (Calendar)</th><th>Akses</th><th>Tab task</th><th class="num">Task aktif</th><th>Status</th><th></th></tr></thead><tbody>
+    <div class="card" style="overflow:auto"><table class="tbl"><thead><tr><th>Nama</th><th>Jabatan</th><th>Atasan · divisi</th><th>Username</th><th>Email (Calendar)</th><th>Akses</th><th>Tab task</th><th class="num">Task aktif</th><th>Status</th><th></th></tr></thead><tbody>
     ${all.users.map((u) => `<tr><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(u.name)}</span><b>${esc(u.name)}</b></div></td>
       <td class="small">${u.position ? esc(u.position) : '<span class="muted">—</span>'}</td>
+      <td class="small">${u.reportsTo || u.division ? esc([((all.users.find((x) => x.username === u.reportsTo) || {}).name || u.reportsTo), u.division].filter(Boolean).join(' · ')) : '<span class="muted">—</span>'}</td>
       <td><code>${esc(u.username)}</code></td><td class="small">${u.email ? esc(u.email) : (u.sheetName ? '<span class="chip warn">belum diisi</span>' : '<span class="muted">—</span>')}</td><td>${u.role === 'admin' ? '<span class="chip accent">Admin</span>' : 'Anggota'}</td>
       <td>${u.sheetName ? esc(u.sheetName) : '<span class="muted">—</span>'}</td>
       <td class="num">${all.tasks.filter((t) => t.owner === u.username && !L.isDone(t)).length}</td>
-      <td>${!u.active ? '<span class="chip">Nonaktif</span>' : u.mustChange ? '<span class="chip warn">Belum login</span>' : '<span class="chip good">Aktif</span>'}</td>
-      <td style="white-space:nowrap"><button class="btn sm" data-ue="${esc(u.username)}">Edit</button> <button class="btn sm" data-ur="${esc(u.username)}">Reset password</button></td></tr>`).join('')}
+      <td>${!u.active ? '<span class="chip">Nonaktif</span>' : u.orgOnly ? '<span class="chip" title="Hanya tampil di menu Struktur">Tanpa akun</span>' : u.mustChange ? '<span class="chip warn">Belum login</span>' : '<span class="chip good">Aktif</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn sm" data-ue="${esc(u.username)}">Edit</button>${u.orgOnly ? '' : ` <button class="btn sm" data-ur="${esc(u.username)}">Reset password</button>`}</td></tr>`).join('')}
     </tbody></table></div>
     <p class="def">Setiap anggota dengan tab task punya satu tab di spreadsheet (nama tab = kolom "Tab task"). Password tersimpan sebagai hash di tab Users dan tidak bisa dilihat siapa pun.</p>`;
   $('#newu').onclick = () => userModal(null);
@@ -1643,25 +1647,39 @@ function userModal(u) {
       <label class="field"><span>Username *</span><input name="username" value="${esc(u.username || '')}" ${edit ? 'readonly' : ''} required pattern="[a-zA-Z0-9._-]+" placeholder="huruf kecil tanpa spasi"></label>
       <label class="field"><span>Jabatan</span><input name="position" list="pos-list" maxlength="80" value="${esc(u.position || '')}" placeholder="mis. UI UX &amp; Design Grafis Intern">
         <datalist id="pos-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.position).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
+      <div class="grid2">
+        <label class="field"><span>Atasan langsung</span><select name="reportsTo"><option value="">— tidak ada (puncak struktur) —</option>${(S.all ? S.all.users : []).filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
+        <label class="field"><span>Divisi</span><input name="division" list="div-list" maxlength="60" value="${esc(u.division || '')}" placeholder="mis. SEO dan konten">
+          <datalist id="div-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.division).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Bergabung (bulan)</span><input type="month" name="joined" value="${esc(u.joined || '')}"></label>
+        <label class="field"><span>Keahlian / fokus kerja</span><input name="skills" maxlength="120" value="${esc(u.skills || '')}" placeholder="mis. Riset keyword, technical SEO"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="orgOnly" ${u.orgOnly ? 'checked' : ''}> Tanpa akun — hanya tampil di menu Struktur (mis. owner/direksi; tidak bisa login dan tidak punya task)</label>
+      <div id="uf-acc" class="${u.orgOnly ? 'hidden' : ''}">
       <label class="field"><span>Email (untuk Google Calendar &amp; pengingat)</span><input type="email" name="email" value="${esc(u.email || '')}" placeholder="nama@perusahaan.com"></label>
       <label class="field"><span>Hak akses</span><select name="role"><option value="member" ${u.role !== 'admin' ? 'selected' : ''}>Anggota — melihat & mengubah task sendiri</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin — mengelola semua task, project & pengguna</option></select></label>
       <label class="check"><input type="checkbox" name="hasTasks" ${!edit || u.sheetName ? 'checked' : ''} ${edit && u.sheetName ? 'disabled' : ''}> Punya daftar task (membuat tab di spreadsheet)</label>
-      ${edit ? `<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Akun aktif (bisa login)</label>` : ''}
+      </div>
+      ${edit ? `<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Aktif (tampil di aplikasi${u.orgOnly ? '' : ' dan bisa login'})</label>` : ''}
       <div id="uerr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">Simpan</button>`,
     onMount: (m, close) => {
       const f = $('#uf', m);
       if (!edit) f.name.addEventListener('input', () => { f.username.value = f.name.value.toLowerCase().replace(/[^a-z0-9._-]+/g, ''); });
+      f.orgOnly.onchange = () => $('#uf-acc', m).classList.toggle('hidden', f.orgOnly.checked);
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
         const data = { name: f.name.value.trim(), username: f.username.value.trim().toLowerCase(), role: f.role.value,
-          hasTasks: f.hasTasks.checked, active: edit ? f.active.checked : true, email: f.email.value.trim(), position: f.position.value.trim() };
+          hasTasks: f.hasTasks.checked && !f.orgOnly.checked, active: edit ? f.active.checked : true, email: f.email.value.trim(), position: f.position.value.trim(),
+          reportsTo: f.reportsTo.value, division: f.division.value.trim(), joined: f.joined.value, skills: f.skills.value.trim(), orgOnly: f.orgOnly.checked };
         try {
           const r = await busy($('#save', m), () => api.call('saveUser', { user: data }));
           close();
           if (r && r.user) { S.all.users = S.all.users.filter((x) => x.username !== r.user.username).concat(r.user); softRender(); }
           refreshInBackground(800);
-          if (r.password) showPassword(data.username, r.password); else toast('Pengguna disimpan');
+          if (r.password && !data.orgOnly) showPassword(data.username, r.password); else toast('Pengguna disimpan');
         } catch (err) { $('#uerr', m).innerHTML = `<div class="error">${esc(cleanErr(err))}</div>`; }
       };
     }

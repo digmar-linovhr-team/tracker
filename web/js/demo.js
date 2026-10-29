@@ -92,6 +92,13 @@ function build() {
   const users = [['admin', 'Administrator', 'admin', '']].concat(people.map((p) => [p[0], p[1], 'member', p[1]]))
     .map((u) => ({ username: u[0], name: u[1], role: u[2], sheetName: u[3], mustChange: false, active: true, email: u[0] === 'wisnu' ? '' : u[0] + '@contoh.com',
       position: { ari: 'SEO Specialist', ammar: 'Content Writer', fahmi: 'Content Writer', winona: 'Content Writer Intern', dany: 'Frontend Developer', arya: 'Frontend Developer', wisnu: 'Digital Marketing Lead', nadia: 'Graphic Designer' }[u[0]] || '' }));
+  // Struktur tim
+  const ORG = { wisnu: ['hendra', 'Digital marketing', 'Strategi digital, AIO, laporan kompetitor', '2023-03'], ari: ['wisnu', 'SEO dan konten', 'Riset keyword, technical SEO, brief artikel', '2024-01'],
+    ammar: ['ari', 'SEO dan konten', 'Artikel HR & payroll', '2024-06'], fahmi: ['ari', 'SEO dan konten', 'Artikel engagement & onboarding', '2024-07'],
+    winona: ['ari', 'SEO dan konten', '', '2026-09'], dany: ['wisnu', 'Web', 'Page solusi, landing page', '2025-02'], arya: ['wisnu', 'Web', 'NavBar, tracking AIO', '2025-04'],
+    nadia: ['wisnu', 'Desain', 'Carousel, video pendek, infografis', '2025-08'] };
+  users.forEach((u) => { const o = ORG[u.username] || ['', '', '', '']; Object.assign(u, { reportsTo: o[0], division: o[1], skills: o[2], joined: o[3], orgOnly: false }); });
+  users.push({ username: 'hendra', name: 'Hendra', role: 'member', sheetName: '', mustChange: false, active: true, email: '', position: 'Direktur', reportsTo: '', division: 'Direksi', skills: '', joined: '2019-01', orgOnly: true });
   // Task artikel (A1 berupa URL blog): jenis, tahap, dan riwayat tahap untuk contoh KPI
   const ST_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
   const artStage = { '/aplikasi-hr-terbaik-era-digital/': 4, '/talent-management-strategy/': 1, '/hris-indonesia/': 9, '/payroll-outsourcing/': 9,
@@ -255,7 +262,7 @@ function handle(action, b, session) {
     case 'ping': return { ok: true };
     case 'login': {
       const u = s.users.find((x) => x.username === String(b.username || '').toLowerCase());
-      if (!u || b.password !== 'demo') throw new Error('Mode demo: pakai username admin / ari / wisnu dst., password "demo"');
+      if (!u || u.orgOnly || b.password !== 'demo') throw new Error('Mode demo: pakai username admin / ari / wisnu dst., password "demo"');
       return { token: 'demo.' + u.username, user: u };
     }
   }
@@ -267,7 +274,9 @@ function handle(action, b, session) {
     case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me, briefs: briefSums(s) };
     case 'briefs': return { briefs: briefSums(s) };
     case 'getBrief': { const b0 = s.briefs.find((x) => x.id === b.briefId); if (!b0) throw new Error('Brief tidak ditemukan'); return { brief: b0 }; }
-    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s) };
+    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s),
+      org: s.users.filter((u) => u.active).map((u) => ({ username: u.username, name: u.name, position: u.position || '', reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, hasTasks: !!u.sheetName, role: u.role })) };
+    case 'setMySkills': me.skills = String(b.skills || '').trim().slice(0, 120); return { user: me };
     case 'saveBrief': {
       const br = b.brief || {};
       const t = s.tasks.find((x) => x.id === br.taskId && (me.role === 'admin' || x.owner === me.username));
@@ -412,9 +421,15 @@ function handle(action, b, session) {
     case 'deleteProject': s.projects = s.projects.filter((x) => x.row !== b.row); return { ok: true };
     case 'saveUser': {
       const u = b.user; const ex = s.users.find((x) => x.username === u.username);
+      if (u.reportsTo) {
+        if (u.reportsTo === u.username) throw new Error('Atasan tidak boleh diri sendiri');
+        let cur = u.reportsTo; const seen = new Set();
+        while (cur && !seen.has(cur)) { if (cur === u.username) throw new Error('Struktur berputar: atasan yang dipilih sudah berada di bawah orang ini.'); seen.add(cur); cur = (s.users.find((x) => x.username === cur) || {}).reportsTo; }
+      }
       if (ex) { Object.assign(ex, u); return { user: ex }; }
-      const nu = { username: u.username, name: u.name, role: u.role, sheetName: u.hasTasks === false ? '' : u.name, mustChange: true, active: true, email: u.email || '', position: u.position || '' };
-      s.users.push(nu); return { user: nu, password: 'demo' };
+      const nu = { username: u.username, name: u.name, role: u.role, sheetName: u.hasTasks === false || u.orgOnly ? '' : u.name, mustChange: true, active: true, email: u.email || '', position: u.position || '',
+        reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly };
+      s.users.push(nu); return u.orgOnly ? { user: nu } : { user: nu, password: 'demo' };
     }
     case 'resetPassword': return { password: 'demo' };
   }
