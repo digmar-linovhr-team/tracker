@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.19.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.19.1"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -844,11 +844,11 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 .dv-0 { background: var(--dv0b) !important; color: var(--dv0t) !important; } .dv-1 { background: var(--dv1b) !important; color: var(--dv1t) !important; }
 .dv-2 { background: var(--dv2b) !important; color: var(--dv2t) !important; } .dv-3 { background: var(--dv3b) !important; color: var(--dv3t) !important; }
 .dv-4 { background: var(--dv4b) !important; color: var(--dv4t) !important; } .dv-5 { background: var(--dv5b) !important; color: var(--dv5t) !important; }
-.org-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; align-items: start; }
-.org-main { padding: 18px 14px; min-height: 240px; }
+.org-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 14px; align-items: start; }
+.org-main { padding: 18px 10px; min-height: 240px; }
 .org-side { padding: 18px 16px; position: sticky; top: 12px; }
 .org-scroll { overflow-x: auto; padding-bottom: 6px; }
-.oc-card { display: flex; align-items: center; gap: 9px; width: 190px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.oc-card { display: flex; align-items: center; gap: 8px; width: 164px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font: inherit; color: var(--text); text-align: left; cursor: pointer; }
 .oc-card:hover { border-color: var(--line-strong); }
 .oc-card.sel { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
 .oc-card .avatar { width: 32px; height: 32px; font-size: 12px; }
@@ -863,7 +863,7 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 .otree { width: max-content; min-width: 100%; }
 .otree ul { position: relative; padding-top: 18px; }
 .otree ul::before { content: ''; position: absolute; top: 0; left: 50%; height: 18px; border-left: 1px solid var(--line-strong); }
-.otree li { position: relative; display: flex; flex-direction: column; align-items: center; padding: 18px 7px 0; }
+.otree li { position: relative; display: flex; flex-direction: column; align-items: center; padding: 18px 5px 0; }
 .otree > li { padding-top: 0; }
 .otree li::before, .otree li::after { content: ''; position: absolute; top: 0; right: 50%; width: 50%; height: 18px; border-top: 1px solid var(--line-strong); }
 .otree li::after { right: auto; left: 50%; border-left: 1px solid var(--line-strong); }

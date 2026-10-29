@@ -103,19 +103,23 @@ function orgDepth(people) {
   people.forEach((u) => { if (out[u.username] === undefined) out[u.username] = 0; });
   return out;
 }
-/** Anak dengan bawahan → cabang sendiri; anak tanpa bawahan → ditumpuk per divisi agar bagan tidak terlalu lebar. */
+/** Saudara selevel ditampilkan berjajar. Hanya bila semua anak tanpa bawahan (level terbawah), mereka ditumpuk ke bawah
+ * (dikelompokkan per divisi) supaya bagan tidak terlalu lebar. */
 function orgChildren(list, people, seen) {
-  const branches = [], leaves = [];
-  list.forEach((u) => { if (seen.has(u.username)) return; (orgKids(u, people).length ? branches : leaves).push(u); });
-  let html = branches.map((u) => {
-    seen.add(u.username);
-    return `<li>${orgCard(u)}<ul>${orgChildren(orgKids(u, people), people, seen)}</ul></li>`;
-  }).join('');
+  list = list.filter((u) => !seen.has(u.username));
+  const hasBranch = list.some((u) => orgKids(u, people).length);
+  if (hasBranch || list.length <= 1) {
+    return list.map((u) => {
+      if (seen.has(u.username)) return '';
+      seen.add(u.username);
+      const kids = orgKids(u, people);
+      return `<li>${orgCard(u)}${kids.length ? `<ul>${orgChildren(kids, people, seen)}</ul>` : ''}</li>`;
+    }).join('');
+  }
   const groups = {};
-  leaves.forEach((u) => { seen.add(u.username); (groups[u.division || ''] = groups[u.division || ''] || []).push(u); });
+  list.forEach((u) => { seen.add(u.username); (groups[u.division || ''] = groups[u.division || ''] || []).push(u); });
   const keys = Object.keys(groups);
-  html += keys.map((k) => `<li class="ot-stack">${k && (keys.length > 1 || branches.length || groups[k].length > 1) ? `<span class="oc-dv ${dvCls(k)}">${esc(k)}</span>` : ''}<div>${groups[k].map((u) => orgCard(u)).join('')}</div></li>`).join('');
-  return html;
+  return keys.map((k) => `<li class="ot-stack">${k && keys.length > 1 ? `<span class="oc-dv ${dvCls(k)}">${esc(k)}</span>` : ''}<div>${groups[k].map((u) => orgCard(u)).join('')}</div></li>`).join('');
 }
 function orgOutline(people) {
   const seen = new Set();
