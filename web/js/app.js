@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.21.1';
+const CSS_VERSION = '2.21.2';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1012,13 +1012,28 @@ function msOpen(trigger) {
   pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', cfg.allLabel || cfg.title || 'Filter');
 
   if (cfg.single) {
-    pop.innerHTML = `${mobile ? '<div class="ms-grab"></div>' : ''}${cfg.title ? `<div class="ms-head">${esc(cfg.title)}</div>` : ''}<div class="ms-list" role="listbox">${cfg.items.map((it) => it.sep ? '<div class="ms-sep"></div>' :
-      `<button type="button" class="ms-item ms-opt ${it.value === cfg.selected ? 'sel' : ''}" role="option" aria-selected="${it.value === cfg.selected}" data-v="${esc(it.value)}">
-        ${it.dot ? `<span class="ms-dot" style="background:${it.dot}"></span>` : ''}<span class="ms-txt"><b>${esc(it.label)}</b></span><span class="ms-tick">${fsvg('<path d="M5 12.5l4.5 4.5L19 7.5"/>')}</span></button>`).join('')}</div>`;
+    const search = cfg.items.filter((it) => !it.sep).length > 7;
+    const lead = (it) => it.avatar ? `<span class="avatar ${it.avatarCls || ''}">${initials(it.label)}</span>` : it.code ? `<span class="code-tag">${esc(it.code)}</span>` : it.dot ? `<span class="ms-dot" style="background:${it.dot}"></span>` : '';
+    pop.innerHTML = `${mobile ? '<div class="ms-grab"></div>' : ''}${cfg.title ? `<div class="ms-head">${esc(cfg.title)}</div>` : ''}
+      ${search ? `<div class="ms-search">${FB.search}<input type="search" placeholder="Cari…" aria-label="Cari"></div>` : ''}
+      <div class="ms-list" role="listbox">${cfg.items.map((it) => it.sep ? '<div class="ms-sep"></div>' :
+      `<button type="button" class="ms-item ms-opt ${it.value === cfg.selected ? 'sel' : ''}" role="option" aria-selected="${it.value === cfg.selected}" data-v="${esc(it.value)}" data-q="${esc((it.label + ' ' + (it.sub || '') + ' ' + (it.code || '')).toLowerCase())}">
+        ${lead(it)}<span class="ms-txt"><b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span><span class="ms-tick">${fsvg('<path d="M5 12.5l4.5 4.5L19 7.5"/>')}</span></button>`).join('')}
+      <div class="ms-empty hidden" data-none>Tidak ditemukan</div></div>`;
     msMount(pop, trigger, mobile);
     $$('.ms-opt', pop).forEach((b) => b.onclick = () => { msClose(); cfg.onApply(b.dataset.v); });
-    pop.addEventListener('keydown', (e) => msArrows(pop, '.ms-opt', e));
-    ($('.ms-opt.sel', pop) || $('.ms-opt', pop)).focus({ preventScroll: true });
+    pop.addEventListener('keydown', (e) => msArrows(pop, '.ms-opt:not(.hidden)', e));
+    const q = $('.ms-search input', pop);
+    if (q) {
+      q.oninput = () => {
+        const v = q.value.trim().toLowerCase(); let shown = 0;
+        $$('.ms-opt', pop).forEach((el) => { const ok = !v || el.dataset.q.includes(v); el.classList.toggle('hidden', !ok); if (ok) shown++; });
+        $('[data-none]', pop).classList.toggle('hidden', !!shown);
+      };
+      q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const f = $('.ms-opt:not(.hidden)', pop); if (f) f.click(); } });
+    }
+    (q || $('.ms-opt.sel', pop) || $('.ms-opt', pop)).focus({ preventScroll: true });
+    if ($('.ms-opt.sel', pop)) $('.ms-opt.sel', pop).scrollIntoView({ block: 'nearest' });
     return;
   }
 
@@ -1086,6 +1101,44 @@ window.addEventListener('resize', () => { if ($('#ms-pop') && !$('#ms-pop').clas
 document.addEventListener('scroll', (e) => { const p = $('#ms-pop'); if (p && !p.classList.contains('sheet') && !p.contains(e.target)) msClose(); }, true);
 
 const personItems = (users) => users.map((u) => ({ value: u.username, label: u.name, sub: u.position || '' }));
+
+/** Ganti <select> di formulir dengan dropdown standar aplikasi (sama dengan filter): avatar untuk orang, kode untuk project,
+ *  pencarian bila pilihannya banyak. <select> asli tetap ada (tersembunyi) sehingga kode formulir membaca nilainya seperti biasa.
+ *  Pakai: <select data-pick="person|project|plain"> lalu panggil formPick(root). */
+let FP_SEQ = 0;
+function formPick(root) {
+  $$('select[data-pick]', root).forEach((sel) => {
+    if (sel.dataset.picked) return;
+    sel.dataset.picked = '1';
+    const kind = sel.dataset.pick, id = 'fp' + (++FP_SEQ);
+    const users = (S.all && S.all.users) || (S.team && (S.team.org || S.team.users)) || [];
+    const items = () => Array.from(sel.options).filter((o) => o.value || !sel.required).map((o) => {
+      const it = { value: o.value, label: o.value ? o.textContent.split(' — ')[0] : o.textContent };
+      if (kind === 'person' && o.value) { const u = users.find((x) => x.username === o.value); it.avatar = true; it.sub = (u && u.position) || o.textContent.split(' — ')[1] || ''; if (u && u.name) it.label = u.name; }
+      if (kind === 'project' && o.value) { it.code = o.value; it.label = o.textContent.replace(/^[^—]*—\s*/, '') || o.value; }
+      if (kind === 'plain' && o.dataset.dot) it.dot = o.dataset.dot;
+      return it;
+    });
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'fpick'; btn.dataset.ms = id;
+    btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false');
+    if (sel.getAttribute('aria-label')) btn.setAttribute('aria-label', sel.getAttribute('aria-label'));
+    const draw = () => {
+      const list = items(), ph = sel.options[0] && !sel.options[0].value ? sel.options[0].textContent : 'Pilih…';
+      const it = list.find((x) => x.value === sel.value) || (sel.value ? list[0] : { label: ph }) || { label: '' };
+      btn.classList.toggle('empty', !sel.value);
+      btn.innerHTML = `${it.avatar && sel.value ? `<span class="avatar">${initials(it.label)}</span>` : ''}${it.code ? `<span class="code-tag">${esc(it.code)}</span>` : ''}${it.dot ? `<span class="ms-dot" style="background:${it.dot}"></span>` : ''}<span class="fp-lbl">${esc(it.label)}</span>${it.sub && sel.value ? `<span class="fp-sub">${esc(it.sub)}</span>` : ''}<span class="fb-chev">${FB.chev}</span>`;
+      MS[id] = { single: true, items: list, selected: sel.value, title: ((sel.closest('label') && sel.closest('label').querySelector('span') || {}).textContent || '').replace(/\s*\*\s*$/, ''),
+        onApply: (v) => { if (sel.value === v) return; sel.value = v; draw(); sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); } };
+    };
+    sel.classList.add('fp-native'); sel.tabIndex = -1; sel.setAttribute('aria-hidden', 'true');
+    sel.after(btn);
+    sel.addEventListener('change', draw);
+    // validasi bawaan (required) tetap jalan: bila kosong, sorot tombolnya
+    sel.addEventListener('invalid', () => { btn.classList.add('invalid'); btn.focus(); setTimeout(() => btn.classList.remove('invalid'), 2500); });
+    draw();
+  });
+}
 const codeItems = (codes) => codes.map((c) => ({ value: c, label: projectName(c) || '' }));
 const namesOf = (users, list) => list.map((x) => (users.find((u) => u.username === x) || {}).name || x);
 const scopeTxt = (arr, max) => arr.length <= (max || 2) ? arr.join(', ') : arr.slice(0, max || 2).join(', ') + ` +${arr.length - (max || 2)}`;
@@ -1431,8 +1484,8 @@ function taskModal(t, prefill) {
     title: edit ? 'Edit task' : 'Task baru', wide: true,
     body: `<form id="tf">
       <div class="grid2">
-        <label class="field"><span>Penanggung jawab *</span><select name="owner" required><option value="">Pilih…</option>${people.map((u) => opt(u.username, t.owner, u.name)).join('')}</select></label>
-        <label class="field"><span>Project</span><select name="code"><option value="">— tanpa project —</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
+        <label class="field"><span>Penanggung jawab *</span><select name="owner" required data-pick="person"><option value="">Pilih…</option>${people.map((u) => opt(u.username, t.owner, u.name)).join('')}</select></label>
+        <label class="field"><span>Project</span><select name="code" data-pick="project"><option value="">— tanpa project —</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
       </div>
       <label class="field"><span>Nama task / URL *</span><textarea name="task" rows="2" required>${esc(t.task || '')}</textarea></label>
       <div class="field"><span>Jenis task</span><div class="seg seg-pick" id="tf-type" role="radiogroup" aria-label="Jenis task">
@@ -1445,9 +1498,9 @@ function taskModal(t, prefill) {
         <label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="${esc(t.endTime || '18:00')}"></label>
       </div>
       <div class="grid2">
-        <label class="field"><span>Prioritas</span><select name="priority">${PRIORITIES.map((p) => opt(p, t.priority || 'Medium')).join('')}</select></label>
-        <label class="field ${L.isArticle(t) ? 'hidden' : ''}" id="tf-status"><span>Status</span><select name="status">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
-        <label class="field ${L.isArticle(t) && edit ? '' : 'hidden'}" id="tf-stage"><span>Tahap (koreksi admin)</span><select name="stage">${L.STAGES.slice(1).map((n, i) => `<option value="${i + 1}" ${L.stageOf(t) === i + 1 ? 'selected' : ''}>${i + 1} · ${esc(n)}</option>`).join('')}</select></label>
+        <label class="field"><span>Prioritas</span><select name="priority" data-pick="plain">${PRIORITIES.map((p) => opt(p, t.priority || 'Medium')).join('')}</select></label>
+        <label class="field ${L.isArticle(t) ? 'hidden' : ''}" id="tf-status"><span>Status</span><select name="status" data-pick="plain">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
+        <label class="field ${L.isArticle(t) && edit ? '' : 'hidden'}" id="tf-stage"><span>Tahap (koreksi admin)</span><select name="stage" data-pick="plain">${L.STAGES.slice(1).map((n, i) => `<option value="${i + 1}" ${L.stageOf(t) === i + 1 ? 'selected' : ''}>${i + 1} · ${esc(n)}</option>`).join('')}</select></label>
       </div>
       <label class="field"><span>Catatan</span><textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>
       <label class="field"><span>Keterangan hasil (dari anggota)</span><textarea name="resultNote" rows="2" maxlength="2000">${esc(t.resultNote || '')}</textarea></label>
@@ -1455,6 +1508,7 @@ function taskModal(t, prefill) {
       <div id="terr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">${edit ? 'Simpan' : 'Buat task'}</button>`,
     onMount: (m, close) => {
+      formPick(m);
       const f = $('#tf', m);
       f.startDate.addEventListener('change', () => { if (!f.endDate.value) f.endDate.value = f.startDate.value; });
       let type = taskType(t);
@@ -1672,7 +1726,7 @@ function userModal(u) {
       <label class="field"><span>Jabatan</span><input name="position" list="pos-list" maxlength="80" value="${esc(u.position || '')}" placeholder="mis. UI UX &amp; Design Grafis Intern">
         <datalist id="pos-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.position).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
       <div class="grid2">
-        <label class="field"><span>Atasan langsung</span><select name="reportsTo"><option value="">— tidak ada (puncak struktur) —</option>${(S.all ? S.all.users : []).filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
+        <label class="field"><span>Atasan langsung</span><select name="reportsTo" data-pick="person"><option value="">— tidak ada (puncak struktur) —</option>${(S.all ? S.all.users : []).filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
         <label class="field"><span>Divisi</span><input name="division" list="div-list" maxlength="60" value="${esc(u.division || '')}" placeholder="mis. SEO dan konten">
           <datalist id="div-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.division).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
       </div>
@@ -1690,6 +1744,7 @@ function userModal(u) {
       <div id="uerr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">Simpan</button>`,
     onMount: (m, close) => {
+      formPick(m);
       const f = $('#uf', m);
       if (!edit) f.name.addEventListener('input', () => { f.username.value = f.name.value.toLowerCase().replace(/[^a-z0-9._-]+/g, ''); });
       f.orgOnly.onchange = () => $('#uf-acc', m).classList.toggle('hidden', f.orgOnly.checked);

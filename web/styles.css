@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.21.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.21.2"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -996,3 +996,18 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 }
 @media (min-width: 761px) { #rqf .link-r { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; } }
 #rqf .link-r .btn { white-space: nowrap; }
+
+/* ---------- Dropdown formulir (standar sama dengan filter) ---------- */
+.fp-native { position: absolute !important; opacity: 0; pointer-events: none; width: 1px !important; height: 1px; padding: 0 !important; border: 0 !important; }
+.field { position: relative; }
+.fpick { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 6px 10px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; text-align: left; cursor: pointer; }
+.fpick:hover { border-color: var(--line-strong); }
+.fpick:focus-visible, .fpick.open { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fpick.empty .fp-lbl { color: var(--muted); }
+.fpick.invalid { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.fpick .avatar { width: 24px; height: 24px; font-size: 10px; background: var(--accent-soft); color: var(--accent); }
+.fpick .fp-lbl { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpick .fp-sub { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpick .fb-chev { margin-left: auto; color: var(--muted); display: inline-flex; flex: none; }
+.ms-opt .ms-txt small { display: block; color: var(--muted); font-size: 11.5px; }
+.ms-opt .avatar { width: 28px; height: 28px; font-size: 11px; }

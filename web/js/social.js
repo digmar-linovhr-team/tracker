@@ -304,17 +304,18 @@ function renderSocAssign() {
   const people = socPeople(), opt = (v, cur, l) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(l || v)}</option>`;
   box.innerHTML = `
     <div class="grid2">
-      <label class="field"><span>Penanggung jawab *</span><select data-as="owner"><option value="">${people.length ? 'Pilih orang…' : 'Memuat daftar anggota…'}</option>${people.map((u) => opt(u.username, a.owner, u.name + (u.position ? ' — ' + u.position : ''))).join('')}</select></label>
-      <label class="field"><span>Project (opsional)</span><select data-as="code"><option value="">— tanpa project —</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
+      <label class="field"><span>Penanggung jawab *</span><select data-as="owner" data-pick="person"><option value="">${people.length ? 'Pilih orang…' : 'Memuat daftar anggota…'}</option>${people.map((u) => opt(u.username, a.owner, u.name + (u.position ? ' — ' + u.position : ''))).join('')}</select></label>
+      <label class="field"><span>Project (opsional)</span><select data-as="code" data-pick="project"><option value="">— tanpa project —</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
     </div>
     <div class="grid3">
       <label class="field"><span>Deadline *</span><input type="date" data-as="endDate" value="${esc(a.endDate)}"></label>
       <label class="field"><span>Jam</span><input type="time" data-as="endTime" value="${esc(a.endTime || '18:00')}"></label>
-      <label class="field"><span>Prioritas</span><select data-as="priority">${PRIORITIES.map((p) => opt(p, a.priority || 'Medium')).join('')}</select></label>
+      <label class="field"><span>Prioritas</span><select data-as="priority" data-pick="plain">${PRIORITIES.map((p) => opt(p, a.priority || 'Medium')).join('')}</select></label>
     </div>
     <p class="muted small" style="margin:0 0 10px">Task berjenis <b>Sosmed</b> otomatis muncul di Task Saya penanggung jawab dan ia mendapat email. Alurnya: Mulai → Ajukan review → admin menyetujui → Done; pembuat brief diberi tahu saat konten disetujui.</p>
     <div id="soc-err"></div>
     <div class="soc-act">${E.reassign ? '<button type="button" class="btn" id="soc-cancel">Batal</button>' : ''}<button type="button" class="btn primary" id="soc-go">${b.taskId ? 'Simpan penugasan' : 'Tugaskan & buat task'}</button></div>`;
+  formPick(box);
   if ($('#soc-cancel')) $('#soc-cancel').onclick = () => { E.reassign = false; renderSocAssign(); };
   $('#soc-go').onclick = socialAssign;
 }

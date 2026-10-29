@@ -75,13 +75,13 @@ function requestModal(b) {
     body: `<form id="rqf">
       <label class="field"><span>Judul *</span><input name="title" required maxlength="200" value="${esc(d.title)}" placeholder="mis. Copy landing page modul Reimbursement"></label>
       <div class="grid2">
-        <label class="field"><span>Untuk *</span><select name="owner" required><option value="">Pilih anggota…</option>${people.map((u) => opt(u.username, a.owner, u.name + (u.position ? ' — ' + u.position : ''))).join('')}</select></label>
-        <label class="field"><span>Project (opsional)</span><select name="code"><option value="">— tanpa project —</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
+        <label class="field"><span>Untuk *</span><select name="owner" required data-pick="person"><option value="">Pilih anggota…</option>${people.map((u) => opt(u.username, a.owner, u.name + (u.position ? ' — ' + u.position : ''))).join('')}</select></label>
+        <label class="field"><span>Project (opsional)</span><select name="code" data-pick="project"><option value="">— tanpa project —</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
       </div>
       <div class="grid3">
         <label class="field"><span>Deadline *</span><input type="date" name="endDate" required value="${esc(a.endDate || '')}"></label>
         <label class="field"><span>Jam</span><input type="time" name="endTime" value="${esc(a.endTime || '18:00')}"></label>
-        <label class="field"><span>Prioritas</span><select name="priority">${PRIORITIES.map((p) => opt(p, a.priority || 'Medium')).join('')}</select></label>
+        <label class="field"><span>Prioritas</span><select name="priority" data-pick="plain">${PRIORITIES.map((p) => opt(p, a.priority || 'Medium')).join('')}</select></label>
       </div>
       <label class="field"><span>Kebutuhan *</span><textarea name="body" rows="9" required maxlength="20000" placeholder="Tulis apa yang Anda butuhkan: tujuan, untuk siapa, poin yang harus ada, nada/gaya, ukuran, contoh yang disukai…">${esc(d.body)}</textarea></label>
       <div class="field"><span>Lampiran / referensi (link)</span><div id="rq-att"></div>
@@ -89,6 +89,7 @@ function requestModal(b) {
       <div id="rqerr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="rq-save">${edit ? 'Simpan perubahan' : 'Kirim request'}</button>`,
     onMount: (m, close) => {
+      formPick(m);
       const f = $('#rqf', m), err = (x) => { $('#rqerr', m).innerHTML = x ? `<div class="error">${esc(x)}</div>` : ''; };
       const draw = () => {
         $('#rq-att', m).innerHTML = att.length ? `<div class="t-res" style="margin:0 0 8px">${att.map((x, i) => `<span class="rq-att">${resChip(x)}<button type="button" class="ibtn" data-rmatt="${i}" aria-label="Hapus lampiran">×</button></span>`).join('')}</div>` : '';
