@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.24.0';
+const CSS_VERSION = '2.24.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1533,11 +1533,11 @@ function renderTaskTable() {
       </div>
       <div class="task-actions">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</div>
     </div>`).join('');
-  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
+  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th class="cm-col" aria-label="Komentar"></th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
     ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}">
       <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
-      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)} ${cmCounts()[t.id] ? cmChip(t) : ''}</td><td>${esc(t.ownerName)}</td>
+      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td class="cm-col">${cmChip(t)}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
       <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
       <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</td></tr>`; }).join('')}

@@ -18,12 +18,12 @@ function cmTask(id) {
 function cmChip(t) {
   if (!t || !t.id || String(t.id).startsWith('tmp-')) return '';
   const c = cmCounts()[t.id], me = S.user && S.user.username;
-  if (!c || !c.n) return `<button type="button" class="cm-chip empty" data-cm="${esc(t.id)}" title="Tulis komentar" aria-label="Komentar">${CM_ICON}</button>`;
+  if (!c || !c.n) return `<button type="button" class="cm-chip empty" data-cm="${esc(t.id)}" title="Tulis komentar" aria-label="Komentar">${CM_ICON}0</button>`;
   const seen = cmSeen()[t.id] || '';
   const fresh = c.by !== me && c.last && c.last > seen;
   return `<button type="button" class="cm-chip ${fresh ? 'new' : ''}" data-cm="${esc(t.id)}" title="${c.n} komentar${fresh ? ' · ada yang baru' : ''}" aria-label="${c.n} komentar">${fresh ? '<i class="cm-dot"></i>' : CM_ICON}${c.n}${fresh ? ' · baru' : ''}</button>`;
 }
-const CM_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+const CM_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
 
 function cmWhen(iso) {
   const d = new Date(iso); if (isNaN(d)) return '';
