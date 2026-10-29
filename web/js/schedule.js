@@ -15,7 +15,11 @@ const schIso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDa
 const schAddW = (w, n) => { const d = schDate(w); d.setDate(d.getDate() + 7 * n); return schIso(d); };
 function schRange(w) { const a = schDate(w), b = schDate(w); b.setDate(b.getDate() + 4); return a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTHS[b.getMonth()]}` : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`; }
 function schWeekLabel(w, cur) { const n = Math.round((schDate(w) - schDate(cur)) / (7 * 864e5)); return n === 0 ? 'Minggu ini' : n === 1 ? 'Minggu depan' : n === -1 ? 'Minggu lalu' : n > 0 ? n + ' minggu lagi' : -n + ' minggu lalu'; }
-const schPending = () => ((S.sched && S.sched.data && S.sched.data.requests) || []).filter((r) => r.status === 'Menunggu');
+const schPending = () => ((S.sched && S.sched.data && S.sched.data.requests) || []).filter((r) => r.status === 'Menunggu')
+  .concat(((S.sched && S.sched.data && S.sched.data.leaves) || []).filter((l) => l.status === 'Menunggu'));
+const LV_CLS = { Cuti: 'cuti', Sakit: 'sakit', Izin: 'izin' };
+function lvRange(l) { const a = schDate(l.from), b = schDate(l.to); return l.from === l.to ? `${a.getDate()} ${MONTHS[a.getMonth()]}` : a.getMonth() === b.getMonth() ? `${a.getDate()}–${b.getDate()} ${MONTHS[b.getMonth()]}` : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`; }
+function lvWorkdays(from, to) { let n = 0; const d = schDate(from), e = schDate(to); for (let i = 0; d <= e && i < 400; i++) { if (d.getDay() % 6) n++; d.setDate(d.getDate() + 1); } return n; }
 
 async function loadSched(week, quiet) {
   try {
@@ -42,7 +46,8 @@ function viewSchedule() {
   const today = D.today, todayW = [W, N].find((x) => x.days.some((d) => d.date === today));
   const todayDay = todayW && todayW.days.find((d) => d.date === today);
   const inOffice = todayDay && SCH_DAYS.includes(todayDay.code) && !todayDay.holiday
-    ? people.filter((p) => (todayW.plans[p.username] || { days: [] }).days.includes(todayDay.code)) : [];
+    ? people.filter((p) => { const pl = todayW.plans[p.username] || { days: [] }; return pl.days.includes(todayDay.code) && !(pl.leave || {})[todayDay.code]; }) : [];
+  const offToday = todayDay ? people.filter((p) => ((todayW.plans[p.username] || {}).leave || {})[todayDay.code]) : [];
   const pend = schPending();
 
   $('#view').innerHTML = `
@@ -50,15 +55,16 @@ function viewSchedule() {
       <div class="seg sch-nav"><button id="sch-prev" aria-label="Minggu sebelumnya">‹</button><button id="sch-now" class="${W.week === cur ? 'on' : ''}">Minggu ini</button><button id="sch-next" aria-label="Minggu berikutnya">›</button></div>
       <span class="muted small">${esc(schWeekLabel(W.week, cur))} · ${esc(schRange(W.week))}</span>
       <span class="spacer"></span>
-      ${todayDay ? `<span class="sch-today">${todayDay.holiday ? `Hari ini libur: ${esc(todayDay.holiday)}` : ['wed', 'fri'].includes(todayDay.code) ? 'Hari ini WFH untuk semua' : `Di kantor hari ini: <b>${inOffice.length ? esc(inOffice.map((p) => firstName(p.name)).join(', ')) : '–'}</b>`}</span>` : ''}
+      ${todayDay ? `<span class="sch-today">${todayDay.holiday ? `Hari ini libur: ${esc(todayDay.holiday)}` : ['wed', 'fri'].includes(todayDay.code) ? 'Hari ini WFH untuk semua' : `Di kantor hari ini: <b>${inOffice.length ? esc(inOffice.map((p) => firstName(p.name)).join(', ')) : '–'}</b>`}${offToday.length ? ` · <span class="muted">${esc(offToday.map((p) => firstName(p.name)).join(', '))} ${offToday.length > 1 ? 'tidak masuk' : 'tidak masuk'}</span>` : ''}</span>` : ''}
     </div>
-    ${admin && pend.length ? `<div class="card sch-req-card"><div class="card-h"><h2>Pengajuan jadwal</h2><span class="muted small">${pend.length} menunggu keputusan Anda</span></div><div class="card-b">${pend.map((q) => schReqRow(q, true)).join('')}</div></div>` : ''}
+    ${admin && pend.length ? `<div class="card sch-req-card"><div class="card-h"><h2>Pengajuan</h2><span class="muted small">${pend.length} menunggu keputusan Anda</span></div><div class="card-b">${pend.map((q) => q.kind && LV_CLS[q.kind] ? lvRow(q, true) : schReqRow(q, true)).join('')}</div></div>` : ''}
     <div class="sch-grid ${mine ? '' : 'one'}">
-      ${mine ? `<div class="sch-mine">${[W, N].map((wk) => schMineCard(wk, mine, cur)).join('')}${schMyReqs(me)}</div>` : ''}
+      ${mine ? `<div class="sch-mine">${[W, N].map((wk) => schMineCard(wk, mine, cur)).join('')}${lvMineCard(me)}${schMyReqs(me)}</div>` : ''}
       <div class="sch-team">${[W, N].map((wk) => schTeamCard(wk, people, cur, admin)).join('')}
+        ${lvTeamCard(D, admin)}
         ${admin ? schHolidayCard(D) : ''}</div>
     </div>
-    <p class="def"><b>Aturan</b> — Selasa WFO untuk semua anggota reguler, ditambah satu hari pilihan: Senin atau Kamis. Rabu & Jumat WFH. Setiap hari WFO minimal ${SCH_MIN} orang di kantor. Pilihan minggu depan terkunci <b>Jumat 17:00</b>; setelah itu perubahan diajukan ke admin (paling lambat H-1 pukul 17:00). Bila WFO seminggu kurang dari 2 hari, minggu berikutnya wajib <b>3 hari</b> (Senin, Selasa, Kamis). Hari WFO yang jatuh di hari libur dianggap terpenuhi. Anggota <b>Fleksibel</b> tidak terikat aturan ini dan tidak dihitung dalam kuota.</p>`;
+    <p class="def"><b>Aturan</b> — Selasa WFO untuk semua anggota reguler, ditambah satu hari pilihan: Senin atau Kamis. Rabu & Jumat WFH. Setiap hari WFO minimal ${SCH_MIN} orang di kantor. Pilihan minggu depan terkunci <b>Jumat 17:00</b>; setelah itu perubahan diajukan ke admin (paling lambat H-1 pukul 17:00). Bila WFO seminggu kurang dari 2 hari, minggu berikutnya wajib <b>3 hari</b> (Senin, Selasa, Kamis). Hari WFO yang jatuh di hari libur dianggap terpenuhi. Anggota <b>Fleksibel</b> tidak terikat aturan ini dan tidak dihitung dalam kuota. <b>Cuti, sakit & izin</b> (tanpa batas jumlah) diajukan ke admin; hari yang disetujui tidak dihitung di kuota kantor dan deadline task di rentang itu otomatis mundur sesuai jumlah hari kerjanya.</p>`;
   $('#sch-prev').onclick = () => schGo(schAddW(W.week, -1));
   $('#sch-next').onclick = () => schGo(schAddW(W.week, 1));
   $('#sch-now').onclick = () => schGo(cur);
@@ -74,6 +80,8 @@ async function schGo(week) {
 function schChip(code, plan, day) {
   if (day && day.holiday) return `<span class="sch-chip lib" title="${esc(day.holiday)}">Libur</span>`;
   if (!plan) return '<span class="sch-chip">–</span>';
+  const lv = (plan.leave || {})[code];
+  if (lv) return `<span class="sch-chip lv ${LV_CLS[lv] || 'cuti'}">${esc(lv)}</span>`;
   if (plan.exempt) return plan.days.includes(code) ? '<span class="sch-chip flex">Kantor</span>' : '<span class="sch-chip na">–</span>';
   return plan.days.includes(code) ? `<span class="sch-chip wfo">WFO</span>` : '<span class="sch-chip wfh">WFH</span>';
 }
@@ -155,7 +163,7 @@ function schHolidayCard(D) {
 
 function schApply(d) { S.sched = { week: d.weeks[0].week, data: d, at: Date.now() }; renderNav(); if (S.view === 'schedule') go('schedule'); else softRender(); }
 async function schCall(action, payload, btn, ok) {
-  try { const d = await busy(btn || null, () => api.call(action, payload)); if (ok) toast(ok); schApply(d); return true; }
+  try { const d = await busy(btn || null, () => api.call(action, payload)); if (ok) toast(ok); if (action === 'schedChoose' && S.onboarding && S.onboarding.steps) S.onboarding.steps.wfo = true; schApply(d); return true; }
   catch (e) { if (/dimuat ulang/i.test(cleanErr(e))) loadSched(S.sched.week, true).then(() => softRender()); return false; }
 }
 
@@ -175,6 +183,17 @@ function bindSchedule() {
       onMount: (m, close) => { $('#sch-rej', m).onclick = () => { const n = $('#sch-note', m).value.trim(); close(); schCall('schedDecide', { id: b.dataset.id, decision: 'reject', note: n }, null, 'Pengajuan ditolak'); }; } });
   });
   $$('[data-schset]', root).forEach((b) => b.onclick = () => schSetModal(b.dataset.schset, b.dataset.week));
+  $$('[data-lvnew]', root).forEach((b) => b.onclick = () => leaveModal(b.dataset.lvnew === 'other'));
+  $$('[data-lvcancel]', root).forEach((b) => b.onclick = async () => {
+    if (!(await confirmBox('Batalkan pengajuan?', 'Pengajuan ini akan dibatalkan.', 'Batalkan'))) return;
+    schCall('leaveCancel', { id: b.dataset.lvcancel }, b, 'Pengajuan dibatalkan');
+  });
+  $$('[data-lvdec]', root).forEach((b) => b.onclick = () => {
+    if (b.dataset.lvdec === 'approve') return schCall('leaveDecide', { id: b.dataset.id, decision: 'approve' }, b, 'Disetujui');
+    modal({ title: 'Tolak pengajuan', body: '<label class="field"><span>Catatan untuk anggota (opsional)</span><textarea id="lv-note" rows="3" maxlength="500" placeholder="mis. Bentrok dengan deadline campaign, coba geser ke minggu depan"></textarea></label>',
+      actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="lv-rej">Tolak</button>',
+      onMount: (m, close) => { $('#lv-rej', m).onclick = () => { const n = $('#lv-note', m).value.trim(); close(); schCall('leaveDecide', { id: b.dataset.id, decision: 'reject', note: n }, null, 'Pengajuan ditolak'); }; } });
+  });
   $$('[data-holdel]', root).forEach((b) => b.onclick = () => schCall('schedHoliday', { date: b.dataset.holdel, remove: true }, b, 'Libur dihapus'));
   if ($('#hol-add')) $('#hol-add').onclick = () => {
     const d = $('#hol-d').value, n = $('#hol-n').value.trim();
@@ -230,6 +249,69 @@ function schSetModal(username, week) {
       $('#ss-ok', m).onclick = async () => {
         try { const d = await busy($('#ss-ok', m), () => api.call('schedSet', { username, week, days: [...days] })); close(); toast('Jadwal diperbarui'); schApply(d); }
         catch (e) { /* busy sudah menampilkan pesan */ }
+      };
+    }
+  });
+}
+
+// ---------- Cuti, sakit & izin ----------
+function lvRow(l, forAdmin) {
+  const who = (S.sched.data.people.find((p) => p.username === l.username) || {}).name || l.username;
+  const n = lvWorkdays(l.from, l.to);
+  const cls = { Menunggu: 'warn', Disetujui: 'good', Ditolak: 'bad', Dibatalkan: '' }[l.status] || '';
+  const canCancel = !forAdmin && l.status === 'Menunggu' && l.username === S.user.username;
+  return `<div class="sch-req lv-row">
+    <span class="sch-chip lv ${LV_CLS[l.kind] || 'cuti'}">${esc(l.kind)}</span>
+    <div class="sch-req-main">${forAdmin || l.username !== S.user.username ? `<b>${esc(who)}</b> · ` : ''}${esc(lvRange(l))} <span class="muted small">· ${n} hari kerja</span>
+      ${l.reason || l.note ? `<div class="muted small">${l.reason ? '“' + esc(l.reason) + '”' : ''}${l.note ? `${l.reason ? ' · ' : ''}catatan admin: ${esc(l.note)}` : ''}</div>` : ''}</div>
+    ${forAdmin && l.status === 'Menunggu' ? `<div class="sch-req-act"><button class="btn sm" data-lvdec="reject" data-id="${esc(l.id)}">Tolak</button><button class="btn sm primary" data-lvdec="approve" data-id="${esc(l.id)}">Setujui</button></div>`
+      : canCancel ? `<div class="sch-req-act"><span class="bstat warn">Menunggu</span><button class="btn sm ghost" data-lvcancel="${esc(l.id)}">Batalkan</button></div>` : `<span class="bstat ${cls}">${esc(l.status)}</span>`}
+  </div>`;
+}
+function lvMineCard(me) {
+  const today = S.sched.data.today;
+  const list = (S.sched.data.leaves || []).filter((l) => l.username === me && l.status !== 'Dibatalkan' && (l.to >= today || l.status === 'Menunggu'))
+    .sort((a, b) => a.from.localeCompare(b.from));
+  return `<div class="card sch-card"><div class="card-h"><h2>Cuti & izin saya</h2><button class="btn sm" data-lvnew="me">+ Ajukan</button></div><div class="card-b">
+    ${list.length ? list.map((l) => lvRow(l, false)).join('') : '<p class="muted small" style="margin:0">Tidak ada cuti atau izin yang akan datang. Ajukan cuti jauh hari; sakit atau izin mendadak bisa diajukan di hari yang sama.</p>'}</div></div>`;
+}
+function lvTeamCard(D, admin) {
+  const today = D.today;
+  const list = (D.leaves || []).filter((l) => l.status === 'Disetujui' && l.to >= today).sort((a, b) => a.from.localeCompare(b.from)).slice(0, 12);
+  if (!list.length && !admin) return '';
+  return `<div class="card sch-card"><div class="card-h"><h2>Cuti & izin tim</h2>${admin ? '<button class="btn sm" data-lvnew="other">+ Catat</button>' : '<span class="muted small">yang akan datang</span>'}</div><div class="card-b">
+    ${list.length ? list.map((l) => lvRow(l, false)).join('') : '<p class="muted small" style="margin:0">Belum ada cuti atau izin yang akan datang.</p>'}</div></div>`;
+}
+function leaveModal(forOther) {
+  const D = S.sched.data, today = D.today;
+  let kind = 'Cuti';
+  const people = D.people.slice().sort((a, b) => a.name.localeCompare(b.name));
+  modal({
+    title: forOther ? 'Catat cuti / izin anggota' : 'Ajukan cuti / izin',
+    body: `<form id="lvf">
+      ${forOther ? `<label class="field"><span>Anggota *</span><select name="username" required data-pick="person"><option value="">Pilih…</option>${people.map((p) => `<option value="${esc(p.username)}">${esc(p.name)}</option>`).join('')}</select></label>` : ''}
+      <div class="field"><span>Jenis</span><div class="seg seg-pick" id="lv-kind" role="radiogroup">${['Cuti', 'Sakit', 'Izin'].map((k) => `<button type="button" role="radio" data-k="${k}" class="${k === kind ? 'on' : ''}" aria-checked="${k === kind}">${k}</button>`).join('')}</div></div>
+      <div class="grid2"><label class="field"><span>Dari *</span><input type="date" name="from" required value="${esc(today)}"></label><label class="field"><span>Sampai *</span><input type="date" name="to" required value="${esc(today)}"></label></div>
+      <p class="muted small" id="lv-sum" style="margin:-4px 0 12px"></p>
+      <label class="field"><span>Keterangan ${forOther ? '' : '(opsional)'}</span><textarea name="reason" rows="2" maxlength="500" placeholder="mis. Acara keluarga"></textarea></label>
+      <div id="lv-err"></div></form>`,
+    actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="lv-ok">${forOther ? 'Simpan' : 'Kirim ke admin'}</button>`,
+    onMount: (m, close) => {
+      formPick(m);
+      const f = $('#lvf', m);
+      const sum = () => {
+        if (f.to.value < f.from.value) f.to.value = f.from.value;
+        const n = f.from.value && f.to.value ? lvWorkdays(f.from.value, f.to.value) : 0;
+        $('#lv-sum', m).textContent = n ? `${n} hari kerja. Deadline task di rentang ini otomatis mundur ${n} hari kerja setelah disetujui.` : 'Rentang ini tidak memuat hari kerja.';
+      };
+      f.from.onchange = sum; f.to.onchange = sum; sum();
+      $$('#lv-kind button', m).forEach((b) => b.onclick = () => { kind = b.dataset.k; $$('#lv-kind button', m).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); }); });
+      $('#lv-ok', m).onclick = async () => {
+        if (!f.reportValidity()) return;
+        const leave = { kind, from: f.from.value, to: f.to.value, reason: f.reason.value.trim() };
+        if (forOther) leave.username = f.username.value;
+        try { const d = await busy($('#lv-ok', m), () => api.call('leaveRequest', { leave })); close(); toast(forOther ? 'Dicatat' : 'Pengajuan dikirim ke admin'); schApply(d); }
+        catch (e) { $('#lv-err', m).innerHTML = `<div class="error">${esc(cleanErr(e))}</div>`; }
       };
     }
   });

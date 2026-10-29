@@ -108,7 +108,7 @@ const sandbox = {
     base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
     newBlob: (bytes) => ({ getDataAsString: () => Buffer.from(bytes).toString('utf8') }),
     getUuid: () => crypto.randomUUID(),
-    formatDate: (d, tz, f) => f === 'u' ? String(((d.getDay() + 6) % 7) + 1) : f.replace('EEE, ', '').replace('d MMM', d.getDate() + ' ' + d.getMonth()).replace("'T'", 'T').replace('yyyy', d.getFullYear()).replace('MM', pad(d.getMonth() + 1)).replace('dd', pad(d.getDate()))
+    formatDate: (d, tz, f) => f === 'u' ? String(((d.getDay() + 6) % 7) + 1) : f === 'd' ? String(d.getDate()) : f === 'M' ? String(d.getMonth() + 1) : f.replace('EEE, ', '').replace('d MMM', d.getDate() + ' ' + d.getMonth()).replace("'T'", 'T').replace('yyyy', d.getFullYear()).replace('MM', pad(d.getMonth() + 1)).replace('dd', pad(d.getDate()))
       .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())).replace('ss', pad(d.getSeconds())).replace('XXX', '+07:00'),
     parseDate: (s) => { const [dt, tm] = s.split(' '); const [y, m, d] = dt.split('-').map(Number); const [hh, mm] = (tm || '0:0').split(':').map(Number); return new Date(y, m - 1, d, hh, mm); }
   }
@@ -247,7 +247,8 @@ it('Calendar: belum aktif → tidak ada event', () => {
 
 it('aktifkan pengingat: anggota mengisi email sendiri → event mulai & deadline dibuat', () => {
   sandbox.installNotifications();
-  assert.deepStrictEqual(triggers.filter((t) => t !== 'processProjectSync').sort(), ['runReminders', 'sendDailyDigest']);
+  assert.deepStrictEqual(triggers.filter((t) => t !== 'processProjectSync' && t !== 'runDailyJobs').sort(), ['runReminders', 'sendDailyDigest']);
+  assert.ok(triggers.includes('runDailyJobs'), 'pemicu harian dipasang otomatis saat admin membuka aplikasi');
   assert.ok(triggers.includes('processProjectSync'), 'setup memasang trigger sinkron project');
   const r = post({ action: 'setMyEmail', token: ari, email: 'Ari@LinovHR.com', appUrl: 'https://tim.github.io/tracker/' });
   assert.ok(r.ok, r.error); assert.strictEqual(r.data.user.email, 'ari@linovhr.com');
@@ -817,6 +818,93 @@ it('Jadwal kerja: pilih Senin/Kamis, kuota min 2, pengecualian, pengajuan ke adm
   assert.deepStrictEqual(Array.from(r.data.weeks[0].plans.ari.holidays), ['tue']); assert.strictEqual(r.data.weeks[0].count.tue, 0);
   assert.ok(post({ action: 'schedHoliday', token: admin, date: tueW3, remove: true }).ok);
   assert.ok(!Object.keys(post({ action: 'schedule', token: ari, week: W3 }).data.holidays).length);
+});
+
+it('Logika bersama di Code.gs sama persis dengan web/js/logic.js (jalankan tools/embed-logic.js bila beda)', () => {
+  const gs = fs.readFileSync(path.join(__dirname, '../apps-script/Code.gs'), 'utf8');
+  assert.ok(gs.includes(fs.readFileSync(path.join(__dirname, '../web/js/logic.js'), 'utf8').trim()), 'salinan logic.js di Code.gs usang');
+  assert.strictEqual(typeof sandbox.PTLogic.summarize, 'function');
+});
+
+it('Task berulang: harian (hari kerja), mingguan, bulanan; tidak dobel; Hold dijeda', () => {
+  const due = (repeat, start, today) => sandbox.repeatDue_({ repeat, startDate: start }, today);
+  assert.ok(due('daily', '2026-10-26', '2026-10-27')); assert.ok(!due('daily', '2026-10-26', '2026-10-31'), 'Sabtu dilewati');
+  assert.ok(!due('daily', '2026-10-26', '2026-10-26'), 'hari pertama = task aslinya');
+  assert.ok(due('weekly', '2026-10-26', '2026-11-02')); assert.ok(!due('weekly', '2026-10-26', '2026-11-03'));
+  assert.ok(due('monthly', '2026-01-31', '2026-02-28'), 'tanggal 31 → akhir bulan'); assert.ok(due('monthly', '2026-10-05', '2026-11-05'));
+  let r = post({ action: 'saveTask', token: admin, task: { owner: 'ari', task: 'Weekly Report SEO (rutin)', startDate: '2026-10-26', endDate: '2026-10-27', startTime: '09:00', endTime: '17:00', repeat: 'weekly' } });
+  assert.ok(r.ok, r.error); const tplId = r.data.id; assert.strictEqual(r.data.task.repeat, 'weekly');
+  let made = sandbox.runRecurring_('2026-11-02');
+  assert.strictEqual(made.length, 1);
+  let tasks = post({ action: 'getAll', token: admin }).data.tasks;
+  const copy = tasks.find((t) => t.id === made[0]);
+  assert.strictEqual(copy.task, 'Weekly Report SEO (rutin)'); assert.strictEqual(copy.startDate, '2026-11-02'); assert.strictEqual(copy.endDate, '2026-11-03');
+  assert.strictEqual(copy.repeat, ''); assert.strictEqual(copy.repeatOf, tplId); assert.strictEqual(copy.status, 'Backlog'); assert.strictEqual(copy.owner, 'ari');
+  assert.strictEqual(sandbox.runRecurring_('2026-11-02').length, 0, 'tidak dobel di hari yang sama');
+  assert.strictEqual(sandbox.runRecurring_('2026-11-03').length, 0, 'bukan jadwalnya');
+  assert.ok(post({ action: 'updateStatus', token: admin, taskId: tplId, status: 'Hold', owner: 'ari' }).ok);
+  assert.strictEqual(sandbox.runRecurring_('2026-11-09').length, 0, 'Hold = dijeda');
+  assert.ok(post({ action: 'saveTask', token: admin, task: { id: tplId, owner: 'ari', task: 'Weekly Report SEO (rutin)', startDate: '2026-10-26', endDate: '2026-10-27', status: 'Backlog', repeat: '' } }).ok);
+  assert.strictEqual(sandbox.runRecurring_('2026-11-16').length, 0, 'pengulangan dimatikan');
+});
+
+it('Cuti & izin: anggota mengajukan, admin menyetujui, kuota WFO & deadline task menyesuaikan', () => {
+  const tok = ari;
+  const cur = post({ action: 'schedule', token: tok }).data.currentWeek;
+  const addD = (w, n) => { const d = new Date(w + 'T00:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const wk = addD(cur, 14), tue = addD(wk, 1), wed = addD(wk, 2);
+  let r = post({ action: 'leaveRequest', token: tok, leave: { kind: 'Liburan', from: tue, to: wed } }); assert.strictEqual(r.ok, false);
+  r = post({ action: 'leaveRequest', token: tok, leave: { kind: 'Cuti', from: wed, to: tue } }); assert.strictEqual(r.ok, false, 'tanggal terbalik');
+  const before = mails.length;
+  r = post({ action: 'leaveRequest', token: tok, leave: { kind: 'Cuti', from: tue, to: wed, reason: 'Acara keluarga' } }); assert.ok(r.ok, r.error);
+  const lv = r.data.leaves.find((l) => l.username === 'ari' && l.from === tue); assert.strictEqual(lv.status, 'Menunggu');
+  assert.ok(mails.length > before, 'admin diberi email');
+  assert.strictEqual(post({ action: 'leaveRequest', token: tok, leave: { kind: 'Izin', from: wed, to: wed } }).ok, false, 'bentrok');
+  assert.strictEqual(post({ action: 'leaveDecide', token: tok, id: lv.id, decision: 'approve' }).ok, false, 'hanya admin');
+  r = post({ action: 'schedule', token: admin, week: wk }); const cntBefore = r.data.weeks[0].count.tue;
+  r = post({ action: 'leaveDecide', token: admin, id: lv.id, decision: 'approve' }); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.weeks[0].plans.ari.leave.tue, 'Cuti'); assert.strictEqual(r.data.weeks[0].count.tue, cntBefore - 1, 'tidak dihitung di kuota');
+  // deadline task ari di hari cuti mundur 2 hari kerja
+  r = post({ action: 'saveTask', token: admin, task: { owner: 'ari', task: 'Task saat cuti', startDate: tue, endDate: wed } }); assert.ok(r.ok, r.error);
+  const tk = post({ action: 'getAll', token: admin }).data.tasks.find((t) => t.id === r.data.id); assert.strictEqual(tk.leaveDays, 2);
+  // admin mencatat sakit langsung (disetujui), anggota membatalkan yang masih menunggu
+  r = post({ action: 'leaveRequest', token: admin, leave: { username: 'ari', kind: 'Sakit', from: addD(wk, 4), to: addD(wk, 4) } }); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.leaves.find((l) => l.kind === 'Sakit').status, 'Disetujui');
+  r = post({ action: 'leaveRequest', token: tok, leave: { kind: 'Izin', from: addD(wk, 7), to: addD(wk, 7) } }); assert.ok(r.ok, r.error);
+  const iz = r.data.leaves.find((l) => l.kind === 'Izin');
+  r = post({ action: 'leaveCancel', token: tok, id: iz.id }); assert.ok(r.ok, r.error);
+  assert.ok(!r.data.leaves.some((l) => l.id === iz.id && l.status === 'Menunggu'));
+});
+
+it('Laporan mingguan & bulanan: email ke digmar@linovhr.com berisi KPI, dipicu Senin & tanggal 1', () => {
+  const n0 = mails.length;
+  let r = post({ action: 'sendReport', token: admin, kind: 'week' }); assert.ok(r.ok, r.error);
+  const m = mails[mails.length - 1]; assert.strictEqual(m.to, 'digmar@linovhr.com');
+  if (process.env.DUMP_REPORT) fs.writeFileSync(process.env.DUMP_REPORT, m.htmlBody); assert.ok(/Laporan mingguan tim/.test(m.subject), m.subject);
+  assert.ok(/Per orang|Periode/.test(m.htmlBody));
+  r = post({ action: 'sendReport', token: admin, kind: 'month' }); assert.ok(r.ok, r.error); assert.ok(/Laporan bulanan tim/.test(mails[mails.length - 1].subject));
+  assert.strictEqual(post({ action: 'sendReport', token: ari, kind: 'week' }).ok, false, 'hanya admin');
+  const rg = sandbox.reportRange_('month', new Date(2026, 10, 1, 7)); assert.strictEqual(rg.label, 'Oktober 2026');
+  assert.strictEqual(rg.from.getDate(), 1); assert.strictEqual(rg.to.getDate(), 31);
+  const wr = sandbox.reportRange_('week', new Date(2026, 10, 2, 7)); assert.strictEqual(wr.from.getDate(), 26); assert.strictEqual(wr.to.getDate(), 1);
+  assert.ok(mails.length >= n0 + 2);
+});
+
+it('Onboarding: akun baru pending, langkah otomatis & manual, selesai menyembunyikan', () => {
+  let r = post({ action: 'saveUser', token: admin, user: { username: 'baru', name: 'Anak Baru', role: 'member', hasTasks: true } }); assert.ok(r.ok, r.error);
+  let tok = post({ action: 'login', username: 'baru', password: r.data.password }).data.token;
+  tok = post({ action: 'changePassword', token: tok, oldPassword: r.data.password, newPassword: 'baru12345' }).data.token || post({ action: 'login', username: 'baru', password: 'baru12345' }).data.token;
+  r = post({ action: 'myTasks', token: tok }); assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.data.onboarding.steps)), { account: false, wfo: false, guide: false, org: false, task: false });
+  assert.ok(post({ action: 'setMyEmail', token: tok, email: 'baru@linovhr.com' }).ok);
+  assert.ok(post({ action: 'onboardStep', token: tok, step: 'guide' }).ok);
+  assert.ok(post({ action: 'onboardStep', token: tok, step: 'org' }).ok);
+  assert.strictEqual(post({ action: 'onboardStep', token: tok, step: 'hack' }).ok, false);
+  r = post({ action: 'myTasks', token: tok }); const st = r.data.onboarding.steps;
+  assert.ok(st.account && st.guide && st.org && !st.wfo);
+  assert.ok(post({ action: 'onboardStep', token: tok, step: 'done' }).ok);
+  assert.strictEqual(post({ action: 'myTasks', token: tok }).data.onboarding, null);
+  assert.strictEqual(post({ action: 'myTasks', token: ari }).data.onboarding, null, 'akun lama tidak ditampilkan onboarding');
 });
 
 it('Hapus pengguna: wajib nonaktif dulu, tanpa task → tab dihapus, punya task → konfirmasi username & tab diarsipkan', () => {

@@ -13,7 +13,9 @@ var CFG = {
   MAIN_SHEET: 'Main Project',
   LOG_SHEET: 'Activity Log',
   BRIEF_SHEET: 'Briefs',
-  SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur',
+  SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur', LEAVE_SHEET: 'Cuti',
+  REPORT_TO: 'digmar@linovhr.com',   // penerima laporan mingguan (Senin) & bulanan (tanggal 1)
+  DAILY_HOUR: 6,                     // jam tugas harian otomatis: task berulang & laporan
   BRIEF_FOLDER: 'Brief Artikel',   // folder Google Drive untuk ekspor brief ke Google Doc
   TOKEN_DAYS: 14,
   HASH_ROUNDS: 300,
@@ -31,10 +33,10 @@ var CFG = {
 var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
   'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result', 'Result Note',
-  'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log'];
+  'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log', 'Repeat', 'Repeat Of'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position',
-  'Reports To', 'Division', 'Skills', 'Joined', 'Org Only', 'WFO Exempt'];
+  'Reports To', 'Division', 'Skills', 'Joined', 'Org Only', 'WFO Exempt', 'Onboard'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
 var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Status', 'Keyword', 'Title',
@@ -89,11 +91,11 @@ function setup() {
   readUsers_().forEach(function (u) { existing[u.username] = u; });
   var created = [];
 
-  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET, CFG.SCHED_SHEET, CFG.SREQ_SHEET, CFG.HOLIDAY_SHEET];
+  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET, CFG.SCHED_SHEET, CFG.SREQ_SHEET, CFG.HOLIDAY_SHEET, CFG.LEAVE_SHEET];
   var seenIds = {}, fixedVal = [];
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
-    if (system.indexOf(name) >= 0 || name.charAt(0) === '_') return;
+    if (system.indexOf(name) >= 0 || name.charAt(0) === '_' || /^\(arsip\)/i.test(name)) return;
     ensureHeaders_(sh, TASK_HEADERS);
     assignMissingIds_(sh, seenIds);
     try { if (fixStatusValidation_(sh)) fixedVal.push(name); } catch (e) { Logger.log('validasi ' + name + ': ' + e); }
@@ -158,7 +160,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 20 });
+  return json_({ ok: true, app: 'project-tracker', version: 21 });
 }
 
 function doPost(e) {
@@ -194,7 +196,10 @@ function route_(b) {
 
   switch (a) {
     case 'me': return publicUser_(me);
-    case 'myTasks': return { tasks: me.sheetName ? myTasks_(me) : [], projects: cachedProjects_(), me: publicUser_(me), briefs: cachedBriefs_() };
+    case 'myTasks': {
+      var mt = me.sheetName ? withLeaves_(myTasks_(me)) : [];
+      return { tasks: mt, projects: cachedProjects_(), me: publicUser_(me), briefs: cachedBriefs_(), onboarding: onboardInfo_(me, mt) };
+    }
     case 'briefs': return { briefs: cachedBriefs_() };
     case 'getBrief': return { brief: findBrief_(b.briefId).brief };
     case 'saveBrief': return saveBrief_(me, b.brief);
@@ -212,6 +217,9 @@ function route_(b) {
     case 'schedRequest': return schedRequest_(me, b.req);
     case 'setResults': return setResults_(me, b.taskId, b.results, b.note);
     case 'teamTasks': return teamTasks_();
+    case 'leaveRequest': return leaveRequest_(me, b.leave || {});
+    case 'leaveCancel': return leaveCancel_(me, b.id);
+    case 'onboardStep': return onboardStep_(me, b.step);
   }
 
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
@@ -229,6 +237,8 @@ function route_(b) {
     case 'schedSet': return schedSet_(me, b.username, b.week, b.days);
     case 'schedDecide': return schedDecide_(me, b.id, b.decision, b.note);
     case 'schedHoliday': return schedHoliday_(me, b.date, b.name, b.remove);
+    case 'leaveDecide': return leaveDecide_(me, b.id, b.decision, b.note);
+    case 'sendReport': return sendTeamReport_(b.kind === 'month' ? 'month' : 'week', new Date());
     case 'reviewQueue': return { tasks: cachedTasks_().filter(function (t) { return t.status === 'Review' && t.type !== 'Request'; }) };
   }
   throw new Error('Aksi tidak dikenal: ' + a);
@@ -342,7 +352,8 @@ function readUsers_() {
       skills: col['skills'] === undefined ? '' : String(r[col['skills']] || '').trim().replace(/^'(?=[=+\-@])/, ''),
       joined: col['joined'] === undefined ? '' : normMonth_(r[col['joined']]),
       orgOnly: col['org only'] === undefined ? false : bool_(r[col['org only']]),
-      wfoExempt: col['wfo exempt'] === undefined ? false : bool_(r[col['wfo exempt']])
+      wfoExempt: col['wfo exempt'] === undefined ? false : bool_(r[col['wfo exempt']]),
+      onboard: col['onboard'] === undefined ? '' : String(r[col['onboard']] || '').trim()
     });
   });
   MEMO_.users = out;
@@ -357,7 +368,7 @@ function findUser_(username) {
 function publicUser_(u) {
   return { username: u.username, name: u.name, role: u.role, sheetName: u.sheetName,
     mustChange: u.mustChange, active: u.active, email: u.email || '', position: u.position || '',
-    reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, wfoExempt: !!u.wfoExempt };
+    reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, wfoExempt: !!u.wfoExempt, onboard: u.onboard || '' };
 }
 /** Data struktur tim untuk semua anggota (tanpa email/akun). */
 function orgUser_(u) {
@@ -512,6 +523,7 @@ function saveUser_(me, data) {
     var nu = findUser_(username), ucol = colMap_(sh);
     if (orgOnly) ofNew['org only'] = true;
     if (data.wfoExempt) ofNew['wfo exempt'] = true;
+    if (!orgOnly) ofNew['onboard'] = 'pending';
     if (Object.keys(ofNew).length) writeObj_(sh, nu.row, ofNew);
     if (data.email) sh.getRange(nu.row, ucol['email'] + 1).setValue(cleanEmail_(data.email));
     if (data.position) sh.getRange(nu.row, ucol['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
@@ -686,7 +698,7 @@ function personSheets_() {
 }
 
 // ---------- cache data bacaan (dibuang otomatis setiap ada perubahan) ----------
-var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue', 'schedule'];
+var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'sendReport', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue', 'schedule'];
 var DATA_TTL = 90;   // detik; perubahan langsung di spreadsheet terlihat paling lambat 1,5 menit
 function dataCache_() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
 function dataVer_(c) { return (c && c.get('d_ver')) || '0'; }
@@ -769,7 +781,8 @@ function rowTask_(r, disp, col, sh, user, row) {
     type: typeName_(g('type')),
     stage: Number(g('stage')) || 0,
     liveUrl: String(g('live url') || ''), aiCheckUrl: String(g('ai check url') || ''),
-    stageLog: parseStageLog_(g('stage log'))
+    stageLog: parseStageLog_(g('stage log')),
+    repeat: normRepeat_(g('repeat')), repeatOf: String(g('repeat of') || '')
   };
 }
 
@@ -784,13 +797,14 @@ function teamTasks_() {
   var users = readUsers_().filter(function (u) { return u.sheetName && u.active; })
     .map(function (u) { return { username: u.username, name: u.name, position: u.position || '' }; });
   var org = readUsers_().filter(function (u) { return u.active; }).map(orgUser_);
-  return { tasks: cachedTasks_(), users: users, projects: cachedProjects_(), briefs: cachedBriefs_(), org: org };
+  return { tasks: withLeaves_(cachedTasks_()), users: users, projects: cachedProjects_(), briefs: cachedBriefs_(), org: org };
 }
 
 function getAll_() {
   var tasks = cachedTasks_(), seen = {}, dup = {};
   tasks.forEach(function (t) { if (!t.id) return; if (seen[t.id]) dup[t.id] = true; seen[t.id] = true; });
-  return { dupIds: Object.keys(dup), tasks: tasks, projects: cachedProjects_(), users: readUsers_().map(publicUser_),
+  ensureDailyTrigger_();
+  return { dupIds: Object.keys(dup), tasks: withLeaves_(tasks), projects: cachedProjects_(), users: readUsers_().map(publicUser_),
     statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_(), briefs: cachedBriefs_() };
 }
 
@@ -884,6 +898,8 @@ function saveTask_(me, t) {
       'notes': t.notes || ''
     };
     if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
+    if (t.repeat !== undefined) obj['repeat'] = normRepeat_(t.repeat);
+    if (t.repeatOf) obj['repeat of'] = String(t.repeatOf);
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
     var article = t.type === 'Artikel';
     if (t.type !== undefined) obj['type'] = article ? 'Artikel' : t.type === 'Sosmed' || t.type === 'Request' ? t.type : 'Non-artikel';
@@ -2514,11 +2530,12 @@ function planFor_(u, week, rows, hol) {
   }
   return { days: days, required: required, exempt: false, chosen: chosen, source: source, debt: debt, holidays: Object.keys(hs) };
 }
-function weekPlans_(week, rows, hol, people) {
+function weekPlans_(week, rows, hol, people, leaves) {
   var plans = {}, count = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0 };
   people.forEach(function (u) {
     var p = planFor_(u, week, rows, hol); plans[u.username] = p;
-    if (!p.exempt) p.days.forEach(function (d) { if (!p.holidays.length || p.holidays.indexOf(d) < 0) count[d]++; });
+    p.leave = leaveDaysOf_(leaves, u.username, week);
+    if (!p.exempt) p.days.forEach(function (d) { if (p.holidays.indexOf(d) < 0 && !p.leave[d]) count[d]++; });
   });
   return { plans: plans, count: count };
 }
@@ -2539,15 +2556,21 @@ function readSchedReqs_() {
 
 function schedule_(me, week) {
   var cur = weekOf_(new Date()), w0 = normWeek_(week || cur), rows = readSchedRows_(), hol = readHolidays_(), people = schedPeople_();
+  var allLeaves = readLeaves_(), okLeaves = allLeaves.filter(function (l) { return l.status === 'Disetujui'; });
   var weeks = [w0, addWeeks_(w0, 1)].map(function (w) {
-    var wp = weekPlans_(w, rows, hol, people);
+    var wp = weekPlans_(w, rows, hol, people, okLeaves);
     return { week: w, lockAt: lockAt_(w).toISOString(), locked: new Date() >= lockAt_(w),
       days: DAY_CODES.map(function (c) { var dt = isoDate_(dayDate_(w, c)); return { code: c, date: dt, holiday: hol[dt] || '' }; }),
       plans: wp.plans, count: wp.count };
   });
   var reqs = readSchedReqs_().filter(function (r) { return me.role === 'admin' || r.username === me.username || r.status === 'Menunggu'; })
     .filter(function (r) { return r.status === 'Menunggu' || r.week >= addWeeks_(cur, -4); });
-  return { today: isoDate_(new Date()), currentWeek: cur, weeks: weeks, requests: reqs, holidays: hol,
+  var from = addWeeks_(cur, -4);
+  var leaves = allLeaves.filter(function (l) { return l.status === 'Menunggu' || (l.status === 'Disetujui' && l.to >= from) || (l.username === me.username && l.to >= from); })
+    .filter(function (l) { return me.role === 'admin' || l.username === me.username || l.status === 'Disetujui'; })
+    .map(function (l) { var o = { id: l.id, username: l.username, kind: l.kind, from: l.from, to: l.to, status: l.status, createdAt: l.createdAt, decidedBy: l.decidedBy, note: l.note };
+      if (me.role === 'admin' || l.username === me.username) o.reason = l.reason; return o; });
+  return { today: isoDate_(new Date()), currentWeek: cur, weeks: weeks, requests: reqs, holidays: hol, leaves: leaves,
     people: people.map(function (u) { return { username: u.username, name: u.name, position: u.position || '', exempt: !!u.wfoExempt }; }) };
 }
 
@@ -2683,3 +2706,639 @@ function schedHoliday_(me, date, name, remove) {
     return schedule_(me, weekOf_(parseIso_(date)));
   } finally { unlock_(lock); }
 }
+
+// ===================== Cuti & izin =====================
+var LEAVE_HEADERS = ['ID', 'Username', 'Kind', 'From', 'To', 'Reason', 'Status', 'Created At', 'Created By', 'Decided By', 'Decided At', 'Note'];
+var LEAVE_KINDS = ['Cuti', 'Sakit', 'Izin'];
+function readLeaves_() {
+  var sh = sheet_(CFG.LEAVE_SHEET), out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  var col = colMap_(sh);
+  var day = function (v) { return isDate_(v) ? isoDate_(v) : String(v || '').replace(/^'/, '').trim(); };
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (r, i) {
+    var id = String(r[col['id']] || ''); if (!id) return;
+    out.push({ id: id, row: i + 2, username: String(r[col['username']] || '').toLowerCase(), kind: String(r[col['kind']] || 'Cuti'),
+      from: day(r[col['from']]), to: day(r[col['to']]), reason: String(r[col['reason']] || '').replace(/^'(?=[=+\-@])/, ''),
+      status: String(r[col['status']] || 'Menunggu'), createdAt: normStamp_(r[col['created at']]), createdBy: String(r[col['created by']] || ''),
+      decidedBy: String(r[col['decided by']] || ''), decidedAt: normStamp_(r[col['decided at']]), note: String(r[col['note']] || '').replace(/^'(?=[=+\-@])/, '') });
+  });
+  return out;
+}
+function approvedLeaves_() {
+  return readLeaves_().filter(function (l) { return l.status === 'Disetujui'; }).map(function (l) { return { username: l.username, from: l.from, to: l.to, kind: l.kind }; });
+}
+/** Hari (mon..fri) dalam minggu `week` yang tertutup cuti/izin seseorang → { mon: 'Cuti', ... }. */
+function leaveDaysOf_(leaves, username, week) {
+  var out = {};
+  (leaves || []).forEach(function (l) {
+    if (l.username !== username) return;
+    DAY_CODES.forEach(function (c) { var d = isoDate_(dayDate_(week, c)); if (l.from <= d && d <= l.to) out[c] = l.kind; });
+  });
+  return out;
+}
+/** Task diberi tanda leaveDays (deadline mundur sesuai hari kerja cuti yang disetujui). */
+function withLeaves_(tasks) {
+  try { var lv = approvedLeaves_(); if (lv.length) PTLogic.applyLeaves(tasks, lv); } catch (e) { Logger.log('cuti: ' + e); }
+  return tasks;
+}
+function leaveRequest_(me, q) {
+  var kind = LEAVE_KINDS.indexOf(q.kind) >= 0 ? q.kind : '';
+  if (!kind) throw new Error('Pilih jenis: Cuti, Sakit, atau Izin.');
+  var from = String(q.from || ''), to = String(q.to || q.from || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) throw new Error('Tanggal tidak valid');
+  if (to < from) throw new Error('Tanggal selesai tidak boleh sebelum tanggal mulai.');
+  if ((parseIso_(to) - parseIso_(from)) / 864e5 > 60) throw new Error('Maksimal 60 hari per pengajuan.');
+  var reason = String(q.reason || '').trim().slice(0, 500);
+  var forUser = me.role === 'admin' && q.username ? findUser_(String(q.username).toLowerCase()) : findUser_(me.username);
+  if (!forUser || forUser.orgOnly) throw new Error('Pengguna tidak ditemukan');
+  if (me.role !== 'admin' && kind === 'Cuti' && to < isoDate_(new Date())) throw new Error('Cuti tidak bisa diajukan untuk tanggal yang sudah lewat. Untuk sakit/izin mendadak, pilih jenis Sakit atau Izin.');
+  var direct = me.role === 'admin';
+  var lock = lock_(20000), id, out;
+  try {
+    var clash = readLeaves_().filter(function (l) { return l.username === forUser.username && (l.status === 'Menunggu' || l.status === 'Disetujui') && l.from <= to && from <= l.to; })[0];
+    if (clash) throw new Error('Sudah ada ' + clash.kind.toLowerCase() + ' ' + clash.from + (clash.to !== clash.from ? ' s.d. ' + clash.to : '') + ' (' + clash.status.toLowerCase() + ') yang bertabrakan.');
+    var sh = schedSheet_(CFG.LEAVE_SHEET, LEAVE_HEADERS);
+    id = 'CT' + newId_().replace(/^T/, '');
+    var obj = { 'id': id, 'username': forUser.username, 'kind': kind, 'from': "'" + from, 'to': "'" + to, 'reason': safeCell_(reason),
+      'status': direct ? 'Disetujui' : 'Menunggu', 'created at': new Date(), 'created by': me.username };
+    if (direct) { obj['decided by'] = me.username; obj['decided at'] = new Date(); }
+    appendObj_(sh, obj);
+    log_(me, 'leave-request', '', id + ' ' + forUser.username + ' ' + kind + ' ' + from + '..' + to);
+    out = schedule_(me, weekOf_(parseIso_(from)));
+  } finally { unlock_(lock); }
+  if (!direct) {
+    try {
+      readUsers_().filter(function (x) { return x.role === 'admin' && x.active && x.email; }).forEach(function (a) {
+        MailApp.sendEmail({ to: a.email, name: 'Project Tracker', subject: '🌴 Pengajuan ' + kind.toLowerCase() + ': ' + forUser.name,
+          htmlBody: emailShell_('Halo ' + esc_(a.name) + ',', esc_(forUser.name) + ' mengajukan <b>' + esc_(kind.toLowerCase()) + '</b> ' + esc_(from) + (to !== from ? ' s.d. ' + esc_(to) : '') + '.' +
+            (reason ? '<br><i>' + esc_(reason) + '</i>' : '') + '<br>Putuskan di menu <b>Jadwal</b>.') });
+      });
+    } catch (e) { Logger.log('Email cuti: ' + e); }
+  }
+  return out;
+}
+function leaveCancel_(me, id) {
+  var lock = lock_(20000);
+  try {
+    var l = readLeaves_().filter(function (x) { return x.id === id; })[0];
+    if (!l) throw new Error('Pengajuan tidak ditemukan. Muat ulang data.');
+    if (me.role !== 'admin' && (l.username !== me.username || l.status !== 'Menunggu')) throw new Error('Hanya pengajuan Anda yang masih menunggu yang bisa dibatalkan.');
+    writeObj_(schedSheet_(CFG.LEAVE_SHEET, LEAVE_HEADERS), l.row, { 'status': 'Dibatalkan', 'decided by': me.username, 'decided at': new Date() });
+    log_(me, 'leave-cancel', '', id);
+    return schedule_(me, weekOf_(parseIso_(l.from)));
+  } finally { unlock_(lock); }
+}
+function leaveDecide_(me, id, decision, note) {
+  if (decision !== 'approve' && decision !== 'reject') throw new Error('Keputusan tidak valid');
+  var lock = lock_(20000), l, out;
+  try {
+    l = readLeaves_().filter(function (x) { return x.id === id; })[0];
+    if (!l) throw new Error('Pengajuan tidak ditemukan. Muat ulang data.');
+    if (l.status !== 'Menunggu') throw new Error('Pengajuan ini sudah diputuskan. Data dimuat ulang.');
+    writeObj_(schedSheet_(CFG.LEAVE_SHEET, LEAVE_HEADERS), l.row, { 'status': decision === 'approve' ? 'Disetujui' : 'Ditolak', 'decided by': me.username, 'decided at': new Date(), 'note': safeCell_(String(note || '').trim().slice(0, 500)) });
+    log_(me, 'leave-' + decision, '', id);
+    out = schedule_(me, weekOf_(parseIso_(l.from)));
+  } finally { unlock_(lock); }
+  var u = findUser_(l.username);
+  if (u && u.email && u.active) {
+    try {
+      MailApp.sendEmail({ to: u.email, name: 'Project Tracker', subject: (decision === 'approve' ? '✅ ' : '↩️ ') + l.kind + ' ' + (decision === 'approve' ? 'disetujui' : 'ditolak'),
+        htmlBody: emailShell_('Halo ' + esc_(u.name) + ',', 'Pengajuan ' + esc_(l.kind.toLowerCase()) + ' ' + esc_(l.from) + (l.to !== l.from ? ' s.d. ' + esc_(l.to) : '') + ' <b>' + (decision === 'approve' ? 'disetujui' : 'ditolak') + '</b> oleh ' + esc_(me.name) + '.' + (note ? '<br><i>' + esc_(note) + '</i>' : '') +
+          (decision === 'approve' ? '<br>Deadline task yang jatuh di rentang ini otomatis mundur sesuai jumlah hari kerja ' + esc_(l.kind.toLowerCase()) + '.' : '')) });
+    } catch (e) { Logger.log('Email keputusan cuti: ' + e); }
+  }
+  return out;
+}
+
+// ===================== Onboarding anggota baru =====================
+var ONBOARD_MANUAL = ['guide', 'org'];
+function onboardState_(u) {
+  var v = String(u && u.onboard || '');
+  if (!v || v === 'done') return null;
+  var m = v.split(':')[1] || '';
+  return m ? m.split(',').filter(function (x) { return ONBOARD_MANUAL.indexOf(x) >= 0; }) : [];
+}
+function onboardInfo_(me, tasks) {
+  var u = findUser_(me.username), manual = onboardState_(u);
+  if (!manual) return null;
+  var chosen = u.wfoExempt || Object.keys(readSchedRows_()).some(function (k) { return k.split('|')[1] === u.username; });
+  var steps = { account: !!u.email, wfo: !!chosen, guide: manual.indexOf('guide') >= 0, org: manual.indexOf('org') >= 0,
+    task: (tasks || []).some(function (t) { return t.status === 'Done' || t.status === 'Review' || Number(t.stage) >= 3; }) };
+  return { steps: steps };
+}
+function onboardStep_(me, step) {
+  var u = findUser_(me.username);
+  if (!u) throw new Error('UNAUTHORIZED');
+  var manual = onboardState_(u);
+  if (!manual) return { onboard: u.onboard || '' };
+  var val;
+  if (step === 'done') val = 'done';
+  else if (ONBOARD_MANUAL.indexOf(step) >= 0) { if (manual.indexOf(step) < 0) manual.push(step); val = 'pending:' + manual.join(','); }
+  else throw new Error('Langkah tidak dikenal');
+  var lock = lock_(20000);
+  try {
+    var sh = sheet_(CFG.USERS_SHEET);
+    ensureHeaders_(sh, USER_HEADERS);
+    writeObj_(sh, u.row, { 'onboard': val });
+    invalidateUsers_();
+  } finally { unlock_(lock); }
+  return { onboard: val };
+}
+
+// ===================== Tugas harian otomatis: task berulang & laporan =====================
+var REPEATS = ['daily', 'weekly', 'monthly'];
+function normRepeat_(v) { v = String(v || '').trim().toLowerCase(); return REPEATS.indexOf(v) >= 0 ? v : ''; }
+function ymdUtc_(s) { var p = String(s).split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
+function addDaysIso_(s, n) { var d = ymdUtc_(s); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+/** Apakah task berpola `repeat` (mulai pada tpl.startDate) muncul lagi pada `today` (yyyy-MM-dd)? */
+function repeatDue_(tpl, today) {
+  var start = String(tpl.startDate || '');
+  if (!tpl.repeat || !/^\d{4}-\d{2}-\d{2}$/.test(start) || today <= start) return false;
+  var d = ymdUtc_(today), s = ymdUtc_(start), dow = d.getUTCDay();
+  if (tpl.repeat === 'daily') return dow >= 1 && dow <= 5;
+  if (tpl.repeat === 'weekly') return dow === s.getUTCDay();
+  if (tpl.repeat === 'monthly') {
+    var last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    return d.getUTCDate() === Math.min(s.getUTCDate(), last);
+  }
+  return false;
+}
+function runRecurring_(today) {
+  var props = PropertiesService.getScriptProperties(), sys = { username: 'otomatis', name: 'Otomatis', role: 'admin' }, made = [];
+  allTasks_().forEach(function (t) {
+    if (!t.repeat || !t.id || t.status === 'Hold' || t.type === 'Request') return;
+    var owner = findUser_(t.owner);
+    if (!owner || !owner.active || !owner.sheetName) return;
+    if (!repeatDue_(t, today)) return;
+    var key = 'REP_' + t.id;
+    if (props.getProperty(key) === today) return;
+    var span = /^\d{4}-\d{2}-\d{2}$/.test(String(t.endDate)) && /^\d{4}-\d{2}-\d{2}$/.test(String(t.startDate)) ? Math.max(0, Math.round((ymdUtc_(t.endDate) - ymdUtc_(t.startDate)) / 864e5)) : 0;
+    if (t.repeat === 'daily') span = 0;
+    try {
+      var r = saveTask_(sys, { owner: t.owner, code: t.code, task: t.task, startDate: today, endDate: addDaysIso_(today, span), startTime: t.startTime, endTime: t.endTime,
+        priority: t.priority || 'Medium', status: 'Backlog', notes: t.notes, type: t.type, repeatOf: t.id });
+      props.setProperty(key, today); made.push(r.id);
+    } catch (e) { Logger.log('Task berulang ' + t.id + ': ' + e); }
+  });
+  return made;
+}
+/** Pemicu harian dibuat otomatis saat admin membuka aplikasi (sekali saja). */
+function ensureDailyTrigger_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('DAILY_TRIG') === '1') return;
+  try {
+    var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runDailyJobs'; });
+    if (!has) ScriptApp.newTrigger('runDailyJobs').timeBased().atHour(CFG.DAILY_HOUR).everyDays(1).inTimezone(tz_()).create();
+    props.setProperty('DAILY_TRIG', '1');
+  } catch (e) { Logger.log('Pemicu harian: ' + e); }
+}
+function runDailyJobs() {
+  resetMemo_();
+  var tz = tz_(), now = new Date(), today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), props = PropertiesService.getScriptProperties();
+  if (props.getProperty('DAILY_LAST') === today) return;
+  props.setProperty('DAILY_LAST', today);
+  try { if (runRecurring_(today).length) dataCacheClear_(); } catch (e) { Logger.log('Task berulang: ' + e); }
+  try { if (Utilities.formatDate(now, tz, 'u') === '1') sendTeamReport_('week', now); } catch (e) { Logger.log('Laporan mingguan: ' + e); }
+  try { if (Utilities.formatDate(now, tz, 'd') === '1') sendTeamReport_('month', now); } catch (e) { Logger.log('Laporan bulanan: ' + e); }
+}
+
+var MONTHS_ID_ = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+/** Rentang laporan: minggu lalu (Senin–Minggu) atau bulan lalu, relatif terhadap `now`. */
+function reportRange_(kind, now) {
+  var tz = tz_(), today = parseIso_(Utilities.formatDate(now, tz, 'yyyy-MM-dd'));
+  if (kind === 'month') {
+    var y = Number(Utilities.formatDate(today, tz, 'yyyy')), m = Number(Utilities.formatDate(today, tz, 'M')) - 1;
+    var pm = m === 0 ? 11 : m - 1, py = m === 0 ? y - 1 : y;
+    var from = parseIso_(py + '-' + ('0' + (pm + 1)).slice(-2) + '-01'), to = new Date(today.getTime() - 1 - (Number(Utilities.formatDate(today, tz, 'd')) - 1) * 864e5);
+    return { from: from, to: to, label: MONTHS_ID_[pm] + ' ' + py, title: 'Laporan bulanan tim' };
+  }
+  var mon = parseIso_(weekOf_(today)), from2 = new Date(mon.getTime() - 7 * 864e5), to2 = new Date(mon.getTime() - 1);
+  var f = function (d, withYear) { return Utilities.formatDate(d, tz, 'd') + ' ' + MONTHS_ID_[Number(Utilities.formatDate(d, tz, 'M')) - 1].slice(0, 3) + (withYear ? ' ' + Utilities.formatDate(d, tz, 'yyyy') : ''); };
+  return { from: from2, to: to2, label: f(from2) + ' – ' + f(to2, true), title: 'Laporan mingguan tim' };
+}
+function sendTeamReport_(kind, now) {
+  var L = PTLogic, rg = reportRange_(kind, now || new Date());
+  var people = readUsers_().filter(function (u) { return u.active && u.sheetName && !u.orgOnly; });
+  var active = {}; people.forEach(function (u) { active[u.username] = u; });
+  var all = withLeaves_(allTasks_().filter(function (t) { return active[t.owner]; }));
+  var tasks = all.filter(function (t) { return !L.isRequest(t); });
+  var range = { from: rg.from, to: rg.to }, sum = L.summarize(tasks, range, now);
+  var per = L.byPerson(tasks, range, now).filter(function (p) { return p.total; })
+    .sort(function (a, b) { return ((b.onTimeRate || 0) - (a.onTimeRate || 0)) || (b.over - a.over) || (b.done - a.done); });
+  var wl = L.workload(all, now), full = people.filter(function (u) { return wl[u.username] && wl[u.username].level === 'full'; });
+  var overdueNow = people.map(function (u) { return { u: u, n: (wl[u.username] || {}).overdue || 0 }; }).filter(function (x) { return x.n; });
+  var iso = function (d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }, f0 = iso(rg.from), t0 = iso(rg.to);
+  var leaves = approvedLeaves_().filter(function (l) { return active[l.username] && l.from <= t0 && f0 <= l.to; });
+  var reqDone = all.filter(function (t) { return L.isRequest(t) && L.isDone(t) && t.doneAt && new Date(t.doneAt) >= rg.from && new Date(t.doneAt) <= rg.to; }).length;
+  var pct = function (x) { return x === null || x === undefined ? '–' : Math.round(x * 100) + '%'; };
+  var tile = function (label, val, sub, color) {
+    return '<td style="width:33%;padding:6px"><div style="background:#f4f6f8;border-radius:10px;padding:12px 14px"><div style="font-size:12px;color:#5d6670">' + label + '</div>' +
+      '<div style="font-size:22px;font-weight:700;color:' + (color || '#17181a') + ';margin-top:2px">' + val + '</div><div style="font-size:11.5px;color:#8a8c90">' + sub + '</div></div></td>';
+  };
+  var td = 'style="padding:7px 8px;border-bottom:1px solid #e3e4df;font-size:13px"', tdn = 'style="padding:7px 8px;border-bottom:1px solid #e3e4df;font-size:13px;text-align:right"';
+  var body = '<p style="color:#5d6670;margin:0 0 10px">Periode <b>' + esc_(rg.label) + '</b> · ' + people.length + ' anggota aktif</p>' +
+    '<table style="width:100%;border-collapse:separate;margin:0 -6px"><tr>' +
+    tile('Tepat waktu', pct(sum.onTimeRate), (sum.over + sum.ontime) + ' dari ' + (sum.over + sum.ontime + sum.late) + ' task selesai', '#1f6fb2') +
+    tile('Task selesai', sum.done + ' / ' + sum.total, 'penyelesaian ' + pct(sum.completionRate)) +
+    tile('Overperforming', sum.over, 'lebih cepat dari rencana', '#2f8a3b') + '</tr><tr>' +
+    tile('Selesai terlambat', sum.late, 'done setelah deadline', '#c93636') +
+    tile('Artikel selesai', sum.articleDone, sum.avgReviewMs ? 'rata² review admin ' + L.humanWork(sum.avgReviewMs) : 'periode ini') +
+    tile('Request selesai', reqDone, 'kategori terpisah') + '</tr></table>';
+  if (per.length) {
+    body += '<h3 style="margin:22px 0 6px;font-size:15px">Per orang</h3><table style="width:100%;border-collapse:collapse"><tr style="color:#8a8c90;font-size:11.5px;text-align:left">' +
+      '<th ' + td + '>Nama</th><th ' + tdn + '>Task</th><th ' + tdn + '>Done</th><th ' + tdn + '>Tepat waktu</th><th ' + tdn + '>Over</th><th ' + tdn + '>Telat</th><th ' + tdn + '>Overdue</th></tr>' +
+      per.map(function (p) { return '<tr><td ' + td + '><b>' + esc_(p.name) + '</b></td><td ' + tdn + '>' + p.total + '</td><td ' + tdn + '>' + p.done + '</td><td ' + tdn + '>' + pct(p.onTimeRate) + '</td><td ' + tdn + '>' + (p.over ? '★ ' + p.over : '0') + '</td><td ' + tdn + '>' + p.late + '</td><td ' + tdn + '>' + p.overdue + '</td></tr>'; }).join('') + '</table>';
+  }
+  var notes = [];
+  if (per.length && per[0].onTimeRate !== null) notes.push('🏆 <b>Terbaik:</b> ' + esc_(per[0].name) + ' (' + pct(per[0].onTimeRate) + ' tepat waktu' + (per[0].over ? ', ★' + per[0].over : '') + ')');
+  if (overdueNow.length) notes.push('⚠️ <b>Terlambat saat ini:</b> ' + overdueNow.map(function (x) { return esc_(x.u.name) + ' (' + x.n + ')'; }).join(', '));
+  if (full.length) notes.push('📦 <b>Beban penuh:</b> ' + full.map(function (u) { return esc_(u.name) + ' (' + wl[u.username].active + ' task aktif)'; }).join(', '));
+  if (leaves.length) notes.push('🌴 <b>Cuti/izin:</b> ' + leaves.map(function (l) { return esc_((active[l.username] || {}).name || l.username) + ' — ' + esc_(l.kind.toLowerCase()) + ' ' + esc_(l.from) + (l.to !== l.from ? ' s.d. ' + esc_(l.to) : ''); }).join('; '));
+  if (notes.length) body += '<h3 style="margin:22px 0 6px;font-size:15px">Catatan</h3><p style="line-height:1.7;margin:0">' + notes.join('<br>') + '</p>';
+  var subject = '📊 ' + rg.title + ' · ' + rg.label + ': ' + pct(sum.onTimeRate) + ' tepat waktu, ' + sum.done + ' task selesai';
+  MailApp.sendEmail({ to: CFG.REPORT_TO, name: 'Project Tracker', subject: subject, htmlBody: emailShell_(esc_(rg.title) + ' — ' + esc_(rg.label), body) });
+  return { to: CFG.REPORT_TO, subject: subject, period: rg.label };
+}
+
+// ===== LOGIKA BERSAMA (salinan otomatis web/js/logic.js — jangan diedit di sini) =====
+/* Logika bersama: dipakai proses utama (notifikasi) dan tampilan (dashboard).
+ * Semua tanggal ditafsirkan pada zona waktu lokal komputer pengguna. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.PTLogic = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  var DEFAULT_START = '09:00';
+  var DEFAULT_END = '18:00';
+  var OVERPERFORM_RATIO = 0.8; // selesai ≤ deadline dan memakai ≤ 80% durasi rencana
+  var HOUR = 36e5;
+  // KPI task Artikel: hanya jam kerja Senin–Jumat 09:00–18:00 WIB; toleransi terlambat 2 jam kerja
+  var WORK = { startH: 9, endH: 18, tzOffsetMin: 7 * 60, days: [1, 2, 3, 4, 5] };
+  var GRACE_MS = 2 * HOUR;
+  var STAGES = ['', 'Ditugaskan', 'Menyusun brief', 'Review brief', 'Menulis artikel', 'Review artikel', 'Publish', 'Cek ulang dengan AI', 'Review cek AI', 'Selesai'];
+  var REVIEW_STAGES = [3, 5, 8];
+  var STAGE_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
+
+  function isArticle(t) { return String(t && t.type || '').toLowerCase() === 'artikel'; }
+  function isRequest(t) { return String(t && t.type || '').toLowerCase() === 'request'; }
+  /** KPI request: waktu klarifikasi (pertanyaan penerima → jawaban/terima) dijeda dan menggeser deadline.
+   *  Tepat waktu bila pengajuan terakhir ≤ deadline + jeda. Waktu respon = dibuat → terima/klarifikasi pertama. */
+  function requestKpi(task, now) {
+    now = now || new Date();
+    var log = (Array.isArray(task.stageLog) ? task.stageLog : []).map(function (x) { return { e: x.e, t: stamp(x.t) }; })
+      .filter(function (x) { return x.e && x.t; }).sort(function (a, b) { return a.t - b.t; });
+    var created = null, pauseMs = 0, pausedAt = null, firstResp = null, lastSub = null, doneAt = null, revisions = 0, acceptedAt = null;
+    log.forEach(function (x) {
+      if (x.e === 'created') { created = x.t; pauseMs = 0; pausedAt = null; firstResp = null; acceptedAt = null; }
+      else if (x.e === 'clar') { if (!firstResp) firstResp = x.t; if (!pausedAt) pausedAt = x.t; }
+      else if (x.e === 'ans' || x.e === 'acc') {
+        if (pausedAt) { pauseMs += x.t - pausedAt; pausedAt = null; }
+        if (x.e === 'acc') { if (!firstResp) firstResp = x.t; acceptedAt = x.t; }
+      } else if (x.e === 'sub') lastSub = x.t;
+      else if (x.e === 'ret') revisions++;
+      else if (x.e === 'done') doneAt = x.t;
+    });
+    var paused = !!pausedAt;
+    if (pausedAt) pauseMs += Math.max(now - pausedAt, 0);
+    var s = schedule(task), effEnd = s.end ? new Date(s.end.getTime() + pauseMs) : null;
+    var done = isDone(task);
+    var finish = done ? (lastSub || stamp(task.reviewAt) || doneAt || stamp(task.doneAt)) : null;
+    return { created: created, acceptedAt: acceptedAt, responseMs: created && firstResp ? Math.max(firstResp - created, 0) : null,
+      pauseMs: pauseMs, paused: paused, effEnd: effEnd, finishAt: finish, revisions: revisions, done: done,
+      late: done ? !!(finish && effEnd && finish > effEnd) : !!(effEnd && now > effEnd && task.status !== 'Review' && !paused) };
+  }
+  function evaluateRequest(task, now) {
+    var s = schedule(task), k = requestKpi(task, now);
+    var r = { request: true, plannedStart: s.start, plannedEnd: k.effEnd, startedAt: k.acceptedAt, doneAt: stamp(task.doneAt), reviewAt: stamp(task.reviewAt),
+      finishAt: k.finishAt, plannedMs: null, durationMs: k.acceptedAt && k.finishAt ? Math.max(k.finishAt - k.acceptedAt, 0) : null,
+      slackMs: null, responseMs: k.responseMs, revisions: k.revisions, pauseMs: k.pauseMs, outcome: null };
+    if (k.done) { r.slackMs = k.finishAt && k.effEnd ? k.effEnd - k.finishAt : null; r.outcome = k.finishAt && k.effEnd ? (k.late ? 'late' : 'ontime') : 'done-nodate'; }
+    else if (task.status === 'Review') r.outcome = 'review';
+    else if (k.late) { r.outcome = 'overdue'; r.slackMs = k.effEnd - (now || new Date()); }
+    else r.outcome = 'open';
+    return r;
+  }
+  /** Ringkasan KPI kategori Request (per orang penerima). */
+  function requestSummary(tasks, range, now) {
+    now = now || new Date();
+    var from = range && range.from, to = range && range.to;
+    var rows = tasks.filter(isRequest).map(function (t) { return { t: t, e: evaluateRequest(t, now) }; }).filter(function (x) {
+      var ref = x.e.finishAt || x.e.plannedEnd || stamp(x.t.startDate);
+      if (!from && !to) return true;
+      if (!ref) return !from;
+      return (!from || ref >= from) && (!to || ref <= to);
+    });
+    var done = rows.filter(function (x) { return isDone(x.t); });
+    var judged = done.filter(function (x) { return x.e.outcome === 'ontime' || x.e.outcome === 'late'; });
+    var resp = rows.filter(function (x) { return x.e.responseMs !== null; });
+    return { rows: rows, total: rows.length, done: done.length,
+      ontime: judged.filter(function (x) { return x.e.outcome === 'ontime'; }).length, late: judged.filter(function (x) { return x.e.outcome === 'late'; }).length,
+      onTimeRate: judged.length ? judged.filter(function (x) { return x.e.outcome === 'ontime'; }).length / judged.length : null,
+      avgResponseMs: resp.length ? resp.reduce(function (a, x) { return a + x.e.responseMs; }, 0) / resp.length : null,
+      firstPassRate: done.length ? done.filter(function (x) { return !x.e.revisions; }).length / done.length : null,
+      overdue: rows.filter(function (x) { return x.e.outcome === 'overdue'; }).length,
+      waiting: rows.filter(function (x) { return !isDone(x.t) && x.e.outcome !== 'overdue'; }).length };
+  }
+  function stageOf(t) { var n = Number(t && t.stage); return n >= 1 && n <= 9 ? n : (isDone(t) ? 9 : 1); }
+
+  /** Lama jam kerja (ms) di antara a dan b — hanya Senin–Jumat 09:00–18:00 WIB. */
+  function workMs(a, b) {
+    if (!a || !b || b <= a) return 0;
+    var off = WORK.tzOffsetMin * 60000, DAY = 864e5;
+    var A = a.getTime() + off, B = b.getTime() + off, total = 0;
+    for (var d = Math.floor(A / DAY) * DAY; d < B; d += DAY) {
+      if (WORK.days.indexOf(new Date(d).getUTCDay()) < 0) continue;
+      var s = Math.max(A, d + WORK.startH * HOUR), e = Math.min(B, d + WORK.endH * HOUR);
+      if (e > s) total += e - s;
+    }
+    return total;
+  }
+
+  /** Riwayat tahap: [{s: tahap, t: ISO}] diurutkan waktu. */
+  function stageLog(t) {
+    var log = t && t.stageLog;
+    if (typeof log === 'string') { try { log = JSON.parse(log); } catch (e) { log = []; } }
+    return (Array.isArray(log) ? log : []).map(function (x) { return { s: Number(x.s), t: stamp(x.t) }; })
+      .filter(function (x) { return x.t; }).sort(function (a, b) { return a.t - b.t; });
+  }
+
+  /** KPI satu task Artikel: waktu murni = jam kerja (mulai → selesai/sekarang) − jam kerja selama review admin. */
+  function articleKpi(task, now) {
+    now = now || new Date();
+    var s = schedule(task), log = stageLog(task);
+    var assigned = log.length ? log[0].t : (stamp(task.startedAt) || s.start);
+    var clockStart = assigned && s.start ? new Date(Math.max(assigned, s.start)) : (assigned || s.start);
+    var doneAt = isDone(task) ? (stamp(task.doneAt) || (log.length && log[log.length - 1].s === 9 ? log[log.length - 1].t : null)) : null;
+    var endAt = doneAt || now;
+    var reviewMs = 0, perStage = {};
+    log.forEach(function (x, i) {
+      if (REVIEW_STAGES.indexOf(x.s) < 0) return;
+      var a = clockStart && x.t < clockStart ? clockStart : x.t;
+      var b = i + 1 < log.length ? log[i + 1].t : endAt;
+      if (b > endAt) b = endAt;
+      var w = workMs(a, b);
+      reviewMs += w; perStage[x.s] = (perStage[x.s] || 0) + w;
+    });
+    var gross = clockStart ? workMs(clockStart, endAt) : null;
+    var net = gross === null ? null : Math.max(gross - reviewMs, 0);
+    var allowance = s.start && s.end ? workMs(s.start, s.end) : null;
+    return { clockStart: clockStart, doneAt: doneAt, grossMs: gross, reviewMs: reviewMs, reviewByStage: perStage, netMs: net, allowanceMs: allowance,
+      late: net !== null && allowance !== null && net > allowance + GRACE_MS };
+  }
+
+  function at(dateStr, timeStr) {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+    var p = dateStr.split('-').map(Number);
+    var t = String(timeStr || '').split(':').map(Number);
+    var d = new Date(p[0], p[1] - 1, p[2], t[0] || 0, t[1] || 0, 0, 0);
+    return isNaN(d) ? null : d;
+  }
+
+  function stamp(s) { if (!s) return null; var d = new Date(s); return isNaN(d) ? null : d; }
+
+  function schedule(task) {
+    var end = at(task.endDate, task.endTime || DEFAULT_END);
+    if (end && task.leaveDays > 0) end = addWorkdays(end, task.leaveDays);   // deadline mundur sebanyak hari kerja cuti/izin yang disetujui
+    return {
+      start: at(task.startDate, task.startTime || DEFAULT_START),
+      end: end
+    };
+  }
+  function addWorkdays(d, n) {
+    var x = new Date(d.getTime());
+    while (n > 0) { x.setDate(x.getDate() + 1); var w = x.getDay(); if (w !== 0 && w !== 6) n--; }
+    return x;
+  }
+  function ymd(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  /** Tandai task dengan jumlah hari kerja cuti/izin (disetujui) pemiliknya di antara tanggal mulai dan deadline. */
+  function applyLeaves(tasks, leaves) {
+    var by = {};
+    (leaves || []).forEach(function (l) { if (l && l.username && l.from && l.to) (by[l.username] = by[l.username] || []).push(l); });
+    (tasks || []).forEach(function (t) {
+      var ls = by[t.owner], s = t.startDate || t.endDate, e = t.endDate || t.startDate;
+      if (!ls || !/^\d{4}-\d{2}-\d{2}$/.test(String(s)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(e))) { if (t.leaveDays) delete t.leaveDays; return; }
+      var d = at(s, '12:00'), end = at(e, '12:00'), n = 0, guard = 0;
+      while (d && end && d <= end && guard++ < 400) {
+        var w = d.getDay(), key = ymd(d);
+        if (w !== 0 && w !== 6 && ls.some(function (l) { return l.from <= key && key <= l.to; })) n++;
+        d.setDate(d.getDate() + 1);
+      }
+      if (n) t.leaveDays = n; else if (t.leaveDays) delete t.leaveDays;
+    });
+    return tasks;
+  }
+
+  function isDone(t) { return String(t.status).toLowerCase() === 'done'; }
+
+  /** Ringkasan performa satu task. */
+  function evaluate(task, now) {
+    now = now || new Date();
+    if (isArticle(task)) return evaluateArticle(task, now);
+    if (isRequest(task)) return evaluateRequest(task, now);
+    var s = schedule(task);
+    var startedAt = stamp(task.startedAt);
+    var doneAt = stamp(task.doneAt);
+    var reviewAt = stamp(task.reviewAt);
+    // waktu selesai = saat anggota mengajukan review (lama review admin tidak dihitung)
+    var finishAt = doneAt && reviewAt && reviewAt <= doneAt ? reviewAt : doneAt;
+    var actualStart = startedAt || s.start;
+    var planned = s.start && s.end ? Math.max(s.end - s.start, 0) : null;
+    var r = {
+      plannedStart: s.start, plannedEnd: s.end, startedAt: startedAt, doneAt: doneAt, reviewAt: reviewAt, finishAt: finishAt,
+      plannedMs: planned, durationMs: null, slackMs: null, outcome: null
+    };
+    if (isDone(task)) {
+      if (finishAt && actualStart) r.durationMs = Math.max(finishAt - actualStart, 0);
+      if (finishAt && s.end) {
+        r.slackMs = s.end - finishAt; // positif = lebih cepat dari deadline
+        if (finishAt > s.end) r.outcome = 'late';
+        else if (planned && r.durationMs !== null && r.durationMs <= planned * OVERPERFORM_RATIO) r.outcome = 'over';
+        else r.outcome = 'ontime';
+      } else {
+        r.outcome = 'done-nodate';
+      }
+    } else if (task.status === 'Review') {
+      r.outcome = 'review';
+    } else if (s.end && now > s.end && String(task.status) !== 'Recurring') {
+      r.outcome = 'overdue';
+      r.slackMs = s.end - now;
+    } else {
+      r.outcome = 'open';
+    }
+    return r;
+  }
+
+  function evaluateArticle(task, now) {
+    var s = schedule(task), k = articleKpi(task, now);
+    var r = {
+      article: true, stage: stageOf(task), plannedStart: s.start, plannedEnd: s.end, startedAt: k.clockStart, doneAt: k.doneAt, reviewAt: stamp(task.reviewAt),
+      finishAt: k.doneAt, plannedMs: k.allowanceMs, durationMs: null, slackMs: null, reviewMs: k.reviewMs, reviewByStage: k.reviewByStage,
+      netSoFarMs: k.netMs, outcome: null
+    };
+    if (isDone(task)) {
+      r.durationMs = k.netMs;
+      if (k.netMs !== null && k.allowanceMs !== null) {
+        r.slackMs = k.allowanceMs - k.netMs;
+        r.outcome = k.late ? 'late' : (k.netMs <= k.allowanceMs * OVERPERFORM_RATIO ? 'over' : 'ontime');
+      } else r.outcome = 'done-nodate';
+    } else if (task.status === 'Review') r.outcome = 'review';
+    else if (k.late) { r.outcome = 'overdue'; r.slackMs = k.allowanceMs - k.netMs; }
+    else r.outcome = 'open';
+    return r;
+  }
+
+  /** Kelompok tampilan untuk daftar "Task Saya". */
+  function bucket(task, now) {
+    now = now || new Date();
+    if (isDone(task)) return 'done';
+    if (task.status === 'Review') return 'review';
+    var s = schedule(task);
+    if (isArticle(task)) { if (articleKpi(task, now).late) return 'overdue'; }
+    else if (isRequest(task)) { var rk = requestKpi(task, now); if (rk.late) return 'overdue'; if (rk.effEnd) s = { start: s.start, end: rk.effEnd }; }
+    else if (s.end && now > s.end && task.status !== 'Recurring') return 'overdue';
+    if (s.start && s.end && now >= s.start && now <= s.end) return 'today';
+    if (s.end && s.end - now <= 24 * HOUR) return 'today';
+    if (task.status === 'On-Progress') return 'today';
+    if (s.start && s.start > now) return 'upcoming';
+    return 'backlog';
+  }
+
+  /** Daftar notifikasi yang seharusnya sudah muncul saat ini. */
+  function dueNotifications(tasks, opts, now) {
+    now = now || new Date();
+    var reminders = (opts && opts.reminders) || [1440, 60];
+    var out = [];
+    tasks.forEach(function (t) {
+      if (isDone(t) || t.status === 'Recurring' || t.status === 'Review') return;
+      var s = schedule(t);
+      if (s.start && now >= s.start && now - s.start < 6 * HOUR && t.status !== 'On-Progress') {
+        out.push({ key: t.id + '|start|' + s.start.toISOString(), task: t, type: 'start',
+          title: 'Task dimulai sekarang', body: t.task });
+      }
+      if (s.end) {
+        var left = s.end - now;
+        reminders.forEach(function (m) {
+          if (left > 0 && left <= m * 60000) {
+            out.push({ key: t.id + '|due' + m + '|' + s.end.toISOString(), task: t, type: 'due', minutes: m,
+              title: 'Deadline ' + humanDuration(left) + ' lagi', body: t.task });
+          }
+        });
+        if (left <= 0 && -left < 24 * HOUR) {
+          out.push({ key: t.id + '|overdue|' + s.end.toISOString(), task: t, type: 'overdue',
+            title: 'Task melewati deadline', body: t.task });
+        }
+      }
+    });
+    // untuk satu task, cukup satu pengingat deadline (yang paling dekat)
+    var seen = {};
+    return out.sort(function (a, b) {
+      if (a.type === 'due' && b.type === 'due' && a.task.id === b.task.id) return a.minutes - b.minutes;
+      return a.key < b.key ? -1 : 1;
+    }).filter(function (n) {
+      if (n.type !== 'due') return true;
+      var k = n.task.id;
+      if (seen[k]) return false;
+      seen[k] = true; return true;
+    });
+  }
+
+  /** Statistik untuk dashboard. range: {from: Date|null, to: Date|null} */
+  function summarize(tasks, range, now) {
+    now = now || new Date();
+    var from = range && range.from, to = range && range.to;
+    var rows = tasks.map(function (t) { return { t: t, e: evaluate(t, now) }; }).filter(function (x) {
+      if (!from && !to) return true;
+      var ref = x.e.finishAt || x.e.plannedEnd || x.e.plannedStart;
+      if (!ref) return !from; // tanpa tanggal hanya ikut di "Semua waktu"
+      return (!from || ref >= from) && (!to || ref <= to);
+    });
+    var k = { total: rows.length, done: 0, over: 0, ontime: 0, late: 0, overdue: 0, open: 0, review: 0,
+      durSum: 0, durN: 0, slackSum: 0, slackN: 0, revSum: 0, revN: 0 };
+    rows.forEach(function (x) {
+      var o = x.e.outcome;
+      if (isDone(x.t)) k.done++;
+      if (o === 'over') k.over++;
+      else if (o === 'ontime') k.ontime++;
+      else if (o === 'late') k.late++;
+      else if (o === 'overdue') k.overdue++;
+      else if (o === 'open') k.open++;
+      else if (o === 'review') k.review++;
+      if (x.e.durationMs !== null) { k.durSum += x.e.durationMs; k.durN++; }
+      if (isDone(x.t) && x.e.slackMs !== null) { k.slackSum += x.e.slackMs; k.slackN++; }
+      if (x.e.article && isDone(x.t)) { k.revSum += x.e.reviewMs || 0; k.revN++; }
+    });
+    var judged = k.over + k.ontime + k.late;
+    return {
+      rows: rows,
+      total: k.total, done: k.done, over: k.over, ontime: k.ontime, late: k.late,
+      overdue: k.overdue, open: k.open, review: k.review,
+      completionRate: k.total ? k.done / k.total : 0,
+      onTimeRate: judged ? (k.over + k.ontime) / judged : null,
+      avgDurationMs: k.durN ? k.durSum / k.durN : null,
+      avgSlackMs: k.slackN ? k.slackSum / k.slackN : null,
+      articleDone: k.revN, avgReviewMs: k.revN ? k.revSum / k.revN : null
+    };
+  }
+
+  function byPerson(tasks, range, now) {
+    var groups = {};
+    tasks.forEach(function (t) {
+      var key = t.owner || '-';
+      (groups[key] = groups[key] || { owner: key, name: t.ownerName || key, tasks: [] }).tasks.push(t);
+    });
+    return Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      var s = summarize(g.tasks, range, now);
+      s.owner = g.owner; s.name = g.name;
+      return s;
+    });
+  }
+
+  function humanDuration(ms) {
+    if (ms === null || ms === undefined || isNaN(ms)) return '–';
+    var neg = ms < 0; ms = Math.abs(ms);
+    var min = Math.round(ms / 60000), out;
+    if (min < 60) out = min + ' menit';
+    else if (min < 48 * 60) { var h = Math.floor(min / 60), m = min % 60; out = h + ' jam' + (m && h < 10 ? ' ' + m + ' mnt' : ''); }
+    else { var d = Math.floor(min / 1440), hh = Math.round((min % 1440) / 60); out = d + ' hari' + (hh ? ' ' + hh + ' jam' : ''); }
+    return (neg ? '-' : '') + out;
+  }
+
+  /** Durasi jam kerja: 1 hari kerja = 9 jam. */
+  function humanWork(ms) {
+    if (ms === null || ms === undefined || isNaN(ms)) return '–';
+    var neg = ms < 0; ms = Math.abs(ms);
+    var min = Math.round(ms / 60000), dayMin = (WORK.endH - WORK.startH) * 60, out;
+    if (min < 60) out = min + ' menit';
+    else if (min < dayMin) { var h = Math.floor(min / 60), m = min % 60; out = h + ' jam' + (m ? ' ' + m + ' mnt' : ''); }
+    else { var d = Math.floor(min / dayMin), hh = Math.round((min % dayMin) / 60); out = d + ' hari kerja' + (hh ? ' ' + hh + ' jam' : ''); }
+    return (neg ? '-' : '') + out;
+  }
+
+  /** Beban kerja per orang: task aktif (bukan Done/Hold/Recurring), terlambat, dan deadline ≤ 7 hari ke depan. */
+  var WORKLOAD_FULL = 6, WORKLOAD_LIGHT = 1;
+  function workload(tasks, now) {
+    now = now || new Date();
+    var out = {};
+    (tasks || []).forEach(function (t) {
+      if (!t || !t.owner || isDone(t) || t.status === 'Hold' || t.status === 'Recurring') return;
+      var w = out[t.owner] || (out[t.owner] = { owner: t.owner, active: 0, overdue: 0, dueWeek: 0, review: 0 });
+      w.active++;
+      var b = bucket(t, now);
+      if (b === 'overdue') { w.overdue++; return; }
+      if (b === 'review') { w.review++; return; }
+      var e = schedule(t).end;
+      if (e && e - now <= 7 * 24 * HOUR) w.dueWeek++;
+    });
+    Object.keys(out).forEach(function (k) { var w = out[k]; w.level = w.active >= WORKLOAD_FULL ? 'full' : w.active <= WORKLOAD_LIGHT ? 'light' : 'normal'; });
+    return out;
+  }
+  return {
+    WORK: WORK, GRACE_MS: GRACE_MS, STAGES: STAGES, REVIEW_STAGES: REVIEW_STAGES, STAGE_STATUS: STAGE_STATUS,
+    isArticle: isArticle, isRequest: isRequest, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
+    DEFAULT_START: DEFAULT_START, DEFAULT_END: DEFAULT_END, OVERPERFORM_RATIO: OVERPERFORM_RATIO,
+    at: at, schedule: schedule, evaluate: evaluate, bucket: bucket, isDone: isDone,
+    dueNotifications: dueNotifications, summarize: summarize, byPerson: byPerson,
+    humanDuration: humanDuration, workload: workload, applyLeaves: applyLeaves, WORKLOAD_FULL: WORKLOAD_FULL, WORKLOAD_LIGHT: WORKLOAD_LIGHT
+  };
+});
+// ===== AKHIR LOGIKA BERSAMA =====

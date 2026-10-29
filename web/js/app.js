@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.22.5';
+const CSS_VERSION = '2.23.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -270,7 +270,7 @@ function saveCache() {
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
-function resetSession() { S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
+function resetSession() { S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -289,6 +289,7 @@ async function loadData(quiet) {
       mine = S.user.sheetName ? await api.call('myTasks') : { tasks: [], projects: [] };
     }
     S.mine = mine;
+    if (mine && 'onboarding' in mine) S.onboarding = mine.onboarding;
     const fresh = (mine && mine.me) || (all && all.users.find((u) => u.username === S.user.username));
     if (fresh) { S.user = Object.assign(S.user, fresh); renderMe(); }
     if (all) { S.all = all; if (!S.user.sheetName) S.mine.projects = all.projects; }
@@ -327,6 +328,7 @@ function go(view) {
   if (S.view === 'brief' && view !== 'brief' && typeof briefFlush === 'function') briefFlush();
   if (S.view !== view) { const m = $('.main'); if (m) m.scrollTop = 0; window.scrollTo(0, 0); }
   S.view = view;
+  if (view === 'org') onboardMark('org');
   msClose();
   S.charts.forEach((c) => c.destroy()); S.charts = [];
   renderNav();
@@ -399,13 +401,58 @@ function scheduleText(t) {
 }
 
 // ---------- Task Saya ----------
+// ---------- Onboarding anggota baru ----------
+const OB_STEPS = [
+  ['account', 'Ganti password & isi email', 'Email dipakai untuk Google Calendar dan pengingat deadline.', 'settings', 'Buka Pengaturan'],
+  ['wfo', 'Pilih hari WFO', 'Selasa wajib, lalu pilih Senin atau Kamis.', 'schedule', 'Buka Jadwal'],
+  ['guide', 'Baca panduan alur kerja', 'Cara kerja task, artikel, brief, request, dan KPI — 3 menit.', 'guide', 'Baca panduan'],
+  ['org', 'Kenali tim di menu Struktur', 'Siapa atasan Anda dan apa keahlian tiap orang.', 'org', 'Buka Struktur'],
+  ['task', 'Selesaikan task pertama', 'Mulai task, lalu ajukan review saat selesai.', '', '']
+];
+function onboardCard() {
+  const ob = S.onboarding; if (!ob || !ob.steps) return '';
+  const done = OB_STEPS.filter(([k]) => ob.steps[k]).length, all = done === OB_STEPS.length;
+  return `<div class="card ob-card"><div class="ob-head"><div><h2>${all ? 'Semua langkah selesai 🎉' : `Selamat datang, ${esc(firstName(S.user.name))}!`}</h2>
+      <p class="muted small">${all ? 'Anda siap bekerja bersama tim. Panduan tetap bisa dibuka dari Pengaturan.' : `${done} dari ${OB_STEPS.length} langkah awal selesai`}</p></div>
+      ${all ? '<button class="btn primary sm" id="ob-done">Tutup</button>' : '<button class="btn ghost sm" id="ob-skip">Lewati</button>'}</div>
+    <div class="ob-bar"><i style="width:${(done / OB_STEPS.length) * 100}%"></i></div>
+    ${all ? '' : `<ol class="ob-list">${OB_STEPS.map(([k, t, d, to, lbl]) => `<li class="${ob.steps[k] ? 'ok' : ''}"><span class="ob-check" aria-hidden="true">${ob.steps[k] ? '✓' : ''}</span>
+      <div class="ob-txt"><b>${esc(t)}</b><small>${esc(d)}</small></div>${!ob.steps[k] && to ? `<button class="btn sm" data-ob="${to}">${esc(lbl)}</button>` : ''}</li>`).join('')}</ol>`}</div>`;
+}
+function bindOnboard() {
+  $$('[data-ob]').forEach((b) => b.onclick = () => { if (b.dataset.ob === 'guide') guideModal(); else go(b.dataset.ob); });
+  const fin = async () => { S.onboarding = null; softRender(); try { await api.call('onboardStep', { step: 'done' }); } catch (e) { /* abaikan */ } };
+  if ($('#ob-done')) $('#ob-done').onclick = fin;
+  if ($('#ob-skip')) $('#ob-skip').onclick = async () => { if (await confirmBox('Lewati panduan awal?', 'Kartu ini tidak akan muncul lagi. Panduan alur kerja tetap bisa dibuka dari Pengaturan.', 'Lewati')) fin(); };
+}
+function onboardMark(step) {
+  const ob = S.onboarding;
+  if (!ob || !ob.steps || ob.steps[step]) return;
+  ob.steps[step] = true;
+  api.call('onboardStep', { step }).catch(() => {});
+}
+function guideModal() {
+  modal({
+    title: 'Panduan alur kerja', wide: true,
+    body: `<div class="guide">
+      <section><h3>1 · Task biasa</h3><p>Task muncul di <b>Task Saya</b>. Tekan <b>Mulai</b> saat mengerjakan, lampirkan link hasil kerja, lalu ubah status ke <b>Review</b>. Admin memeriksa dan menandai <b>Done</b> — atau mengembalikan dengan catatan revisi.</p></section>
+      <section><h3>2 · Artikel (8 tahap)</h3><p>Ditugaskan → <b>susun brief</b> → review brief → <b>tulis artikel</b> → review artikel → <b>publish</b> → cek ulang dengan AI → review cek AI → selesai. Tombol tahap berikutnya ada di baris task. KPI artikel dihitung dengan jam kerja (Senin–Jumat 09.00–18.00); lama review admin tidak dihitung.</p></section>
+      <section><h3>3 · Brief sosmed & Request</h3><p>Di menu <b>Brief</b>: brief sosmed (carousel/video) bisa dibuat siapa saja lalu ditugaskan ke desainer. <b>Request</b> untuk meminta bantuan rekan — penerima boleh minta klarifikasi dulu (waktunya tidak dihitung), lalu pembuat request yang menyetujui hasilnya.</p></section>
+      <section><h3>4 · Jadwal, cuti & izin</h3><p>Di menu <b>Jadwal</b>: Selasa WFO wajib, pilih Senin atau Kamis; Rabu & Jumat WFH. Perubahan setelah Jumat 17.00 diajukan ke admin. Cuti, sakit, dan izin juga diajukan di sana — deadline task di hari itu otomatis mundur.</p></section>
+      <section><h3>5 · KPI</h3><p><b>Tepat waktu</b>: selesai sebelum deadline. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ 80% waktu rencana. <b>Terlambat</b>: selesai setelah deadline. Lihat performa Anda di <b>Dashboard</b>.</p></section>
+      <section><h3>6 · Pengingat</h3><p>Isi email di <b>Pengaturan</b> agar task masuk Google Calendar, dapat email pengingat 24 jam sebelum deadline, dan ringkasan setiap pagi.</p></section></div>`,
+    actions: '<button class="btn primary" data-close>Mengerti</button>',
+    onMount: () => { onboardMark('guide'); }
+  });
+}
+
 function viewMine() {
   const tasks = S.mine.tasks;
   const b = (k) => tasks.filter((t) => L.bucket(t) === k);
   const weekAgo = new Date(Date.now() - 7 * 864e5);
   const doneWeek = tasks.filter((t) => L.isDone(t) && t.doneAt && new Date(t.doneAt) >= weekAgo).length;
   const f = S.f;
-  $('#view').innerHTML = `${banners()}
+  $('#view').innerHTML = `${onboardCard()}${banners()}
     <div class="tiles">
       ${tile('Hari ini & berjalan', b('today').length, 'deadline ≤ 24 jam atau sedang dikerjakan', css('--info'))}
       ${tile('Terlambat', b('overdue').length, 'lewat deadline, belum done', css('--bad'))}
@@ -417,7 +464,7 @@ function viewMine() {
       <div class="fbar fbar-sm"><label class="fb-search">${FB.search}<input type="search" id="mq" placeholder="Cari task…" value="${esc(f.mineQ)}"></label></div>
     </div>
     <div id="mlist"></div>`;
-  bindBanners();
+  bindBanners(); bindOnboard();
   $$('#mtab button').forEach((x) => x.onclick = () => { f.mineTab = x.dataset.k; viewMine(); });
   $('#mq').oninput = (e) => { f.mineQ = e.target.value; renderMineList(); };
   renderMineList();
@@ -673,6 +720,14 @@ function resultsLine(t, readonly) {
     <div class="t-res">${bc}${list.map((x) => resChip(x)).join('')}${edit ? `<button type="button" class="res-add" data-res="${esc(t.id)}">${has ? fsvg('<path d="M4 20h4L19 9l-4-4L4 16z"/>') + 'Ubah hasil' : fsvg('<path d="M12 5v14M5 12h14"/>') + 'Hasil kerja'}</button>` : ''}</div>`;
 }
 
+const DAY_LONG = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+function repeatLabel(rep, startDate) {
+  const d = L.at(startDate, '12:00');
+  if (rep === 'daily') return 'Tiap hari kerja';
+  if (rep === 'weekly') return d ? 'Tiap ' + DAY_LONG[d.getDay()] : 'Tiap minggu';
+  if (rep === 'monthly') return d ? 'Tiap tgl ' + d.getDate() : 'Tiap bulan';
+  return '';
+}
 function taskRow(t, opts) {
   opts = opts || {};
   const readonly = !!opts.readonly;
@@ -698,6 +753,8 @@ function taskRow(t, opts) {
         ${art ? artStageHtml(t) : ''}
         ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
+        ${t.repeat ? `<span class="t-rep" title="Task berulang — salinan baru dibuat otomatis pukul 06.00">↻ ${esc(repeatLabel(t.repeat, t.startDate))}</span>` : t.repeatOf ? '<span class="t-rep muted" title="Dibuat otomatis dari task berulang">↻ otomatis</span>' : ''}
+        ${t.leaveDays && !done ? `<span class="t-leave" title="Deadline mundur karena cuti/izin yang disetujui">Deadline +${t.leaveDays} hari kerja (cuti)</span>` : ''}
         ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes.split('\n').pop())}</span>` : ''}
       </div>
       ${resultsLine(t, readonly)}
@@ -800,6 +857,31 @@ function periodRange(p) {
   return { from: new Date(now - Number(p) * 864e5), to: null };
 }
 
+function workloadText(w) {
+  if (!w || !w.active) return 'Tidak ada task aktif';
+  const bits = [`${w.active} aktif`];
+  if (w.overdue) bits.push(`${w.overdue} terlambat`);
+  if (w.dueWeek) bits.push(`${w.dueWeek} deadline minggu ini`);
+  return bits.join(' · ') + (w.level === 'full' ? ' · Penuh' : '');
+}
+function workloadCard(users, tasks) {
+  const wl = L.workload(tasks);
+  const rows = users.map((u) => Object.assign({ name: u.name, position: u.position || '' }, wl[u.username] || { owner: u.username, active: 0, overdue: 0, dueWeek: 0, review: 0, level: 'light' }))
+    .sort((a, b) => b.active - a.active || b.overdue - a.overdue || a.name.localeCompare(b.name));
+  if (!rows.length) return '';
+  const max = Math.max(L.WORKLOAD_FULL + 2, ...rows.map((r) => r.active));
+  const seg = (n, cls, label) => n ? `<i class="${cls}" style="width:${(n / max) * 100}%" title="${n} ${label}"></i>` : '';
+  return `<div class="card wl-card"><div class="card-h"><h2>Beban kerja saat ini</h2><div class="legend wl-legend"><span><i class="wl-od"></i>Terlambat</span><span><i class="wl-wk"></i>Deadline ≤ 7 hari</span><span><i class="wl-rv"></i>Menunggu review</span><span><i class="wl-ot"></i>Lainnya</span></div></div>
+    <div class="card-b wl-list">${rows.map((r) => `<div class="wl-row">
+      <span class="avatar">${initials(r.name)}</span>
+      <div class="wl-who"><b>${esc(r.name)}</b><small>${esc(r.position)}</small></div>
+      <div class="wl-bar" role="img" aria-label="${esc(r.name)}: ${esc(workloadText(r))}">${seg(r.overdue, 'wl-od', 'terlambat')}${seg(r.dueWeek, 'wl-wk', 'deadline ≤ 7 hari')}${seg(r.review, 'wl-rv', 'menunggu review')}${seg(r.active - r.overdue - r.dueWeek - r.review, 'wl-ot', 'lainnya')}<span class="wl-cap" style="left:${(L.WORKLOAD_FULL / max) * 100}%" title="Batas penuh (${L.WORKLOAD_FULL} task)"></span></div>
+      <div class="wl-n"><b>${r.active}</b> aktif</div>
+      <div class="wl-tag">${r.level === 'full' ? '<span class="chip bad">Penuh</span>' : r.level === 'light' ? '<span class="chip good">Longgar</span>' : ''}</div>
+    </div>`).join('')}</div>
+    <p class="wl-foot muted small">Task aktif = belum Done, tidak Hold/Rutin. Penuh ≥ ${L.WORKLOAD_FULL} task, longgar ≤ ${L.WORKLOAD_LIGHT}.</p></div>`;
+}
+
 function viewDashboard() {
   const admin = S.user.role === 'admin' && S.all;
   const f = S.f;
@@ -842,6 +924,7 @@ function viewDashboard() {
         <div class="card-b"><div class="chart-box"><canvas id="c1" aria-label="grafik"></canvas></div></div></div>
       <div class="card"><div class="card-h"><h2>Distribusi hasil</h2></div><div class="card-b" id="dist"></div></div>
     </div>
+    ${admin && team ? workloadCard(users.filter((u) => u.active && (!f.persons.length || f.persons.includes(u.username))), admin ? S.all.tasks : []) : ''}
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
     ${requestKpiCard(reqTasks, range, team)}
     <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="hist"></div></div>
@@ -1124,7 +1207,7 @@ function formPick(root) {
     const users = (S.all && S.all.users) || (S.team && (S.team.org || S.team.users)) || [];
     const items = () => Array.from(sel.options).filter((o) => o.value || !sel.required).map((o) => {
       const it = { value: o.value, label: o.value ? o.textContent.split(' — ')[0] : o.textContent };
-      if (kind === 'person' && o.value) { const u = users.find((x) => x.username === o.value); it.avatar = true; it.sub = (u && u.position) || o.textContent.split(' — ')[1] || ''; if (u && u.name) it.label = u.name; }
+      if (kind === 'person' && o.value) { const u = users.find((x) => x.username === o.value); it.avatar = true; it.sub = o.dataset.sub || (u && u.position) || o.textContent.split(' — ')[1] || ''; if (u && u.name) it.label = u.name; if (o.dataset.load) it.load = o.dataset.load; }
       if (kind === 'project' && o.value) { it.code = o.value; it.label = o.textContent.replace(/^[^—]*—\s*/, '') || o.value; }
       if (kind === 'plain' && o.dataset.dot) it.dot = o.dataset.dot;
       return it;
@@ -1442,7 +1525,7 @@ function renderTaskTable() {
       ${pick(t)}
       <div>
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
-        <div class="task-title">${prettyTitle(t.task)}</div>
+        <div class="task-title">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</div>
         <div class="task-meta">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
         ${resultsLine(t, true)}
       </div>
@@ -1452,7 +1535,7 @@ function renderTaskTable() {
     ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}">
       <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
-      <td class="clip" title="${esc(t.task)}">${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
+      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
       <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
       <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</td></tr>`; }).join('')}
@@ -1491,12 +1574,13 @@ function taskModal(t, prefill) {
   t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '18:00', priority: 'Medium', status: 'Backlog' };
   if (edit && !t.id) return toast('Task ini belum punya Task ID. Jalankan menu Setup di spreadsheet.', true);
   const people = all.users.filter((u) => u.sheetName && u.active);
+  const wl = L.workload(all.tasks);
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label || v)}</option>`;
   modal({
     title: edit ? 'Edit task' : 'Task baru', wide: true,
     body: `<form id="tf">
       <div class="grid2">
-        <label class="field"><span>Penanggung jawab *</span><select name="owner" required data-pick="person"><option value="">Pilih…</option>${people.map((u) => opt(u.username, t.owner, u.name)).join('')}</select></label>
+        <label class="field"><span>Penanggung jawab *</span><select name="owner" required data-pick="person"><option value="">Pilih…</option>${people.map((u) => { const w = wl[u.username], txt = workloadText(w); return `<option value="${esc(u.username)}" ${u.username === t.owner ? 'selected' : ''} data-sub="${esc(txt)}" data-load="${w ? w.level : 'light'}">${esc(u.name)}</option>`; }).join('')}</select></label>
         <label class="field"><span>Project</span><select name="code" data-pick="project"><option value="">— tanpa project —</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
       </div>
       <label class="field"><span>Nama task / URL *</span><textarea name="task" rows="2" required>${esc(t.task || '')}</textarea></label>
@@ -1514,6 +1598,12 @@ function taskModal(t, prefill) {
         <label class="field ${L.isArticle(t) ? 'hidden' : ''}" id="tf-status"><span>Status</span><select name="status" data-pick="plain">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
         <label class="field ${L.isArticle(t) && edit ? '' : 'hidden'}" id="tf-stage"><span>Tahap (koreksi admin)</span><select name="stage" data-pick="plain">${L.STAGES.slice(1).map((n, i) => `<option value="${i + 1}" ${L.stageOf(t) === i + 1 ? 'selected' : ''}>${i + 1} · ${esc(n)}</option>`).join('')}</select></label>
       </div>
+      <div class="field tf-rep"><span>Ulangi otomatis</span><select name="repeat" data-pick="plain">
+        <option value="" ${!t.repeat ? 'selected' : ''}>Tidak diulang</option>
+        <option value="daily" ${t.repeat === 'daily' ? 'selected' : ''}>Setiap hari kerja</option>
+        <option value="weekly" ${t.repeat === 'weekly' ? 'selected' : ''}>Setiap minggu</option>
+        <option value="monthly" ${t.repeat === 'monthly' ? 'selected' : ''}>Setiap bulan</option></select>
+        <small class="muted" id="tf-rep-hint"></small></div>
       <label class="field"><span>Catatan</span><textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>
       <label class="field"><span>Keterangan hasil (dari anggota)</span><textarea name="resultNote" rows="2" maxlength="2000">${esc(t.resultNote || '')}</textarea></label>
       <label class="field"><span>Link hasil kerja — satu link per baris, boleh diberi nama: <code>Nama | URL</code></span><textarea name="results" rows="2" placeholder="Brief konten | https://docs.google.com/document/d/…">${esc(resultsOf(t).map((x) => x.label ? x.label + ' | ' + x.url : x.url).join('\n'))}</textarea></label>
@@ -1523,6 +1613,14 @@ function taskModal(t, prefill) {
       formPick(m);
       const f = $('#tf', m);
       f.startDate.addEventListener('change', () => { if (!f.endDate.value) f.endDate.value = f.startDate.value; });
+      const repHint = () => {
+        const r = f.repeat.value, el = $('#tf-rep-hint', m);
+        if (!r) { el.textContent = ''; return; }
+        if (!f.startDate.value) { el.textContent = 'Isi tanggal mulai dulu — pola pengulangan mengikuti tanggal mulai.'; return; }
+        const span = f.endDate.value && f.startDate.value ? Math.max(0, Math.round((L.at(f.endDate.value, '12:00') - L.at(f.startDate.value, '12:00')) / 864e5)) : 0;
+        el.textContent = `${repeatLabel(r, f.startDate.value)} pukul 06.00 dibuat salinan task ini (status Backlog${r !== 'daily' && span ? `, deadline +${span} hari` : ', deadline di hari yang sama'}). Ubah status jadi Hold untuk menjeda.`;
+      };
+      f.repeat.addEventListener('change', repHint); f.startDate.addEventListener('change', repHint); f.endDate.addEventListener('change', repHint); repHint();
       let type = taskType(t);
       $$('#tf-type button', m).forEach((b) => b.onclick = () => {
         type = b.dataset.type;
@@ -1534,6 +1632,8 @@ function taskModal(t, prefill) {
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
         const data = Object.fromEntries(new FormData(f).entries());
+        if (data.repeat && !data.startDate) { $('#terr', m).innerHTML = '<div class="error">Task berulang butuh tanggal mulai.</div>'; return; }
+        if (data.repeat && type === 'Artikel') { $('#terr', m).innerHTML = '<div class="error">Task artikel tidak bisa diulang otomatis — tiap artikel punya brief sendiri.</div>'; return; }
         const s = L.at(data.startDate, data.startTime), e = L.at(data.endDate, data.endTime);
         if (s && e && e < s) { $('#terr', m).innerHTML = '<div class="error">Deadline tidak boleh sebelum waktu mulai.</div>'; return; }
         if (edit) data.id = t.id;
@@ -1916,12 +2016,17 @@ function viewSettings() {
         <span class="tp-prev tp-${k}"><i></i><i></i><i></i></span><span class="tp-lbl">${ic}${l}</span></button>`).join('')}</div>
     </div></div>
     <div class="card settings-sect"><div class="card-h"><h2>Pasang di perangkat</h2></div><div class="card-b">${install}</div></div>
+    ${S.user.role === 'admin' ? `<div class="card settings-sect"><div class="card-h"><h2>Laporan tim otomatis</h2></div><div class="card-b">
+      <p>Ringkasan KPI tim dikirim ke <b>digmar@linovhr.com</b>: <b>mingguan</b> setiap Senin pagi (minggu sebelumnya) dan <b>bulanan</b> setiap tanggal 1 (bulan sebelumnya). Isinya: tepat waktu, task selesai, overperforming, artikel & request selesai, tabel per orang, siapa yang terlambat, beban penuh, serta cuti/izin.</p>
+      <div class="row" style="flex-wrap:wrap"><button class="btn" data-rep="week">Kirim laporan mingguan sekarang</button><button class="btn" data-rep="month">Kirim laporan bulanan sekarang</button></div>
+      <p class="muted small" style="margin:10px 0 0">Tombol di atas untuk mencoba; jadwal otomatis berjalan sendiri pukul 06.00 bersama pembuatan task berulang.</p>
+    </div></div>` : ''}
     ${S.user.role === 'admin' ? `<div class="card settings-sect"><div class="card-h"><h2>Admin</h2></div><div class="card-b">
       <p>Kelola data tim.</p><div class="row" style="flex-wrap:wrap"><button class="btn" data-go="projects">Project</button><button class="btn" data-go="users">Pengguna</button><button class="btn" data-go="tasks">Semua Task</button></div>
     </div></div>` : ''}
     <div class="card settings-sect"><div class="card-h"><h2>Akun</h2></div><div class="card-b">
       <p>Masuk sebagai <b>${esc(S.user.name)}</b> (${esc(S.user.username)}).</p>
-      <div class="row"><button class="btn" id="cpw">Ganti password</button><button class="btn danger" id="lo">Keluar</button></div>
+      <div class="row" style="flex-wrap:wrap"><button class="btn" id="cpw">Ganti password</button><button class="btn" id="guide">Panduan alur kerja</button><button class="btn danger" id="lo">Keluar</button></div>
     </div></div>
     ${c.apiLocked && !c.demo ? '' : `<div class="card settings-sect"><div class="card-h"><h2>Server</h2></div><div class="card-b">
       <p>${c.demo ? 'Sedang dalam <b>mode demo</b> — data tidak tersimpan ke spreadsheet.' : `Terhubung ke:<br><code class="small" style="word-break:break-all">${esc(c.apiUrl)}</code>`}</p>
@@ -1934,6 +2039,7 @@ function viewSettings() {
     e.preventDefault();
     try {
       const r = await busy($('#ef button'), () => api.call('setMyEmail', { email: e.target.email.value.trim() }));
+      if (S.onboarding && S.onboarding.steps) S.onboarding.steps.account = true;
       S.user = Object.assign(S.user, r.user);
       toast(S.cfg.demo ? 'Email disimpan (mode demo)' : 'Email disimpan — task akan muncul di Google Calendar dalam beberapa menit');
     } catch (err) { /* toast sudah tampil */ }
@@ -1946,6 +2052,11 @@ function viewSettings() {
   $('#tn').onclick = async () => { const ok = await api.testNotification(); S.cfg = await api.config(); if (!ok) toast('Notifikasi tidak diizinkan atau tidak didukung browser ini', true); };
   if ($('#inst')) $('#inst').onclick = async () => { await api.install(); S.cfg = await api.config(); viewSettings(); };
   $('#lo').onclick = async () => { clearCaches(); await api.logout(); S.user = null; resetSession(); S.cfg = await api.config(); showLogin(); };
+  $('#guide').onclick = () => guideModal();
+  $$('[data-rep]').forEach((b) => b.onclick = async () => {
+    try { const r = await busy(b, () => api.call('sendReport', { kind: b.dataset.rep })); toast(`Laporan ${b.dataset.rep === 'month' ? 'bulanan' : 'mingguan'} (${r.period}) terkirim ke ${r.to}`); }
+    catch (e) { /* busy menampilkan pesan */ }
+  });
   if ($('#srv')) $('#srv').onclick = async () => {
     await api.logout();
     if (c.demo) await api.setConfig({ demo: false });

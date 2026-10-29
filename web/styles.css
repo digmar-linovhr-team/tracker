@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.22.5"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.23.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1068,7 +1068,7 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 }
 .sch-grid.one { grid-template-columns: minmax(0, 1fr); }
 
-/* ---------- Form pengguna (2.22.5) ---------- */
+/* ---------- Form pengguna (2.23.0) ---------- */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .modal-uf { width: 600px; }
 .modal-uf .modal-b { padding: 4px 0 0; }
@@ -1117,7 +1117,7 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
   .uf-sec, .uf-who { padding-left: 16px; padding-right: 16px; }
 }
 
-/* ---------- Daftar pengguna (2.22.5) ---------- */
+/* ---------- Daftar pengguna (2.23.0) ---------- */
 .ul { padding: 0; overflow: hidden; }
 .ul-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.6fr) minmax(0, 1.1fr) 180px; align-items: center; gap: 16px; padding: 13px 18px; }
 .ul-row + .ul-row { border-top: 1px solid var(--border); }
@@ -1160,3 +1160,60 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 #udel-ok:disabled { opacity: .45; cursor: not-allowed; }
 .udel .banner { margin-bottom: 12px; }
 .udel p { margin: 0 0 12px; }
+
+/* ---------- Beban kerja (2.23.0) ---------- */
+.wl-card { margin-bottom: 12px; }
+.wl-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.wl-od { background: var(--bad); } .wl-wk { background: var(--warn); } .wl-rv { background: var(--review); } .wl-ot { background: var(--info); }
+.wl-list { padding-top: 4px; }
+.wl-row { display: grid; grid-template-columns: 30px minmax(110px, 190px) minmax(0, 1fr) 72px 74px; align-items: center; gap: 12px; padding: 8px 0; }
+.wl-row + .wl-row { border-top: 1px solid var(--border); }
+.wl-row .avatar { width: 30px; height: 30px; font-size: 11px; }
+.wl-who { min-width: 0; display: flex; flex-direction: column; }
+.wl-who b { font-size: 13.5px; } .wl-who small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wl-bar { position: relative; height: 12px; border-radius: 6px; background: var(--surface-2); display: flex; overflow: visible; }
+.wl-bar > i { display: block; height: 100%; }
+.wl-bar > i:first-child { border-radius: 6px 0 0 6px; }
+.wl-bar > i:last-of-type { border-radius: 0 6px 6px 0; }
+.wl-bar > i:only-of-type { border-radius: 6px; }
+.wl-bar > i + i { box-shadow: inset 2px 0 0 var(--surface); }
+.wl-cap { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed var(--line-strong); }
+.wl-n { font-size: 12.5px; color: var(--text-2); text-align: right; } .wl-n b { font-size: 15px; color: var(--text); }
+.wl-tag { text-align: right; }
+.wl-foot { margin: 4px 16px 14px; }
+@media (max-width: 640px) {
+  .wl-row { grid-template-columns: 30px minmax(0, 1fr) auto; grid-template-areas: "av who n" "bar bar tag"; row-gap: 6px; }
+  .wl-row .avatar { grid-area: av; } .wl-who { grid-area: who; } .wl-n { grid-area: n; } .wl-bar { grid-area: bar; } .wl-tag { grid-area: tag; }
+}
+
+/* ---------- Cuti & izin, task berulang (2.23.0) ---------- */
+.sch-chip.lv.cuti { background: var(--info-soft, #e6f0f8); color: var(--info); }
+.sch-chip.lv.sakit { background: var(--bad-soft); color: var(--bad); }
+.sch-chip.lv.izin { background: var(--warn-soft); color: var(--warn); }
+.lv-row { align-items: center; }
+.lv-row > .sch-chip { flex: none; min-width: 48px; text-align: center; }
+.t-rep { font-size: 11.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.t-rep.muted { color: var(--muted); background: var(--surface-2); }
+.t-leave { font-size: 11.5px; font-weight: 600; color: var(--info); white-space: nowrap; }
+.tf-rep small { display: block; margin-top: 5px; line-height: 1.45; }
+.lv-row .sch-req-main { flex: 1; }
+
+/* ---------- Onboarding (2.23.0) ---------- */
+.ob-card { margin-bottom: 14px; padding: 18px 20px; border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.ob-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ob-head h2 { margin: 0; font-size: 17px; }
+.ob-head p { margin: 3px 0 0; }
+.ob-bar { height: 6px; border-radius: 3px; background: var(--surface-2); margin: 12px 0 6px; overflow: hidden; }
+.ob-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s; }
+.ob-list { list-style: none; margin: 0; padding: 0; }
+.ob-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.ob-list li:first-child { border-top: 0; }
+.ob-check { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line-strong); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; color: #fff; }
+.ob-list li.ok .ob-check { background: var(--good); border-color: var(--good); }
+.ob-list li.ok .ob-txt b { color: var(--muted); text-decoration: line-through; font-weight: 500; }
+.ob-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ob-txt b { font-size: 14px; } .ob-txt small { font-size: 12.5px; color: var(--muted); }
+.guide section + section { margin-top: 14px; }
+.guide h3 { margin: 0 0 4px; font-size: 14.5px; }
+.guide p { margin: 0; line-height: 1.6; color: var(--text-2); }
+.t-rep-ic { color: var(--accent); font-weight: 700; }

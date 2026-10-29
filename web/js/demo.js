@@ -199,7 +199,11 @@ function build() {
   put(prevW, 'ammar', ['tue'], 'request');   // minggu lalu hanya 1 hari → minggu ini wajib 3
   put(wk0, 'wisnu', ['thu']);
   const sreqs = [{ id: 'JDDEMO1', username: 'fahmi', week: schAddWk(wk0, 1), kind: 'swap', from: 'tue', to: 'thu', reason: 'Visit klien di luar kota', status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', decidedAt: '', note: '' }];
-  return { projects, tasks, users, briefs, sched, sreqs, holidays: {} };
+  const wd = (n) => iso(schDay(wk0, SCH_D[n]));
+  const leaves = [{ id: 'CTDEMO1', username: 'nadia', kind: 'Sakit', from: wd(2), to: wd(2), reason: 'Demam', status: 'Disetujui', createdAt: new Date().toISOString(), decidedBy: 'admin', note: '' },
+    { id: 'CTDEMO2', username: 'ammar', kind: 'Cuti', from: iso(schDay(schAddWk(wk0, 1), 'thu')), to: iso(schDay(schAddWk(wk0, 1), 'fri')), reason: 'Acara keluarga di kampung', status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', note: '' }];
+  users.forEach((u) => { if (u.username === 'winona') u.onboard = 'pending'; });
+  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves };
 }
 // ---------- jadwal kerja (meniru server) ----------
 const SCH_D = ['mon', 'tue', 'wed', 'thu', 'fri'], SCH_W = ['mon', 'tue', 'thu'], SCH_N = { mon: 'Senin', tue: 'Selasa', wed: 'Rabu', thu: 'Kamis', fri: 'Jumat' };
@@ -222,15 +226,24 @@ function schPlan(s, u, w) {
   return { days, required: debt ? 3 : 2, exempt: false, chosen, source, debt, holidays: hol };
 }
 function schPeople(s) { return s.users.filter((u) => u.active && !u.orgOnly && u.sheetName); }
+function schLeave(s, un, w) {
+  const out = {};
+  (s.leaves || []).filter((l) => l.username === un && l.status === 'Disetujui').forEach((l) => SCH_D.forEach((c) => { const d = iso(schDay(w, c)); if (l.from <= d && d <= l.to) out[c] = l.kind; }));
+  return out;
+}
+function okLeaves(s) { return (s.leaves || []).filter((l) => l.status === 'Disetujui'); }
+function withLv(s, tasks) { if (root.PTLogic) root.PTLogic.applyLeaves(tasks, okLeaves(s)); return tasks; }
 function schWeekData(s, w) {
   const plans = {}, count = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0 };
-  schPeople(s).forEach((u) => { const p = schPlan(s, u, w); plans[u.username] = p; if (!p.exempt) p.days.forEach((d) => { if (!p.holidays.includes(d)) count[d]++; }); });
+  schPeople(s).forEach((u) => { const p = schPlan(s, u, w); p.leave = schLeave(s, u.username, w); plans[u.username] = p; if (!p.exempt) p.days.forEach((d) => { if (!p.holidays.includes(d) && !p.leave[d]) count[d]++; }); });
   return { week: w, lockAt: schLock(w).toISOString(), locked: new Date() >= schLock(w), days: SCH_D.map((c) => ({ code: c, date: iso(schDay(w, c)), holiday: s.holidays[iso(schDay(w, c))] || '' })), plans, count };
 }
 function schData(s, me, w) {
   const cur = schWeekOf(new Date()); w = w ? schWeekOf(new Date(w + 'T00:00:00')) : cur;
   return { today: iso(new Date()), currentWeek: cur, weeks: [schWeekData(s, w), schWeekData(s, schAddWk(w, 1))], holidays: Object.assign({}, s.holidays),
     requests: s.sreqs.filter((r) => me.role === 'admin' || r.username === me.username || r.status === 'Menunggu'),
+    leaves: (s.leaves || []).filter((l) => l.status === 'Menunggu' || l.status === 'Disetujui' || l.username === me.username).filter((l) => me.role === 'admin' || l.username === me.username || l.status === 'Disetujui')
+      .map((l) => { const o = Object.assign({}, l); if (me.role !== 'admin' && l.username !== me.username) delete o.reason; return o; }),
     people: schPeople(s).map((u) => ({ username: u.username, name: u.name, position: u.position || '', exempt: !!u.wfoExempt })) };
 }
 const REQ_TS = { Konfirmasi: 'Backlog', Klarifikasi: 'Backlog', Dikerjakan: 'On-Progress', Dikembalikan: 'On-Progress', Diajukan: 'Review', Selesai: 'Done' };
@@ -374,10 +387,44 @@ function handle(action, b, session) {
     case 'me': return me;
     case 'changePassword': return { user: me };
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
-    case 'myTasks': return { tasks: s.tasks.filter((t) => t.owner === me.username), projects: s.projects, me, briefs: briefSums(s) };
+    case 'myTasks': {
+      const mt = withLv(s, s.tasks.filter((t) => t.owner === me.username));
+      let onboarding = null;
+      if (me.onboard && me.onboard !== 'done') {
+        const man = (me.onboard.split(':')[1] || '').split(',');
+        onboarding = { steps: { account: !!me.email, wfo: !!me.wfoExempt || Object.keys(s.sched).some((k) => k.split('|')[1] === me.username), guide: man.includes('guide'), org: man.includes('org'),
+          task: mt.some((t) => t.status === 'Done' || t.status === 'Review') } };
+      }
+      return { tasks: mt, projects: s.projects, me, briefs: briefSums(s), onboarding };
+    }
+    case 'onboardStep': {
+      if (!me.onboard || me.onboard === 'done') return { onboard: me.onboard || '' };
+      if (b.step === 'done') me.onboard = 'done';
+      else if (['guide', 'org'].includes(b.step)) { const man = (me.onboard.split(':')[1] || '').split(',').filter(Boolean); if (!man.includes(b.step)) man.push(b.step); me.onboard = 'pending:' + man.join(','); }
+      else throw new Error('Langkah tidak dikenal');
+      return { onboard: me.onboard };
+    }
+    case 'leaveRequest': {
+      const q = b.leave || {}, kinds = ['Cuti', 'Sakit', 'Izin'];
+      if (!kinds.includes(q.kind)) throw new Error('Pilih jenis: Cuti, Sakit, atau Izin.');
+      const from = q.from, to = q.to || q.from;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) throw new Error('Tanggal tidak valid');
+      if (to < from) throw new Error('Tanggal selesai tidak boleh sebelum tanggal mulai.');
+      const un = me.role === 'admin' && q.username ? q.username : me.username, direct = me.role === 'admin';
+      if (me.role !== 'admin' && q.kind === 'Cuti' && to < iso(new Date())) throw new Error('Cuti tidak bisa diajukan untuk tanggal yang sudah lewat. Untuk sakit/izin mendadak, pilih jenis Sakit atau Izin.');
+      const clash = s.leaves.find((l) => l.username === un && ['Menunggu', 'Disetujui'].includes(l.status) && l.from <= to && from <= l.to);
+      if (clash) throw new Error('Sudah ada ' + clash.kind.toLowerCase() + ' ' + clash.from + (clash.to !== clash.from ? ' s.d. ' + clash.to : '') + ' (' + clash.status.toLowerCase() + ') yang bertabrakan.');
+      s.leaves.push({ id: 'CTDEMO' + Date.now(), username: un, kind: q.kind, from, to, reason: String(q.reason || '').trim(), status: direct ? 'Disetujui' : 'Menunggu', createdAt: new Date().toISOString(), decidedBy: direct ? me.username : '', note: '' });
+      return schData(s, me, schWeekOf(new Date(from + 'T00:00:00')));
+    }
+    case 'leaveCancel': {
+      const l = s.leaves.find((x) => x.id === b.id); if (!l) throw new Error('Pengajuan tidak ditemukan.');
+      if (me.role !== 'admin' && (l.username !== me.username || l.status !== 'Menunggu')) throw new Error('Hanya pengajuan Anda yang masih menunggu yang bisa dibatalkan.');
+      l.status = 'Dibatalkan'; return schData(s, me, schWeekOf(new Date(l.from + 'T00:00:00')));
+    }
     case 'briefs': return { briefs: briefSums(s) };
     case 'getBrief': { const b0 = s.briefs.find((x) => x.id === b.briefId); if (!b0) throw new Error('Brief tidak ditemukan'); return { brief: b0 }; }
-    case 'teamTasks': return { tasks: s.tasks, users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s),
+    case 'teamTasks': return { tasks: withLv(s, s.tasks), users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s),
       org: s.users.filter((u) => u.active).map((u) => ({ username: u.username, name: u.name, position: u.position || '', reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, hasTasks: !!u.sheetName, role: u.role })) };
     case 'setMySkills': me.skills = String(b.skills || '').trim().slice(0, 120); return { user: me };
     case 'saveBrief': {
@@ -491,7 +538,7 @@ function handle(action, b, session) {
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {
-    case 'getAll': return { tasks: s.tasks, projects: s.projects, users: s.users, notifications: true, briefs: briefSums(s),
+    case 'getAll': return { tasks: withLv(s, s.tasks), projects: s.projects, users: s.users, notifications: true, briefs: briefSums(s),
       statuses: ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'], priorities: ['High', 'Medium', 'Low'] };
     case 'bulkSetType': {
       const out = [], failed = [];
@@ -569,6 +616,13 @@ function handle(action, b, session) {
       s.users.push(nu); return u.orgOnly ? { user: nu } : { user: nu, password: 'demo' };
     }
     case 'resetPassword': return { password: 'demo' };
+    case 'leaveDecide': {
+      const l = s.leaves.find((x) => x.id === b.id); if (!l) throw new Error('Pengajuan tidak ditemukan.');
+      if (l.status !== 'Menunggu') throw new Error('Pengajuan ini sudah diputuskan.');
+      l.status = b.decision === 'approve' ? 'Disetujui' : 'Ditolak'; l.decidedBy = me.username; l.note = b.note || '';
+      return schData(s, me, schWeekOf(new Date(l.from + 'T00:00:00')));
+    }
+    case 'sendReport': return { to: 'digmar@linovhr.com', subject: '(mode demo) ' + (b.kind === 'month' ? 'Laporan bulanan tim' : 'Laporan mingguan tim'), period: 'demo' };
     case 'deleteUser': {
       const u = s.users.find((x) => x.username === b.username);
       if (!u) throw new Error('Pengguna tidak ditemukan');

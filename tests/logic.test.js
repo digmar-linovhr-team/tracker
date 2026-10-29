@@ -130,4 +130,26 @@ it('task non-artikel tetap memakai cara hitung lama', () => {
   assert.strictEqual(e.article, undefined); assert.strictEqual(e.outcome, 'late');
 });
 
+it('beban kerja: aktif tanpa Done/Hold/Recurring, terlambat & deadline 7 hari, penuh ≥ 6', () => {
+  const now = D(27, 10);
+  const mk = (o) => t(Object.assign({ owner: 'a', status: 'Backlog', startDate: '2026-10-27', endDate: '2026-11-20' }, o));
+  const list = [mk({ status: 'Done' }), mk({ status: 'Hold' }), mk({ status: 'Recurring' }), mk({ endDate: '2026-10-26' }), mk({ endDate: '2026-10-29' }), mk({ status: 'Review' }), mk({}),
+    mk({ owner: 'b' })];
+  const w = L.workload(list, now);
+  assert.strictEqual(w.a.active, 4); assert.strictEqual(w.a.overdue, 1); assert.strictEqual(w.a.dueWeek, 1); assert.strictEqual(w.a.review, 1);
+  assert.strictEqual(w.a.level, 'normal'); assert.strictEqual(w.b.level, 'light');
+  const many = Array.from({ length: 6 }, () => mk({ owner: 'c' }));
+  assert.strictEqual(L.workload(many, now).c.level, 'full');
+});
+
+it('cuti/izin: deadline mundur sebanyak hari kerja cuti di rentang task', () => {
+  const task = t({ owner: 'a', status: 'Done', startDate: '2026-10-26', endDate: '2026-10-28', doneAt: D(30, 12).toISOString(), startedAt: D(26, 9).toISOString() });
+  assert.strictEqual(L.evaluate(task, D(30, 13)).outcome, 'late');
+  L.applyLeaves([task], [{ username: 'a', from: '2026-10-27', to: '2026-10-28' }, { username: 'b', from: '2026-10-26', to: '2026-10-30' }]);
+  assert.strictEqual(task.leaveDays, 2);
+  assert.strictEqual(L.schedule(task).end.getDate(), 30, 'Rabu + 2 hari kerja = Jumat');
+  assert.notStrictEqual(L.evaluate(task, D(30, 13)).outcome, 'late');
+  L.applyLeaves([task], []); assert.strictEqual(task.leaveDays, undefined);
+});
+
 console.log(`\n${pass} uji lulus`);

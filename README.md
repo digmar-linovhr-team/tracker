@@ -144,3 +144,11 @@ TZ=Asia/Jakarta node tests/backend.test.js # backend dengan simulasi Sheets/Cale
 ## Batasan
 - Kuota gratis Apps Script (Workspace): ±1.500 email/hari dan ribuan event Calendar/hari — jauh di atas kebutuhan tim ±20 orang. Respons tiap aksi biasanya 1–3 detik.
 - Jangan mengubah nama header kolom, nama tab orang (tersimpan di kolom *Sheet Name* tab Users), atau kolom *Task ID*/*Cal …*. Urutan kolom boleh diubah.
+
+## Beban kerja, task berulang, cuti & izin, laporan, onboarding (v2.23 · Code.gs v21)
+
+- **Beban kerja** — kartu di Dashboard admin + info "N aktif · M deadline minggu ini" saat memilih penanggung jawab. Penuh ≥ 6 task aktif (bukan Done/Hold/Rutin), longgar ≤ 1.
+- **Task berulang** — pilihan *Ulangi otomatis* di form task: setiap hari kerja / minggu (hari yang sama dengan tanggal mulai) / bulan (tanggal yang sama). Pemicu `runDailyJobs` (06.00, dipasang otomatis saat admin membuka aplikasi) membuat salinan berstatus Backlog. Status Hold = dijeda. Kolom `Repeat`, `Repeat Of`.
+- **Cuti, sakit & izin** — menu Jadwal, tab `Cuti`, tanpa batas jumlah. Anggota mengajukan → admin menyetujui (admin juga bisa mencatat langsung). Hari yang disetujui tidak dihitung di kuota kantor dan deadline task di rentang itu mundur sesuai hari kerjanya (`leaveDays`).
+- **Laporan** — email ke `CFG.REPORT_TO` (digmar@linovhr.com): mingguan tiap Senin, bulanan tiap tanggal 1. Tombol uji di Pengaturan. Hitungan KPI memakai salinan `web/js/logic.js` di akhir Code.gs — jalankan `node tools/embed-logic.js` setiap kali logic.js berubah (tes backend memeriksanya).
+- **Onboarding** — akun baru (kolom Users `Onboard` = `pending`) melihat checklist 5 langkah di Task Saya; panduan alur kerja juga bisa dibuka dari Pengaturan.

@@ -133,10 +133,35 @@
   function stamp(s) { if (!s) return null; var d = new Date(s); return isNaN(d) ? null : d; }
 
   function schedule(task) {
+    var end = at(task.endDate, task.endTime || DEFAULT_END);
+    if (end && task.leaveDays > 0) end = addWorkdays(end, task.leaveDays);   // deadline mundur sebanyak hari kerja cuti/izin yang disetujui
     return {
       start: at(task.startDate, task.startTime || DEFAULT_START),
-      end: at(task.endDate, task.endTime || DEFAULT_END)
+      end: end
     };
+  }
+  function addWorkdays(d, n) {
+    var x = new Date(d.getTime());
+    while (n > 0) { x.setDate(x.getDate() + 1); var w = x.getDay(); if (w !== 0 && w !== 6) n--; }
+    return x;
+  }
+  function ymd(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  /** Tandai task dengan jumlah hari kerja cuti/izin (disetujui) pemiliknya di antara tanggal mulai dan deadline. */
+  function applyLeaves(tasks, leaves) {
+    var by = {};
+    (leaves || []).forEach(function (l) { if (l && l.username && l.from && l.to) (by[l.username] = by[l.username] || []).push(l); });
+    (tasks || []).forEach(function (t) {
+      var ls = by[t.owner], s = t.startDate || t.endDate, e = t.endDate || t.startDate;
+      if (!ls || !/^\d{4}-\d{2}-\d{2}$/.test(String(s)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(e))) { if (t.leaveDays) delete t.leaveDays; return; }
+      var d = at(s, '12:00'), end = at(e, '12:00'), n = 0, guard = 0;
+      while (d && end && d <= end && guard++ < 400) {
+        var w = d.getDay(), key = ymd(d);
+        if (w !== 0 && w !== 6 && ls.some(function (l) { return l.from <= key && key <= l.to; })) n++;
+        d.setDate(d.getDate() + 1);
+      }
+      if (n) t.leaveDays = n; else if (t.leaveDays) delete t.leaveDays;
+    });
+    return tasks;
   }
 
   function isDone(t) { return String(t.status).toLowerCase() === 'done'; }
@@ -326,12 +351,30 @@
     return (neg ? '-' : '') + out;
   }
 
+  /** Beban kerja per orang: task aktif (bukan Done/Hold/Recurring), terlambat, dan deadline ≤ 7 hari ke depan. */
+  var WORKLOAD_FULL = 6, WORKLOAD_LIGHT = 1;
+  function workload(tasks, now) {
+    now = now || new Date();
+    var out = {};
+    (tasks || []).forEach(function (t) {
+      if (!t || !t.owner || isDone(t) || t.status === 'Hold' || t.status === 'Recurring') return;
+      var w = out[t.owner] || (out[t.owner] = { owner: t.owner, active: 0, overdue: 0, dueWeek: 0, review: 0 });
+      w.active++;
+      var b = bucket(t, now);
+      if (b === 'overdue') { w.overdue++; return; }
+      if (b === 'review') { w.review++; return; }
+      var e = schedule(t).end;
+      if (e && e - now <= 7 * 24 * HOUR) w.dueWeek++;
+    });
+    Object.keys(out).forEach(function (k) { var w = out[k]; w.level = w.active >= WORKLOAD_FULL ? 'full' : w.active <= WORKLOAD_LIGHT ? 'light' : 'normal'; });
+    return out;
+  }
   return {
     WORK: WORK, GRACE_MS: GRACE_MS, STAGES: STAGES, REVIEW_STAGES: REVIEW_STAGES, STAGE_STATUS: STAGE_STATUS,
     isArticle: isArticle, isRequest: isRequest, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
     DEFAULT_START: DEFAULT_START, DEFAULT_END: DEFAULT_END, OVERPERFORM_RATIO: OVERPERFORM_RATIO,
     at: at, schedule: schedule, evaluate: evaluate, bucket: bucket, isDone: isDone,
     dueNotifications: dueNotifications, summarize: summarize, byPerson: byPerson,
-    humanDuration: humanDuration
+    humanDuration: humanDuration, workload: workload, applyLeaves: applyLeaves, WORKLOAD_FULL: WORKLOAD_FULL, WORKLOAD_LIGHT: WORKLOAD_LIGHT
   };
 });
