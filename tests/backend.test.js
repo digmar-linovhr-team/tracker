@@ -358,6 +358,27 @@ it('Result: anggota menambah link hasil kerja, terbaca & ikut di email review', 
   assert.ok(post({ action: 'setResults', token: admin, taskId: t.id, results: [] }).ok);
 });
 
+it('Result Note: keterangan hasil dari anggota, terpisah dari Catatan admin', () => {
+  const t = post({ action: 'saveTask', token: admin, task: { owner: 'ari', task: 'Artikel reimbursement', startDate: '2026-10-28', endDate: '2026-10-30', status: 'On-Progress', notes: 'Fokus keyword reimbursement karyawan' } }).data;
+  let r = post({ action: 'setResults', token: ari, taskId: t.id, results: [], note: 'Sudah tambah meta & 3 internal link' });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.task.resultNote, 'Sudah tambah meta & 3 internal link');
+  assert.strictEqual(r.data.task.notes, 'Fokus keyword reimbursement karyawan', 'Catatan admin tidak berubah');
+  // tanpa field note → keterangan tidak terhapus
+  r = post({ action: 'setResults', token: ari, taskId: t.id, results: [{ url: 'https://docs.google.com/document/d/x' }] });
+  assert.strictEqual(r.data.task.resultNote, 'Sudah tambah meta & 3 internal link');
+  // teks diawali "=" tidak menjadi rumus
+  r = post({ action: 'setResults', token: ari, taskId: t.id, results: [], note: '=IMPORTXML("x")' });
+  assert.strictEqual(r.data.task.resultNote, '=IMPORTXML("x")');
+  assert.strictEqual(post({ action: 'setResults', token: ari, taskId: t.id, results: [], note: 'x'.repeat(2001) }).ok, false);
+  // muncul di email review
+  post({ action: 'setResults', token: ari, taskId: t.id, results: [], note: 'Siap direview, cek bagian FAQ' });
+  post({ action: 'updateStatus', token: ari, taskId: t.id, status: 'Review' });
+  mails.length = 0; sandbox.runReminders();
+  const m = mails.find((x) => x.subject.includes('menunggu review'));
+  assert.ok(m && m.htmlBody.includes('Siap direview, cek bagian FAQ'));
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

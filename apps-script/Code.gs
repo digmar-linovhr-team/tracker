@@ -27,7 +27,7 @@ var CFG = {
 
 var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
-  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result'];
+  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result', 'Result Note'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
@@ -168,7 +168,7 @@ function route_(b) {
     case 'myTasks': return { tasks: me.sheetName ? readTasksOf_(me) : [], projects: readProjects_(), me: publicUser_(me) };
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
     case 'setMyEmail': return setMyEmail_(me, b.email);
-    case 'setResults': return setResults_(me, b.taskId, b.results);
+    case 'setResults': return setResults_(me, b.taskId, b.results, b.note);
     case 'teamTasks': return teamTasks_();
   }
 
@@ -486,7 +486,8 @@ function rowTask_(r, disp, col, sh, user, row) {
     doneAt: normStamp_(g('done at')),
     reviewAt: normStamp_(g('review at')),
     notes: String(g('notes') || ''),
-    results: parseResults_(g('result'))
+    results: parseResults_(g('result')),
+    resultNote: String(g('result note') || '').replace(/^'(?=[=+\-@])/, '')
   };
 }
 
@@ -568,6 +569,7 @@ function saveTask_(me, t) {
       'notes': t.notes || ''
     };
     if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
+    if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
     var id = t.id;
     if (obj.status === 'Review' && !t.reviewAt) obj['review at'] = new Date();
     if (id) {
@@ -577,6 +579,7 @@ function saveTask_(me, t) {
         obj['started at'] = loc.sheet.getRange(loc.row, loc.col['started at'] + 1).getValue();
         obj['done at'] = loc.sheet.getRange(loc.row, loc.col['done at'] + 1).getValue();
         if (obj['result'] === undefined && loc.col['result'] !== undefined) obj['result'] = loc.sheet.getRange(loc.row, loc.col['result'] + 1).getValue();
+        if (obj['result note'] === undefined && loc.col['result note'] !== undefined) obj['result note'] = loc.sheet.getRange(loc.row, loc.col['result note'] + 1).getValue();
         obj['task id'] = id;
         trashRowEvents_(loc.sheet, loc.row);
         loc.sheet.deleteRow(loc.row);
@@ -635,9 +638,16 @@ function serializeResults_(list) {
   return out.join('\n');
 }
 
-/** Pemilik task (atau admin) mengatur link hasil kerja. Anggota tidak bisa mengubah task yang sudah Done. */
-function setResults_(me, taskId, results) {
+function cleanNote_(v) {
+  v = String(v || '').replace(/\r\n/g, '\n').trim();
+  if (v.length > 2000) throw new Error('Keterangan hasil maksimal 2000 karakter');
+  return /^[=+\-@]/.test(v) ? "'" + v : v;   // cegah dibaca sebagai rumus di Sheets
+}
+
+/** Pemilik task (atau admin) mengatur link & keterangan hasil kerja. Anggota tidak bisa mengubah task yang sudah Done. */
+function setResults_(me, taskId, results, note) {
   var value = serializeResults_(results || []);
+  var noteVal = note === undefined || note === null ? undefined : cleanNote_(note);
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var loc = locateTask_(me, taskId), sh = loc.sheet, row = loc.row;
@@ -645,16 +655,19 @@ function setResults_(me, taskId, results) {
     var col = colMap_(sh);
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     if (me.role !== 'admin' && String(r[col['status']]).trim() === 'Done') throw new Error('Task ini sudah disetujui admin, link tidak bisa diubah lagi.');
-    writeObj_(sh, row, { 'result': value });
-    r[col['result']] = value;
+    var ch = { 'result': value };
+    if (noteVal !== undefined) ch['result note'] = noteVal;
+    writeObj_(sh, row, ch);
+    Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
     log_(me, 'results', taskId, (results || []).length + ' link');
     return { task: rowTask_(r, null, col, sh, loc.user, row) };
   } finally { lock.releaseLock(); }
 }
 
 function resultsHtml_(t) {
-  if (!t.results || !t.results.length) return '';
-  return '<div style="margin-top:6px;font-size:13px">' + t.results.map(function (x) {
+  var note = t.resultNote ? '<div style="margin-top:6px;font-size:13px;color:#545a61;border-left:3px solid #c9d6e0;padding:2px 0 2px 8px;white-space:pre-wrap">' + esc_(String(t.resultNote).replace(/^'/, '')) + '</div>' : '';
+  if (!t.results || !t.results.length) return note;
+  return note + '<div style="margin-top:6px;font-size:13px">' + t.results.map(function (x) {
     return '<a href="' + esc_(x.url) + '" style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border:1px solid #c9d6e0;border-radius:999px;color:#255473;text-decoration:none">📎 ' + esc_(x.label || resultKind_(x.url)) + '</a>';
   }).join('') + '</div>';
 }

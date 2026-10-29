@@ -40,7 +40,7 @@ function build() {
       id: 'TDEMO' + (++n), owner, ownerName: name, sheet: name, row: n + 1, code, task,
       startDate: sd === null ? '' : iso(addDays(today, sd)), endDate: ed === null ? '' : iso(addDays(today, ed)),
       startRaw: '', endRaw: '', startTime: st, endTime: et, status, priority: 'Medium',
-      startedAt: '', doneAt: '', reviewAt: '', notes: '', results: []
+      startedAt: '', doneAt: '', reviewAt: '', notes: '', results: [], resultNote: ''
     }, extra));
   };
   const stamp = (d, h, m) => addDays(today, d, h, m).toISOString();
@@ -64,7 +64,7 @@ function build() {
   add('fahmi', 'A1', 'https://www.linovhr.com/blog/offboarding/', 0, '09:00', 3, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 5) });
   // Winona
   add('winona', 'A1', 'https://www.linovhr.com/blog/hr-analytics/', -7, '09:00', -4, '17:00', 'Done', { startedAt: stamp(-7, 9, 0), doneAt: stamp(-3, 10, 30) });
-  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Sudah tambah 3 internal link', results: [
+  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Fokus keyword "reimbursement karyawan"', resultNote: 'Sudah tambah meta description dan 3 internal link ke artikel payroll. Gambar ilustrasi ada di folder Drive.', results: [
     { label: 'Draft artikel', url: 'https://docs.google.com/document/d/1demoReimburse/edit' },
     { label: 'Folder gambar', url: 'https://drive.google.com/drive/folders/1demoImg' }] });
   // Dany
@@ -73,7 +73,7 @@ function build() {
   add('dany', 'A5', 'Page Solusi — Mining', 0, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 10) });
   // Arya
   add('arya', 'A3', 'NavBar — struktur menu & mega menu', -2, '09:00', 0, '17:00', 'Done', { startedAt: stamp(-2, 9, 0), doneAt: stamp(-1, 13, 0) });
-  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString(), results: [
+  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString(), resultNote: 'Tracking 25 keyword utama sudah jalan; rekap mingguan ada di Slides.', results: [
     { label: 'Dashboard AIO', url: 'https://docs.google.com/spreadsheets/d/1demoAIO/edit' },
     { label: 'Slides laporan', url: 'https://docs.google.com/presentation/d/1demoSlides/edit' },
     { label: '', url: 'https://lookerstudio.google.com/reporting/demo' }] });
@@ -118,6 +118,7 @@ function handle(action, b, session) {
       if (list.some((x) => !/^https?:\/\/\S+$/i.test(x.url))) throw new Error('Link harus diawali http:// atau https://');
       if (list.length > 10) throw new Error('Maksimal 10 link per task');
       t.results = list.map((x) => ({ label: String(x.label || '').slice(0, 80), url: x.url }));
+      if (b.note !== undefined) { if (String(b.note).length > 2000) throw new Error('Keterangan hasil maksimal 2000 karakter'); t.resultNote = String(b.note); }
       return { task: t };
     }
     case 'updateStatus': {

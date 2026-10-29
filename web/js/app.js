@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.10.0';
+const CSS_VERSION = '2.10.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -541,6 +541,8 @@ function resultsModal(t, opts) {
   modal({
     title: 'Hasil kerja',
     body: `<p class="muted small" style="margin:0 0 12px">${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</p>
+      <label class="field"><span>Keterangan hasil</span><textarea id="res-note" rows="3" maxlength="2000" placeholder="mis. Sudah tambah meta description dan 3 internal link. Gambar ada di folder Drive.">${esc(t.resultNote || '')}</textarea></label>
+      <div class="res-sect-h">Link dokumen</div>
       <div id="res-list">${listHtml()}</div>
       <div class="res-add-form">
         <label class="field"><span>Link</span><input type="url" id="res-url" placeholder="https://docs.google.com/document/d/…" autocomplete="off"></label>
@@ -569,42 +571,42 @@ function resultsModal(t, opts) {
       [url, lbl].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }));
       $('#res-addbtn', m).onclick = add;
       draw();
-      url.focus();
+      (opts.focusUrl ? url : $('#res-note', m)).focus();
       $('#res-save', m).onclick = () => {
         if (url.value.trim() && add() === null) return;   // link yang masih di kolom ikut disimpan
         close();
-        saveResults(t.id, items.map((x) => ({ label: x.label.trim(), url: x.url })), opts.thenReview);
+        saveResults(t.id, items.map((x) => ({ label: x.label.trim(), url: x.url })), $('#res-note', m).value.trim(), opts.thenReview);
       };
     }
   });
 }
 
-async function saveResults(id, results, thenReview) {
+async function saveResults(id, results, note, thenReview) {
   const t = findTask(id);
   if (!t) return;
-  const before = resultsOf(t).slice();
-  patchTask(id, { results });
+  const before = { results: resultsOf(t).slice(), resultNote: t.resultNote || '' };
+  patchTask(id, { results, resultNote: note });
   S.pending.add(id); softRender();
-  if (!thenReview) toast(results.length ? `${results.length} link hasil kerja disimpan` : 'Link hasil kerja dihapus');
+  if (!thenReview) toast('Hasil kerja disimpan');
   try {
-    const r = await api.call('setResults', { taskId: id, results });
-    if (r && r.task) patchTask(id, { results: r.task.results });
+    const r = await api.call('setResults', { taskId: id, results, note });
+    if (r && r.task) patchTask(id, { results: r.task.results, resultNote: r.task.resultNote });
     S.pending.delete(id); saveCache(); softRender();
     if (thenReview) setStatus(id, 'Review');
   } catch (e) {
     S.pending.delete(id); patchTask(id, before); softRender();
-    toast('Gagal menyimpan link: ' + cleanErr(e), true);
+    toast('Gagal menyimpan hasil kerja: ' + cleanErr(e), true);
   }
 }
 
 /** Anggota mengajukan review: ingatkan bila belum ada link (tidak wajib). */
 function askReview(id) {
   const t = findTask(id);
-  if (!t || resultsOf(t).length || S.user.role === 'admin') return setStatus(id, 'Review');
+  if (!t || resultsOf(t).length || (t.resultNote || '').trim() || S.user.role === 'admin') return setStatus(id, 'Review');
   modal({
     title: 'Ajukan review',
-    body: '<p style="margin-top:0">Task ini belum punya link hasil kerja. Tambahkan supaya admin bisa langsung mengecek.</p><p class="muted small" style="margin-bottom:0">Tidak wajib — lewati bila task ini memang tidak punya dokumen.</p>',
-    actions: '<button class="btn" id="rv-skip">Ajukan tanpa link</button><button class="btn primary" id="rv-add">Tambah link</button>',
+    body: '<p style="margin-top:0">Task ini belum punya keterangan maupun link hasil kerja. Tambahkan supaya admin bisa langsung mengecek.</p><p class="muted small" style="margin-bottom:0">Tidak wajib — lewati bila tidak diperlukan.</p>',
+    actions: '<button class="btn" id="rv-skip">Ajukan langsung</button><button class="btn primary" id="rv-add">Isi hasil kerja</button>',
     onMount: (m, close) => {
       $('#rv-skip', m).onclick = () => { close(); setStatus(id, 'Review'); };
       $('#rv-add', m).onclick = () => { close(); resultsModal(t, { thenReview: true }); };
@@ -613,9 +615,11 @@ function askReview(id) {
 }
 
 function resultsLine(t, readonly) {
-  const list = resultsOf(t), edit = !readonly && canEditResults(t);
-  if (!list.length && !edit) return '';
-  return `<div class="t-res">${list.map((x) => resChip(x)).join('')}${edit ? `<button type="button" class="res-add" data-res="${esc(t.id)}">${list.length ? fsvg('<path d="M4 20h4L19 9l-4-4L4 16z"/>') + 'Ubah' : fsvg('<path d="M12 5v14M5 12h14"/>') + 'Link hasil'}</button>` : ''}</div>`;
+  const list = resultsOf(t), note = (t.resultNote || '').trim(), edit = !readonly && canEditResults(t);
+  if (!list.length && !note && !edit) return '';
+  const has = list.length || note;
+  return `${note ? `<div class="t-rnote" title="${esc(note)}"><b>Hasil:</b> ${esc(note.replace(/\s*\n\s*/g, ' · '))}</div>` : ''}
+    <div class="t-res">${list.map((x) => resChip(x)).join('')}${edit ? `<button type="button" class="res-add" data-res="${esc(t.id)}">${has ? fsvg('<path d="M4 20h4L19 9l-4-4L4 16z"/>') + 'Ubah hasil' : fsvg('<path d="M12 5v14M5 12h14"/>') + 'Hasil kerja'}</button>` : ''}</div>`;
 }
 
 function taskRow(t, opts) {
@@ -1115,7 +1119,9 @@ function viewReview() {
         <div class="t-title">${prettyTitle(t.task)}</div>
         <div class="t-sub">${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
-        <div class="rv-res"><span class="rv-res-h">Hasil kerja</span>${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : '<span class="muted small">Tidak ada link</span>'}</div>
+        <div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
+          ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
+          <div class="rv-res">${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div></div>
       </div>
       <div class="t-when ${late ? 'w-warn' : 'w-good'}">
         <b>${late ? 'Lewat deadline' : 'Tepat waktu'}</b>
@@ -1199,9 +1205,10 @@ function viewTasks() {
 }
 
 function resCell(t) {
-  const list = resultsOf(t);
-  if (!list.length) return '<span class="muted">–</span>';
-  return `<span class="res-cell">${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
+  const list = resultsOf(t), note = (t.resultNote || '').trim();
+  const noteIco = note ? `<span class="res-chip compact" title="${esc('Keterangan hasil: ' + note)}"><span class="res-ico" style="color:var(--text-2)">${RES_ICO.form}</span></span>` : '';
+  if (!list.length) return note ? `<span class="res-cell">${noteIco}</span>` : '<span class="muted">–</span>';
+  return `<span class="res-cell">${noteIco}${list.slice(0, 3).map((x) => resChip(x, true)).join('')}${list.length > 3 ? `<span class="ms-more" title="${esc(list.slice(3).map((x) => x.label || x.url).join('\n'))}">+${list.length - 3}</span>` : ''}</span>`;
 }
 
 function renderTaskTable() {
@@ -1219,7 +1226,7 @@ function renderTaskTable() {
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
         <div class="task-title">${prettyTitle(t.task)}</div>
         <div class="task-meta">${statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
-        ${resultsOf(t).length ? `<div class="t-res">${resultsOf(t).map((x) => resChip(x)).join('')}</div>` : ''}
+        ${resultsLine(t, true)}
       </div>
       <div class="task-actions"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></div>
     </div>`).join('');
@@ -1271,7 +1278,8 @@ function taskModal(t) {
         <label class="field"><span>Status</span><select name="status">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
       </div>
       <label class="field"><span>Catatan</span><textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>
-      <label class="field"><span>Hasil kerja — satu link per baris, boleh diberi nama: <code>Nama | URL</code></span><textarea name="results" rows="2" placeholder="Brief konten | https://docs.google.com/document/d/…">${esc(resultsOf(t).map((x) => x.label ? x.label + ' | ' + x.url : x.url).join('\n'))}</textarea></label>
+      <label class="field"><span>Keterangan hasil (dari anggota)</span><textarea name="resultNote" rows="2" maxlength="2000">${esc(t.resultNote || '')}</textarea></label>
+      <label class="field"><span>Link hasil kerja — satu link per baris, boleh diberi nama: <code>Nama | URL</code></span><textarea name="results" rows="2" placeholder="Brief konten | https://docs.google.com/document/d/…">${esc(resultsOf(t).map((x) => x.label ? x.label + ' | ' + x.url : x.url).join('\n'))}</textarea></label>
       <div id="terr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">${edit ? 'Simpan' : 'Buat task'}</button>`,
     onMount: (m, close) => {
