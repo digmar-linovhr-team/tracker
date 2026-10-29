@@ -36,7 +36,7 @@ var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
 var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Status', 'Keyword', 'Title',
-  'Data', 'Doc URL', 'Created At', 'Updated At', 'Updated By'];
+  'Data', 'Doc URL', 'Created At', 'Updated At', 'Updated By', 'Status At'];
 
 // Cache sederhana per eksekusi: tab Users & peta kolom cukup dibaca sekali per permintaan.
 var MEMO_ = { users: null, cols: {} };
@@ -147,7 +147,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 12 });
+  return json_({ ok: true, app: 'project-tracker', version: 13 });
 }
 
 function doPost(e) {
@@ -184,6 +184,7 @@ function route_(b) {
     case 'briefs': return { briefs: cachedBriefs_() };
     case 'getBrief': return { brief: findBrief_(b.briefId).brief };
     case 'saveBrief': return saveBrief_(me, b.brief);
+    case 'saveSocialBrief': return saveSocialBrief_(me, b.brief);
     case 'deleteBrief': return deleteBrief_(me, b.briefId);
     case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
@@ -636,7 +637,7 @@ function rowTask_(r, disp, col, sh, user, row) {
     notes: String(g('notes') || ''),
     results: parseResults_(g('result')),
     resultNote: String(g('result note') || '').replace(/^'(?=[=+\-@])/, ''),
-    type: /artikel/i.test(String(g('type') || '')) && !/non/i.test(String(g('type') || '')) ? 'Artikel' : 'Non-artikel',
+    type: typeName_(g('type')),
     stage: Number(g('stage')) || 0,
     liveUrl: String(g('live url') || ''), aiCheckUrl: String(g('ai check url') || ''),
     stageLog: parseStageLog_(g('stage log'))
@@ -714,8 +715,9 @@ function updateStatus_(me, taskId, status) {
     log_(me, 'status', taskId, prev + ' → ' + status);
     // Calendar diperbarui oleh trigger berkala (perubahan terdeteksi otomatis), supaya simpan tetap cepat.
     var task = rowTask_(r, null, col, sh, loc.user, row);
+    var brief = task.type === 'Sosmed' ? mirrorSocialBrief_(taskId, status, me) : null;
     queueProjectSync_([task.code]);
-    return { task: task };
+    return brief ? { task: task, brief: brief } : { task: task };
   } finally { lock.releaseLock(); }
 }
 
@@ -742,7 +744,7 @@ function saveTask_(me, t) {
     if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
     var article = t.type === 'Artikel';
-    if (t.type !== undefined) obj['type'] = article ? 'Artikel' : 'Non-artikel';
+    if (t.type !== undefined) obj['type'] = article ? 'Artikel' : t.type === 'Sosmed' ? 'Sosmed' : 'Non-artikel';
     var wantStage = article && Number(t.stage) >= 1 && Number(t.stage) <= 9 ? Number(t.stage) : 0;
     if (article) delete obj.status;   // status task artikel mengikuti tahap
     var id = t.id;
@@ -786,6 +788,7 @@ function saveTask_(me, t) {
       if (wantStage && wantStage !== cur) setStage_(target, savedRow, rr, tc, owner, me, wantStage);
     }
     var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
+    if (saved && saved.type === 'Sosmed' && t.id) mirrorSocialBrief_(id, saved.status, me);
     queueProjectSync_([obj.code, oldCode]);
     return { id: id, task: saved };
   } finally { lock.releaseLock(); }
@@ -875,6 +878,11 @@ var STAGE_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Revi
 var REVIEW_NEXT = { 3: 4, 5: 6, 8: 9 }, REVIEW_BACK = { 3: 2, 5: 4, 8: 7 };
 var REVIEW_LABEL = { 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' };
 
+function typeName_(v) {
+  v = String(v || '');
+  return /sosmed|social/i.test(v) ? 'Sosmed' : /artikel/i.test(v) && !/non/i.test(v) ? 'Artikel' : 'Non-artikel';
+}
+function isSocialRow_(r, col) { return col['type'] !== undefined && typeName_(r[col['type']]) === 'Sosmed'; }
 function isArticleRow_(r, col) {
   var v = col['type'] === undefined ? '' : String(r[col['type']] || '');
   return /artikel/i.test(v) && !/non/i.test(v);
@@ -920,6 +928,7 @@ function setBriefStatus_(taskId, status) {
 function bulkSetType_(me, ids, type) {
   if (!Array.isArray(ids) || !ids.length) throw new Error('Pilih minimal satu task');
   if (ids.length > 300) throw new Error('Maksimal 300 task sekali ubah');
+  if (['Artikel', 'Non-artikel', 'Sosmed'].indexOf(type) < 0) throw new Error('Jenis task tidak valid');
   var article = type === 'Artikel';
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
@@ -929,9 +938,9 @@ function bulkSetType_(me, ids, type) {
         var loc = locateTask_(me, id), sh = loc.sheet;
         ensureHeaders_(sh, TASK_HEADERS);
         var col = colMap_(sh), r = sh.getRange(loc.row, 1, 1, sh.getLastColumn()).getValues()[0];
-        if (isArticleRow_(r, col) === article) { out.push(rowTask_(r, null, col, sh, loc.user, loc.row)); return; }
-        writeObj_(sh, loc.row, { 'type': article ? 'Artikel' : 'Non-artikel' });
-        r[col['type']] = article ? 'Artikel' : 'Non-artikel';
+        if (typeName_(r[col['type']]) === type) { out.push(rowTask_(r, null, col, sh, loc.user, loc.row)); return; }
+        writeObj_(sh, loc.row, { 'type': type });
+        r[col['type']] = type;
         var task;
         if (article && !(Number(r[col['stage']]) > 0)) {
           var st = String(r[col['status']]).trim();
@@ -940,7 +949,7 @@ function bulkSetType_(me, ids, type) {
         out.push(task);
       } catch (e) { failed.push(id); }
     });
-    log_(me, 'bulk-type', '', out.length + ' task → ' + (article ? 'Artikel' : 'Non-artikel'));
+    log_(me, 'bulk-type', '', out.length + ' task → ' + type);
     return { tasks: out, failed: failed };
   } finally { lock.releaseLock(); }
 }
@@ -1022,8 +1031,13 @@ function reviewTask_(me, taskId, decision, reason) {
         });
       } catch (e) { /* email tidak boleh menggagalkan keputusan */ }
     }
+    var brief = null;
+    if (task.type === 'Sosmed') {
+      brief = mirrorSocialBrief_(taskId, task.status, me);
+      if (brief && decision === 'approve') emailSocialDone_(me, brief, task);
+    }
     queueProjectSync_([task.code]);
-    return { task: task };
+    return brief ? { task: task, brief: brief } : { task: task };
   } finally { lock.releaseLock(); }
 }
 
@@ -1656,12 +1670,14 @@ function rowBrief_(r, col, row) {
     keyword: String(g('keyword') || '').replace(/^'(?=[=+\-@])/, ''),
     title: String(g('title') || '').replace(/^'(?=[=+\-@])/, ''),
     data: data, docUrl: String(g('doc url') || ''),
-    createdAt: normStamp_(g('created at')), updatedAt: normStamp_(g('updated at')), updatedBy: String(g('updated by') || '')
+    createdAt: normStamp_(g('created at')), updatedAt: normStamp_(g('updated at')), updatedBy: String(g('updated by') || ''),
+    statusAt: normStamp_(g('status at'))
   };
 }
 
 /** Ringkasan brief untuk daftar (isi lengkap diambil saat brief dibuka). */
 function briefSummary_(b) {
+  if (b.type === 'Sosmed') return socialSummary_(b);
   var d = b.data || {}, filled = function (x) { return String(x == null ? '' : x).trim() !== ''; };
   var nH2 = Array.isArray(d.sections) ? d.sections.filter(function (x) { return x && filled(x.h2); }).length
     : (d.outline || []).filter(function (o) { return o && o.level !== 1 && o.level !== 3 && filled(o.heading); }).length;
@@ -1687,6 +1703,8 @@ function findBrief_(id) {
 /** Admin, atau pemilik task yang terhubung saat ini. */
 function assertBriefEditor_(me, brief) {
   if (me.role === 'admin') return;
+  if (brief.type === 'Sosmed' && brief.createdBy === me.username) return;
+  if (brief.type === 'Sosmed' && !brief.taskId) throw new Error('Hanya pembuat brief dan admin yang bisa mengubah brief ini.');
   try { locateTask_(me, brief.taskId); }
   catch (e) { throw new Error('Hanya pemilik task dan admin yang bisa mengubah brief ini.'); }
 }
@@ -1700,6 +1718,7 @@ function cleanBriefData_(d) {
 
 function saveBrief_(me, b) {
   b = b || {};
+  if (b.type === 'Sosmed') return saveSocialBrief_(me, b);
   var type = BRIEF_TYPES.indexOf(b.type) >= 0 ? b.type : 'Informasional';
   var status = 'Draft';   // status brief diatur oleh tahap task (Diajukan / Disetujui / Dikembalikan)
   var json = cleanBriefData_(b.data || {});
@@ -1724,6 +1743,7 @@ function saveBrief_(me, b) {
     var id = b.id, row;
     if (id) {
       var f = findBrief_(id);
+      if (f.brief.type === 'Sosmed') throw new Error('Brief sosmed disimpan lewat editor brief sosmed.');
       assertBriefEditor_(me, f.brief);
       if (b.baseUpdatedAt && f.brief.updatedAt && b.baseUpdatedAt !== f.brief.updatedAt) {
         throw new Error('Brief ini baru saja diubah oleh ' + (f.brief.updatedBy || 'orang lain') + '. Muat ulang supaya perubahannya tidak tertimpa.');
@@ -1744,6 +1764,8 @@ function saveBrief_(me, b) {
 }
 
 function deleteBrief_(me, id) {
+  var pre = findBrief_(id).brief;
+  if (pre.type === 'Sosmed') return deleteSocialBrief_(me, pre);
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var f = findBrief_(id);
@@ -1766,6 +1788,7 @@ function briefFolder_() {
 
 function exportBriefDoc_(me, id) {
   var f = findBrief_(id), b = f.brief;
+  if (b.type === 'Sosmed') throw new Error('Google Doc hanya untuk brief artikel.');
   assertBriefEditor_(me, b);
   var task = null;
   try { var loc = locateTask_({ role: 'admin' }, b.taskId); task = rowTask_(loc.sheet.getRange(loc.row, 1, 1, loc.sheet.getLastColumn()).getValues()[0], null, loc.col, loc.sheet, loc.user, loc.row); }
@@ -1844,4 +1867,157 @@ function writeBriefDoc_(doc, b, task) {
   });
   head('Extra feature');
   para('Fitur', (d.extras || []).join(', ')); para('Catatan', d.extraNote);
+}
+
+
+// ===================== Brief sosmed =====================
+// Siapa pun boleh membuat. "Tugaskan" membuat task berjenis Sosmed di tab penanggung jawab
+// (alur biasa: Mulai → Ajukan review → admin Setujui = Done). Status brief mengikuti task-nya.
+var SOCIAL_FORMATS = ['Carousel', 'Video'];
+var SOCIAL_STATUS = { 'Backlog': 'Ditugaskan', 'On-Progress': 'Dikerjakan', 'Review': 'Direview', 'Hold': 'Ditunda', 'Done': 'Selesai', 'Recurring': 'Dikerjakan' };
+
+function asAdmin_(me) { return { role: 'admin', username: me.username, name: me.name, sheetName: me.sheetName }; }
+
+function readTaskById_(id) {
+  if (!id) return null;
+  try {
+    var loc = locateTask_({ role: 'admin' }, id);
+    var r = loc.sheet.getRange(loc.row, 1, 1, loc.sheet.getLastColumn()).getValues()[0];
+    return { loc: loc, r: r, task: rowTask_(r, null, loc.col, loc.sheet, loc.user, loc.row) };
+  } catch (e) { return null; }
+}
+
+function socialSummary_(b) {
+  var d = b.data || {}, slides = d.slides || [], scenes = d.scenes || [];
+  var dur = scenes.reduce(function (s, x) { return s + (Number(x && x.dur) || 0); }, 0);
+  var nm = function (u) { var x = u ? findUser_(u) : null; return x ? x.name : (u || ''); };
+  return {
+    id: b.id, row: b.row, taskId: b.taskId, owner: b.owner, createdBy: b.createdBy, type: b.type, status: b.status,
+    keyword: b.keyword, title: b.title, docUrl: '', createdAt: b.createdAt, updatedAt: b.updatedAt, updatedBy: b.updatedBy, statusAt: b.statusAt, summary: true,
+    ownerName: nm(b.owner), createdByName: nm(b.createdBy),
+    data: { format: d.format || 'Carousel', title: d.title || '', platforms: d.platforms || [], sizes: d.sizes || [],
+      nSlides: slides.length, nScenes: scenes.length, dur: dur, assign: d.assign || null }
+  };
+}
+
+/** Status brief sosmed mengikuti status task-nya. Mengembalikan ringkasan brief (atau null). */
+function mirrorSocialBrief_(taskId, status, me) {
+  var f = briefRowOfTask_(taskId);
+  if (!f || f.brief.type !== 'Sosmed') return null;
+  var st = SOCIAL_STATUS[status] || 'Ditugaskan';
+  if (f.brief.status !== st) {
+    var sh = briefSheet_();   // memastikan kolom Status At ada
+    writeObj_(sh, f.row, { 'status': st, 'status at': new Date() });
+    f.brief.status = st; f.brief.statusAt = new Date().toISOString();
+  }
+  return socialSummary_(f.brief);
+}
+
+function saveSocialBrief_(me, b) {
+  b = b || {};
+  var d = b.data || {};
+  var json = cleanBriefData_(d);
+  var format = SOCIAL_FORMATS.indexOf(d.format) >= 0 ? d.format : 'Carousel';
+  var title = String(d.title || '').trim().slice(0, 300);
+  var cur = null;
+  if (b.id) {
+    cur = findBrief_(b.id).brief;
+    if (cur.type !== 'Sosmed') throw new Error('Brief ini bukan brief sosmed');
+    assertBriefEditor_(me, cur);
+    if (b.baseUpdatedAt && cur.updatedAt && b.baseUpdatedAt !== cur.updatedAt) {
+      throw new Error('Brief ini baru saja diubah oleh ' + (cur.updatedBy || 'orang lain') + '. Muat ulang supaya perubahannya tidak tertimpa.');
+    }
+  }
+  var taskId = cur ? cur.taskId : '', ownerName = cur ? cur.owner : '';
+  var ct = taskId ? readTaskById_(taskId) : null;
+  if (ct && ct.task.status === 'Done' && me.role !== 'admin') throw new Error('Konten ini sudah disetujui admin, jadi brief tidak bisa diubah lagi.');
+  var task = ct ? ct.task : null, newOwner = null;
+
+  if (b.assign) {
+    if (me.role !== 'admin' && cur && cur.createdBy !== me.username) throw new Error('Hanya pembuat brief dan admin yang bisa mengubah penugasan.');
+    if (!title) throw new Error('Isi judul konten dulu.');
+    var a = b.assign, owner = findUser_(String(a.owner || '').toLowerCase());
+    if (!owner || !owner.active) throw new Error('Pilih penanggung jawab.');
+    if (!owner.sheetName) throw new Error(owner.name + ' belum punya tab task.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(a.endDate || ''))) throw new Error('Isi deadline.');
+    var base = ct ? ct.task : null;
+    var res = saveTask_(asAdmin_(me), {
+      id: base ? base.id : '', task: safeCell_(title), owner: owner.username, code: String(a.code || '').trim(),
+      startDate: base ? base.startDate : Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd'), endDate: a.endDate,
+      startTime: base ? base.startTime : '09:00', endTime: normTime_(a.endTime) || '18:00',
+      priority: PRIORITIES.indexOf(a.priority) >= 0 ? a.priority : 'Medium',
+      status: base ? base.status : 'Backlog', notes: base ? base.notes : '', type: 'Sosmed'
+    });
+    task = res.task; taskId = res.id; ownerName = owner.username;
+    if (!base || base.owner !== owner.username) newOwner = owner;
+  } else if (ct && title && ct.task.task !== title) {
+    writeObj_(ct.loc.sheet, ct.loc.row, { 'task': safeCell_(title) });   // judul task ikut judul brief
+    task.task = title;
+  }
+
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var brief;
+  try {
+    var sh = briefSheet_(), col = colMap_(sh), now = new Date();
+    var status = task ? (SOCIAL_STATUS[task.status] || 'Ditugaskan') : 'Draft';
+    var obj = { 'task id': taskId, 'owner': ownerName, 'type': 'Sosmed', 'status': status, 'keyword': format,
+      'title': safeCell_(title), 'data': json, 'updated at': now, 'updated by': me.username };
+    if (!cur || cur.status !== status) obj['status at'] = now;
+    var row;
+    if (cur) { row = findBrief_(cur.id).row; writeObj_(sh, row, obj); }
+    else {
+      obj['brief id'] = 'BS' + newId_().replace(/^T/, ''); obj['created by'] = me.username; obj['created at'] = now;
+      row = appendObj_(sh, obj);
+    }
+    brief = rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row);
+  } finally { lock.releaseLock(); }
+  if (!cur) log_(me, 'create-brief', taskId, brief.id + ' sosmed ' + title);
+  if (newOwner) { log_(me, 'assign-social', taskId, brief.id + ' → ' + newOwner.username); emailSocialAssign_(me, newOwner, brief, task); }
+  return { brief: brief, task: task };
+}
+
+function deleteSocialBrief_(me, b) {
+  if (me.role !== 'admin' && b.createdBy !== me.username) throw new Error('Hanya pembuat brief dan admin yang bisa menghapus brief ini.');
+  var ct = readTaskById_(b.taskId), taskDeleted = false;
+  if (ct) {
+    var untouched = ct.task.status === 'Backlog' && !ct.task.startedAt;
+    if (untouched) { deleteTask_(asAdmin_(me), b.taskId); taskDeleted = true; }
+    else if (me.role !== 'admin') throw new Error('Konten ini sudah mulai dikerjakan ' + ct.task.ownerName + '. Minta admin bila brief perlu dihapus.');
+  }
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var f = findBrief_(b.id);
+    f.sheet.deleteRow(f.row);
+    log_(me, 'delete-brief', b.taskId, b.id + (taskDeleted ? ' + task' : ''));
+    return { ok: true, taskDeleted: taskDeleted, taskId: taskDeleted ? b.taskId : '' };
+  } finally { lock.releaseLock(); }
+}
+
+function socialHtml_(b) {
+  var d = b.data || {}, n = d.format === 'Video' ? (d.scenes || []).length + ' scene' : (d.slides || []).length + ' slide';
+  var row = function (k, v) { return v ? '<tr><td style="padding:3px 10px 3px 0;color:#6b6e73">' + k + '</td><td style="padding:3px 0">' + esc_(v) + '</td></tr>' : ''; };
+  return '<table style="font-size:14px;margin:10px 0">' + row('Judul', d.title) + row('Bentuk', (d.format || 'Carousel') + ' · ' + n) +
+    row('Platform', (d.platforms || []).join(', ')) + row('Ukuran', (d.sizes || []).join(', ')) + '</table>';
+}
+
+function emailSocialAssign_(me, owner, brief, task) {
+  if (!owner.email || !owner.active || owner.username === me.username) return;
+  try {
+    MailApp.sendEmail({ to: owner.email, name: 'Project Tracker',
+      subject: '🎨 Brief sosmed baru: ' + shortTitle_(task.task),
+      htmlBody: emailShell_('Halo ' + esc_(owner.name) + ',', esc_(me.name) + ' menugaskan konten sosmed berikut kepada Anda. Detail brief bisa dibuka dari task di Project Tracker.' +
+        socialHtml_(brief) + taskTableHtml_([task])) });
+  } catch (e) { Logger.log('Email tugas sosmed: ' + e); }
+}
+
+/** Setelah admin menyetujui task sosmed: beri tahu pembuat brief. */
+function emailSocialDone_(me, brief, task) {
+  var u = findUser_(brief.createdBy);
+  if (!u || !u.email || !u.active || u.username === me.username) return;
+  try {
+    MailApp.sendEmail({ to: u.email, name: 'Project Tracker',
+      subject: '✅ Konten sosmed selesai: ' + shortTitle_(task.task),
+      htmlBody: emailShell_('Halo ' + esc_(u.name) + ',', 'Konten dari brief Anda sudah dikerjakan ' + esc_(task.ownerName) +
+        ' dan <b>disetujui</b> oleh ' + esc_(me.name) + '.' + resultsHtml_(task) + taskTableHtml_([task], true)) });
+  } catch (e) { Logger.log('Email sosmed selesai: ' + e); }
 }

@@ -4,7 +4,7 @@
   'use strict';
   var CFG = window.PT_CONFIG || {};
   var L = window.PTLogic;
-  var VERSION = '2.17.0';
+  var VERSION = '2.18.0';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
 
@@ -222,6 +222,7 @@
       return r;
     },
     feedTasks: function (tasks) { myTasks = (tasks || []).slice(); checkNotifications(); },
+    notify: function (title, body) { showNotification(title, body, null, 'pt-social', 'briefs'); },
     feedReviews: function (tasks) { var first = !get('reviewBaseline', false); set('reviewBaseline', true); handleReviews(tasks, !first); },
     requestNotifications: async function () {
       if (!notifSupported()) return 'unsupported';

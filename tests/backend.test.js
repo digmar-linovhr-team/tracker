@@ -562,6 +562,71 @@ it('Cache data bacaan: dipakai ulang, langsung diperbarui setelah ada perubahan;
   void a1;
 });
 
+it('Brief sosmed: anggota membuat & menugaskan → task Sosmed di tab orang lain; admin setujui → Done + email pembuat', () => {
+  // wisnu login
+  Object.keys(cache).forEach((k) => { if (/wisnu/i.test(k)) delete cache[k]; });   // buka kunci login dari uji sebelumnya
+  const tmp = post({ action: 'resetPassword', token: admin, username: 'wisnu' }).data.password;
+  let w = post({ action: 'login', username: 'wisnu', password: tmp }).data.token;
+  post({ action: 'changePassword', token: w, oldPassword: tmp, newPassword: 'wisnu12345' });
+  w = post({ action: 'login', username: 'wisnu', password: 'wisnu12345' }).data.token;
+  post({ action: 'setMyEmail', token: w, email: 'wisnu@linovhr.com' });
+  const data = { v: 1, format: 'Carousel', title: '5 Tanda Payroll Perlu Otomatis', platforms: ['Instagram', 'LinkedIn'], sizes: ['4:5 · 1080×1350'],
+    slides: [{ text: 'Cover', visual: 'Ilustrasi HR pusing', refs: ['https://instagram.com/p/x'] }, { text: 'Tanda 1', visual: 'ikon', refs: [] }], scenes: [], caption: 'Caption' };
+  // draft tanpa task
+  let r = post({ action: 'saveSocialBrief', token: ari, brief: { data } });
+  assert.ok(r.ok, r.error);
+  const b0 = r.data.brief;
+  assert.strictEqual(b0.type, 'Sosmed'); assert.strictEqual(b0.status, 'Draft'); assert.strictEqual(b0.taskId, ''); assert.ok(/^BS/.test(b0.id));
+  // orang lain (bukan pembuat) tidak bisa mengubah draft
+  assert.strictEqual(post({ action: 'saveSocialBrief', token: w, brief: { id: b0.id, data } }).ok, false);
+  // tugaskan ke wisnu
+  mails.length = 0;
+  r = post({ action: 'saveSocialBrief', token: ari, brief: { id: b0.id, data, baseUpdatedAt: b0.updatedAt, assign: { owner: 'wisnu', endDate: '2026-11-06', endTime: '15:00', priority: 'High' } } });
+  assert.ok(r.ok, r.error);
+  const task = r.data.task;
+  assert.strictEqual(task.owner, 'wisnu'); assert.strictEqual(task.type, 'Sosmed'); assert.strictEqual(task.status, 'Backlog'); assert.strictEqual(task.endTime, '15:00');
+  assert.strictEqual(r.data.brief.status, 'Ditugaskan'); assert.strictEqual(r.data.brief.taskId, task.id); assert.strictEqual(r.data.brief.owner, 'wisnu');
+  assert.ok(mails.some((m) => m.to === 'wisnu@linovhr.com' && m.subject.startsWith('🎨')), 'penanggung jawab diberi tahu');
+  // task muncul di tab wisnu, bukan task artikel
+  const wt = post({ action: 'myTasks', token: w }).data;
+  const mt = wt.tasks.find((x) => x.id === task.id);
+  assert.ok(mt && !mt.stage);
+  const sum = wt.briefs.find((x) => x.id === b0.id);
+  assert.strictEqual(sum.data.nSlides, 2); assert.deepStrictEqual(Array.from(sum.data.platforms), ['Instagram', 'LinkedIn']);
+  // penanggung jawab boleh mengubah isi brief, tapi tidak penugasannya
+  const full = post({ action: 'getBrief', token: w, briefId: b0.id }).data.brief;
+  assert.ok(post({ action: 'saveSocialBrief', token: w, brief: { id: b0.id, data: Object.assign({}, data, { caption: 'Caption baru' }), baseUpdatedAt: full.updatedAt } }).ok);
+  assert.strictEqual(post({ action: 'saveSocialBrief', token: w, brief: { id: b0.id, data, assign: { owner: 'ari', endDate: '2026-11-06' } } }).ok, false);
+  // judul berubah → judul task ikut
+  const f2 = post({ action: 'getBrief', token: ari, briefId: b0.id }).data.brief;
+  assert.ok(post({ action: 'saveSocialBrief', token: ari, brief: { id: b0.id, data: Object.assign({}, f2.data, { title: 'Judul revisi' }), baseUpdatedAt: f2.updatedAt } }).ok);
+  assert.strictEqual(post({ action: 'myTasks', token: w }).data.tasks.find((x) => x.id === task.id).task, 'Judul revisi');
+  // alur biasa: mulai → review → admin setujui
+  r = post({ action: 'updateStatus', token: w, taskId: task.id, status: 'On-Progress' });
+  assert.strictEqual(r.data.brief.status, 'Dikerjakan');
+  post({ action: 'updateStatus', token: w, taskId: task.id, status: 'Review' });
+  mails.length = 0;
+  r = post({ action: 'reviewTask', token: admin, taskId: task.id, decision: 'approve' });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.task.status, 'Done'); assert.strictEqual(r.data.brief.status, 'Selesai'); assert.ok(r.data.brief.statusAt);
+  assert.ok(mails.some((m) => m.to === 'ari@linovhr.com' && m.subject.startsWith('✅ Konten sosmed')), 'pembuat brief diberi tahu');
+  // setelah Done: anggota tidak bisa mengubah lagi, tidak bisa menghapus
+  const f3 = post({ action: 'getBrief', token: ari, briefId: b0.id }).data.brief;
+  assert.strictEqual(post({ action: 'saveSocialBrief', token: ari, brief: { id: b0.id, data: f3.data, baseUpdatedAt: f3.updatedAt } }).ok, false);
+  assert.strictEqual(post({ action: 'deleteBrief', token: ari, briefId: b0.id }).ok, false);
+  // brief baru yang langsung ditugaskan lalu dihapus pembuatnya → task (belum dimulai) ikut terhapus
+  r = post({ action: 'saveSocialBrief', token: ari, brief: { data: Object.assign({}, data, { format: 'Video', title: 'Video tips', slides: [], scenes: [{ visual: 'a', audio: 'b', dur: 5, refs: [] }] }), assign: { owner: 'wisnu', endDate: '2026-11-07' } } });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.endTime, '18:00');
+  const tid = r.data.task.id;
+  const del = post({ action: 'deleteBrief', token: ari, briefId: r.data.brief.id });
+  assert.ok(del.ok && del.data.taskDeleted, del.error);
+  assert.ok(!post({ action: 'myTasks', token: w }).data.tasks.some((x) => x.id === tid));
+  // saveBrief artikel tidak bisa dipakai untuk brief sosmed; jenis task Sosmed bisa diubah lewat bulk
+  assert.strictEqual(post({ action: 'saveBrief', token: admin, brief: { id: b0.id, taskId: task.id, data: {} } }).ok, false);
+  assert.strictEqual(post({ action: 'bulkSetType', token: admin, taskIds: [task.id], type: 'Non-artikel' }).data.tasks[0].type, 'Non-artikel');
+  assert.strictEqual(post({ action: 'bulkSetType', token: admin, taskIds: [task.id], type: 'Sosmed' }).data.tasks[0].type, 'Sosmed');
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.17.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.18.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -797,4 +797,43 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 @media (max-width: 760px) {
   .task:has(> .pick) { grid-template-columns: 20px minmax(0, 1fr); }
   .task:has(> .pick) > .task-actions { grid-column: 2; }
+}
+
+/* ---------- Brief sosmed ---------- */
+.bkind { display: flex; gap: 8px; margin-bottom: 12px; }
+.bkind button { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); font: inherit; font-weight: 500; cursor: pointer; }
+.bkind button svg { width: 16px; height: 16px; }
+.bkind button em { font-style: normal; font-size: 11.5px; font-weight: 700; background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 1px 8px; }
+.bkind button.on { border-color: var(--brand); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.bkind button.on em { background: var(--surface); color: var(--accent); }
+.soc-fmt { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 0 6px; margin-right: 2px; }
+@media (min-width: 761px) { .soc-list .bl-head, .soc-list .bl-row { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 200px 120px; } }
+.extra-in.wide { width: 270px; }
+.soc-list .bl-type small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.bnew { display: block; width: max-content; margin-top: 4px; font-size: 10.5px; font-weight: 700; color: var(--good); }
+.count.good { background: var(--good); }
+.soc-ico { display: inline-flex; vertical-align: -3px; color: var(--accent); margin-right: 4px; }
+.soc-ico svg { width: 16px; height: 16px; }
+.cpick small { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+.cpick.on small { color: var(--accent); opacity: .8; }
+.soc-hint { display: block; margin-top: 7px; }
+.soc-item .sx-h .spacer { flex: 1; }
+.soc-item .sx-h > .muted { font-size: 12px; }
+.soc-dur { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
+.soc-dur input { flex: none !important; order: 1; width: 64px !important; padding: 4px 8px !important; text-align: right; }
+.soc-dur span { order: 2; }
+.soc-cap { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin: -4px 0 12px; }
+.soc-cap .over { color: var(--bad); font-weight: 600; }
+.li-row a.ibtn { display: inline-grid; place-items: center; text-decoration: none; }
+.soc-task { display: flex; align-items: center; gap: 10px; }
+.soc-task > div { display: flex; flex-direction: column; min-width: 0; }
+.soc-task small { color: var(--muted); font-size: 12px; }
+.soc-tst { margin-left: auto; }
+.soc-res { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.soc-act { display: flex; justify-content: flex-end; gap: 8px; }
+.res-chip.brief-chip.soc .res-ico { color: var(--accent); }
+@media (max-width: 760px) {
+  .bkind button { flex: 1; justify-content: center; }
+  .extra-in.wide { width: 100%; }
+  .soc-act .btn { flex: 1; }
 }

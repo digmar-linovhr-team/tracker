@@ -3,7 +3,7 @@
 // Isinya meniru struktur sheet "KPI dan Tracker".
 const people = [
   ['ari', 'Ari'], ['ammar', 'Ammar'], ['fahmi', 'Fahmi'], ['winona', 'Winona'],
-  ['dany', 'Dany'], ['arya', 'Arya'], ['wisnu', 'Wisnu']
+  ['dany', 'Dany'], ['arya', 'Arya'], ['wisnu', 'Wisnu'], ['nadia', 'Nadia']
 ];
 
 function iso(d) {
@@ -82,17 +82,23 @@ function build() {
   add('wisnu', 'A6', 'Discuss dengan Koh Yos terkait competitor Lawencon + report', -2, '09:00', 0, '12:00', 'Backlog', { priority: 'High' });
   add('wisnu', 'B3', 'Skema FAQ untuk semua landing page LinovHR', 1, '09:00', 1, '18:00', 'Backlog', { priority: 'High' });
   add('wisnu', 'A2', 'Riset tools AIO tracking', -9, '09:00', -6, '18:00', 'Done', { startedAt: stamp(-9, 9, 0), doneAt: stamp(-5, 11, 0) });
+  // Nadia (desain) — task sosmed dari brief
+  add('nadia', '', '5 Tanda Payroll Kamu Perlu Otomatis', -1, '09:00', 2, '18:00', 'On-Progress', { type: 'Sosmed', startedAt: stamp(-1, 10, 0), priority: 'High' });
+  add('nadia', '', 'Tips onboarding karyawan baru dalam 30 detik', -3, '09:00', 0, '18:00', 'Review', { type: 'Sosmed', startedAt: stamp(-3, 9, 30), reviewAt: new Date(Date.now() - 90 * 60000).toISOString(),
+    resultNote: 'Versi 9:16 untuk Reels & 1:1 untuk LinkedIn.', results: [{ label: 'Video final', url: 'https://drive.google.com/file/d/demoVideo/view' }, { label: '', url: 'https://www.canva.com/design/demoOnboard/edit' }] });
+  add('nadia', '', 'Infografis alur reimbursement', -8, '09:00', -5, '18:00', 'Done', { type: 'Sosmed', startedAt: stamp(-8, 9, 0), doneAt: stamp(-5, 14, 0), reviewAt: stamp(-5, 11, 0),
+    results: [{ label: 'Carousel final', url: 'https://www.canva.com/design/demoReimb/edit' }] });
 
   const users = [['admin', 'Administrator', 'admin', '']].concat(people.map((p) => [p[0], p[1], 'member', p[1]]))
     .map((u) => ({ username: u[0], name: u[1], role: u[2], sheetName: u[3], mustChange: false, active: true, email: u[0] === 'wisnu' ? '' : u[0] + '@contoh.com',
-      position: { ari: 'SEO Specialist', ammar: 'Content Writer', fahmi: 'Content Writer', winona: 'Content Writer Intern', dany: 'Frontend Developer', arya: 'Frontend Developer', wisnu: 'Digital Marketing Lead' }[u[0]] || '' }));
+      position: { ari: 'SEO Specialist', ammar: 'Content Writer', fahmi: 'Content Writer', winona: 'Content Writer Intern', dany: 'Frontend Developer', arya: 'Frontend Developer', wisnu: 'Digital Marketing Lead', nadia: 'Graphic Designer' }[u[0]] || '' }));
   // Task artikel (A1 berupa URL blog): jenis, tahap, dan riwayat tahap untuk contoh KPI
   const ST_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
   const artStage = { '/aplikasi-hr-terbaik-era-digital/': 4, '/talent-management-strategy/': 1, '/hris-indonesia/': 9, '/payroll-outsourcing/': 9,
     '/aplikasi-absensi/': 2, '/kpi-karyawan/': 3, '/employee-engagement/': 9, '/onboarding-karyawan/': 9, '/offboarding/': 8, '/hr-analytics/': 9, '/reimbursement/': 5 };
   tasks.forEach((t) => {
     const key = Object.keys(artStage).find((k) => t.task.includes(k));
-    if (!key) { t.type = 'Non-artikel'; return; }
+    if (!key) { t.type = t.type || 'Non-artikel'; return; }
     const st = artStage[key];
     t.type = 'Artikel'; t.stage = st; t.status = ST_STATUS[st];
     const from = new Date(t.startedAt || (t.startDate + 'T09:00:00')), to = st === 9 ? new Date(t.doneAt) : new Date(Date.now() - 45 * 60000);
@@ -139,6 +145,33 @@ function build() {
         intro: 'Kenapa KPI penting untuk penilaian kinerja.', sections: [{ h2: 'Apa itu KPI karyawan', points: 'Definisi + beda dengan OKR', sources: [''], h3: [] }, { h2: 'Contoh KPI per divisi', points: 'HR, sales, marketing, finance', sources: [''], h3: [] }],
         ctaPage: '/fitur/performance-management', ctaText: 'Coba modul Performance', internalLinks: [], externalLinks: [], faq: [], extras: ['Template unduhan'] } }
   ].filter((b) => b.taskId).map((b) => Object.assign(b, { keyword: b.data.kwMain || '', title: b.data.h1 || '' }));
+  const SOC = { Backlog: 'Ditugaskan', 'On-Progress': 'Dikerjakan', Review: 'Direview', Hold: 'Ditunda', Done: 'Selesai' };
+  const soc = (id, frag, createdBy, data, at) => {
+    const t = frag ? tasks.find((x) => x.task.includes(frag)) : null;
+    briefs.push({ id, taskId: t ? t.id : '', owner: t ? t.owner : '', createdBy, type: 'Sosmed', status: t ? SOC[t.status] : 'Draft', docUrl: '',
+      keyword: data.format, title: data.title, createdAt: at, updatedAt: at, updatedBy: createdBy, statusAt: t && t.doneAt ? t.doneAt : at,
+      data: Object.assign({ v: 1, platforms: [], sizes: [], slides: [], scenes: [], caption: '', notes: '' }, data) });
+  };
+  soc('BSDEMO1', '5 Tanda Payroll', 'ari', { format: 'Carousel', title: '5 Tanda Payroll Kamu Perlu Otomatis', platforms: ['Instagram', 'LinkedIn'], sizes: ['4:5 · 1080×1350'],
+    slides: [
+      { text: '5 Tanda Payroll Kamu Perlu Otomatis', visual: 'Cover: staf HR di antara tumpukan slip gaji, warna brand biru. Judul besar di tengah.', refs: ['https://www.instagram.com/p/demo-cover/', 'https://www.pinterest.com/pin/demo123/'] },
+      { text: '1. Hitung lembur masih manual', visual: 'Ikon kalkulator + jam, ilustrasi flat', refs: [''] },
+      { text: '2. Slip gaji sering telat', visual: 'Ilustrasi amplop dengan jam pasir', refs: [''] },
+      { text: '3. Salah hitung PPh 21', visual: 'Kertas pajak dengan tanda silang merah', refs: [''] },
+      { text: 'Saatnya pakai LinovHR Payroll', visual: 'Mockup layar aplikasi payroll LinovHR + CTA "Coba demo gratis"', refs: ['https://www.linovhr.com/fitur/payroll/'] }],
+    caption: 'Masih hitung gaji pakai spreadsheet? Kalau 3 dari 5 tanda ini terjadi di kantormu, sudah waktunya payroll otomatis. 💡\n\nSimpan post ini & bagikan ke tim HR kamu.\n\n#payroll #HRIS #LinovHR',
+    notes: 'Pakai template carousel brand Q4.', assign: { owner: 'nadia', endDate: iso(addDays(today, 2)), endTime: '18:00', priority: 'High', code: '' } }, stamp(-1, 9, 0));
+  soc('BSDEMO2', 'Tips onboarding', 'wisnu', { format: 'Video', title: 'Tips onboarding karyawan baru dalam 30 detik', platforms: ['Instagram', 'LinkedIn', 'TikTok'], sizes: ['9:16 · 1080×1920', '1:1 · 1080×1080'],
+    scenes: [
+      { visual: 'Close-up karyawan baru bingung di meja kosong', audio: 'VO: "Hari pertama kerja, tapi nggak tahu harus ngapain?"', dur: 5, refs: ['https://www.tiktok.com/@demo/video/1'] },
+      { visual: 'Layar HP: checklist onboarding di aplikasi', audio: 'VO: "Dengan checklist onboarding, semua jelas dari hari pertama."', dur: 10, refs: [''] },
+      { visual: 'Logo LinovHR + teks CTA', audio: 'VO: "LinovHR — onboarding lebih rapi."', dur: 5, refs: [''] }],
+    caption: 'Onboarding yang rapi bikin karyawan baru betah. Ini caranya 👇 #onboarding #HR', assign: { owner: 'nadia', endDate: iso(today), endTime: '18:00', priority: 'Medium', code: '' } }, stamp(-3, 8, 30));
+  soc('BSDEMO3', '', 'ari', { format: 'Carousel', title: 'Mitos vs fakta THR 2027', platforms: ['Instagram'], sizes: ['4:5 · 1080×1350'],
+    slides: [{ text: 'Mitos vs Fakta THR', visual: 'Split layout merah / hijau', refs: [''] }, { text: '', visual: '', refs: [''] }], caption: '',
+    assign: { owner: '', endDate: '', endTime: '18:00', priority: 'Medium', code: '' } }, stamp(0, 8, 0));
+  soc('BSDEMO4', 'Infografis alur reimbursement', 'ari', { format: 'Carousel', title: 'Infografis alur reimbursement', platforms: ['LinkedIn'], sizes: ['1:1 · 1080×1080'],
+    slides: [{ text: 'Alur reimbursement 5 langkah', visual: 'Infografis vertikal 5 langkah', refs: [''] }], caption: 'Alur reimbursement yang rapi dalam 5 langkah.' }, stamp(-8, 8, 0));
   return { projects, tasks, users, briefs };
 }
 
@@ -150,6 +183,9 @@ function reset() { db = null; }
 function briefSums(s) {
   const f = (x) => String(x == null ? '' : x).trim() !== '';
   return s.briefs.map((b) => { const d = b.data || {};
+    const nm = (u) => ((s.users || []).find((x) => x.username === u) || {}).name || u || '';
+    if (b.type === 'Sosmed') return Object.assign({}, b, { summary: true, ownerName: nm(b.owner), createdByName: nm(b.createdBy), data: { format: d.format || 'Carousel', title: d.title || '', platforms: d.platforms || [], sizes: d.sizes || [],
+      nSlides: (d.slides || []).length, nScenes: (d.scenes || []).length, dur: (d.scenes || []).reduce((a, x) => a + (Number(x && x.dur) || 0), 0), assign: d.assign || null } });
     return Object.assign({}, b, { summary: true, data: { kwMain: d.kwMain || '', h1: d.h1 || '', contentType: d.contentType || '', wordEst: d.wordEst || '', ctaPage: d.ctaPage || '',
       nH2: (d.sections || []).filter((x) => x && f(x.h2)).length, nComp: (d.competitors || []).filter((x) => x && f(x.url)).length,
       nFaq: (d.faq || []).filter((x) => x && f(x.q)).length, nSecondary: (d.kwSecondary || []).length } }); });
@@ -164,6 +200,40 @@ function demoStage(t, next, me) {
   t.doneAt = next === 9 ? now : '';
 }
 const ST = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
+const SOC_ST = { Backlog: 'Ditugaskan', 'On-Progress': 'Dikerjakan', Review: 'Direview', Hold: 'Ditunda', Done: 'Selesai', Recurring: 'Dikerjakan' };
+function socMirror(s, t) {
+  const br = s.briefs.find((x) => x.taskId === t.id && x.type === 'Sosmed');
+  if (!br) return null;
+  const st = SOC_ST[t.status] || 'Ditugaskan';
+  if (br.status !== st) { br.status = st; br.statusAt = new Date().toISOString(); }
+  return briefSums({ briefs: [br], users: s.users })[0];
+}
+function saveSocial(s, me, br) {
+  const d = br.data || {}, title = String(d.title || '').trim(), now = new Date().toISOString(), admin = me.role === 'admin';
+  let cur = br.id && s.briefs.find((x) => x.id === br.id);
+  if (br.id && !cur) throw new Error('Brief tidak ditemukan');
+  if (cur) {
+    const t0 = cur.taskId && s.tasks.find((x) => x.id === cur.taskId);
+    if (!admin && cur.createdBy !== me.username && !(t0 && t0.owner === me.username)) throw new Error('Hanya pembuat brief, penanggung jawab, dan admin yang bisa mengubah brief ini.');
+    if (br.baseUpdatedAt && cur.updatedAt !== br.baseUpdatedAt) throw new Error('Brief ini baru saja diubah oleh ' + cur.updatedBy + '. Muat ulang supaya perubahannya tidak tertimpa.');
+    if (t0 && t0.status === 'Done' && !admin) throw new Error('Konten ini sudah disetujui admin, jadi brief tidak bisa diubah lagi.');
+  }
+  let task = cur && cur.taskId ? s.tasks.find((x) => x.id === cur.taskId) : null;
+  if (br.assign) {
+    if (!admin && cur && cur.createdBy !== me.username) throw new Error('Hanya pembuat brief dan admin yang bisa mengubah penugasan.');
+    if (!title) throw new Error('Isi judul konten dulu.');
+    const a = br.assign, owner = s.users.find((u) => u.username === a.owner && u.sheetName);
+    if (!owner) throw new Error('Pilih penanggung jawab.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(a.endDate || '')) throw new Error('Isi deadline.');
+    if (!task) { task = { id: 'TDEMO' + Date.now(), startDate: iso(new Date()), startTime: '09:00', status: 'Backlog', startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', notes: '', type: 'Sosmed' }; s.tasks.push(task); }
+    Object.assign(task, { owner: owner.username, ownerName: owner.name, sheet: owner.name, task: title, code: a.code || '', endDate: a.endDate, endTime: a.endTime || '18:00', priority: a.priority || 'Medium' });
+  } else if (task && title) task.task = title;
+  if (!cur) { cur = { id: 'BSDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '', type: 'Sosmed', statusAt: now }; s.briefs.push(cur); }
+  const st = task ? (SOC_ST[task.status] || 'Ditugaskan') : 'Draft';
+  if (cur.status !== st) cur.statusAt = now;
+  Object.assign(cur, { taskId: task ? task.id : '', owner: task ? task.owner : '', status: st, keyword: d.format || 'Carousel', title, data: d, updatedAt: now, updatedBy: me.username });
+  return { brief: cur, task, projects: task ? syncProj(s, [task.code]) : [] };
+}
 function syncProj(s, codes) {
   const out = [];
   codes.filter(Boolean).forEach((code) => {
@@ -215,7 +285,18 @@ function handle(action, b, session) {
         keyword: (br.data && br.data.kwMain) || '', title: (br.data && br.data.h1) || '', updatedAt: now, updatedBy: me.username });
       return { brief: cur };
     }
-    case 'deleteBrief': s.briefs = s.briefs.filter((x) => x.id !== b.briefId); return { ok: true };
+    case 'saveSocialBrief': return saveSocial(s, me, b.brief || {});
+    case 'deleteBrief': {
+      const cur = s.briefs.find((x) => x.id === b.briefId);
+      let taskDeleted = false;
+      if (cur && cur.type === 'Sosmed') {
+        if (me.role !== 'admin' && cur.createdBy !== me.username) throw new Error('Hanya pembuat brief dan admin yang bisa menghapus brief ini.');
+        const t = cur.taskId && s.tasks.find((x) => x.id === cur.taskId);
+        if (t && t.status === 'Backlog' && !t.startedAt) { s.tasks = s.tasks.filter((x) => x !== t); taskDeleted = true; }
+        else if (t && me.role !== 'admin') throw new Error('Konten ini sudah mulai dikerjakan ' + t.ownerName + '. Minta admin bila brief perlu dihapus.');
+      }
+      s.briefs = s.briefs.filter((x) => x.id !== b.briefId); return { ok: true, taskDeleted, taskId: taskDeleted ? cur.taskId : '' };
+    }
     case 'exportBriefDoc': {
       const cur = s.briefs.find((x) => x.id === b.briefId); if (!cur) throw new Error('Brief tidak ditemukan');
       cur.docUrl = cur.docUrl || 'https://docs.google.com/document/d/demo-' + cur.id + '/edit';
@@ -268,7 +349,7 @@ function handle(action, b, session) {
       if (b.status === 'Done') t.doneAt = new Date().toISOString();
       else if (t.status === 'Done') t.doneAt = '';
       t.status = b.status;
-      return { task: t, projects: syncProj(s, [t.code]) };
+      return { task: t, projects: syncProj(s, [t.code]), brief: socMirror(s, t) };
     }
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
@@ -280,8 +361,8 @@ function handle(action, b, session) {
       (b.taskIds || []).forEach((id) => {
         const t = s.tasks.find((x) => x.id === id); if (!t) { failed.push(id); return; }
         const art = b.type === 'Artikel';
-        if ((t.type === 'Artikel') !== art) {
-          t.type = art ? 'Artikel' : 'Non-artikel';
+        if ((t.type || 'Non-artikel') !== b.type) {
+          t.type = b.type;
           if (art && !t.stage) { t.stageLog = [{ s: 1, t: t.startedAt || new Date().toISOString() }]; t.stage = 1; demoStage(t, t.status === 'Done' ? 9 : ['On-Progress', 'Review'].includes(t.status) ? 2 : 1, me); }
         }
         out.push(t);
@@ -320,7 +401,7 @@ function handle(action, b, session) {
         const d = new Date(); const line = `[Dikembalikan ${d.getDate()}/${d.getMonth() + 1} oleh ${me.name}]` + (b.reason ? ' ' + b.reason : '');
         t.notes = t.notes ? t.notes + '\n' + line : line;
       }
-      return { task: t, projects: syncProj(s, [t.code]) };
+      return { task: t, projects: syncProj(s, [t.code]), brief: socMirror(s, t) };
     }
     case 'saveProject': {
       const p = b.project;

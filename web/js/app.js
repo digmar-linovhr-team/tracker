@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.17.0';
+const CSS_VERSION = '2.18.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -246,7 +246,7 @@ function renderNav() {
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
   items.push(['team', 'Tim', 'Tim']);
-  items.push(['briefs', 'Brief', 'Brief']);
+  items.push(['briefs', 'Brief', 'Brief', S.socNew ? S.socNew.size : 0, 'good']);
   if (admin) {
     const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review').length : 0;
     items.push(['sect', 'Admin'], ['review', 'Review', 'Review', reviews, 'info'], ['tasks', 'Semua Task', 'Semua'], ['projects', 'Project', 'Project', 0, '', 'secondary'], ['users', 'Pengguna', 'Akun', 0, '', 'secondary']);
@@ -254,7 +254,7 @@ function renderNav() {
   items.push(['sect', ''], ['settings', 'Pengaturan', 'Setelan']);
   $('#nav').innerHTML = items.map((i) => i[0] === 'sect'
     ? `<div class="sect">${esc(i[1])}</div>`
-    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
+    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : i[4] === 'good' ? 'Konten sosmed baru disetujui' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
   $$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
 }
 
@@ -291,6 +291,7 @@ async function loadData(quiet) {
     const br = (all && all.briefs) || (mine && mine.briefs);
     if (br) S.briefs = br;
     else if (!S.user.sheetName && S.user.role !== 'admin') { try { S.briefs = (await api.call('briefs')).briefs || []; } catch (e) { /* abaikan */ } }
+    if (typeof socialNotify === 'function') socialNotify();
     S.lastSync = new Date();
     setSyncInfo('Diperbarui ' + pad(S.lastSync.getHours()) + ':' + pad(S.lastSync.getMinutes()));
     saveCache();
@@ -332,8 +333,8 @@ function go(view) {
     users: ['Pengguna', 'Akun login anggota tim'],
     team: ['Tim', 'Task yang sedang dikerjakan semua anggota (hanya lihat)'],
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
-    briefs: ['Brief', 'Brief artikel yang terhubung ke task'],
-    brief: ['Brief', 'Brief artikel'],
+    briefs: ['Brief', 'Brief artikel & konten sosmed'],
+    brief: ['Brief', 'Brief'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']
   };
   $('#view-title').textContent = titles[view][0];
@@ -752,6 +753,7 @@ async function setStatus(id, status) {
   try {
     const r = await api.call('updateStatus', { taskId: id, status });
     if (r && r.task) patchTask(id, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt });
+    if (r && r.brief) putBriefSummary(r.brief);
     if (r) syncProjects([t.code], r.projects);
     S.pending.delete(id);
     saveCache();
@@ -1236,6 +1238,7 @@ async function decideReview(id, decision, reason) {
   try {
     const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '' });
     if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes, stage: r.task.stage, stageLog: r.task.stageLog });
+    if (r && r.brief) putBriefSummary(r.brief);
     if (r) syncProjects([t.code], r.projects);
     saveCache();
   } catch (e) {
@@ -1294,28 +1297,31 @@ function renderBulkBar(list) {
   bar.classList.toggle('hidden', !n);
   if (!n) { bar.innerHTML = ''; return; }
   const sel = S.all.tasks.filter((t) => S.tsel.has(t.id));
-  const nArt = sel.filter((t) => L.isArticle(t)).length;
-  bar.innerHTML = `<b>${n} task dipilih</b><span class="muted small">${nArt ? nArt + ' artikel · ' : ''}${n - nArt} non-artikel</span><span class="spacer"></span>
+  const cnt = (k) => sel.filter((t) => taskType(t) === k).length;
+  const parts = [['Artikel', 'artikel'], ['Sosmed', 'sosmed'], ['Non-artikel', 'non-artikel']].filter(([k]) => cnt(k)).map(([k, l]) => cnt(k) + ' ' + l);
+  bar.innerHTML = `<b>${n} task dipilih</b><span class="muted small">${parts.join(' · ')}</span><span class="spacer"></span>
     <button class="btn sm" id="bk-none">Batal</button>
-    <button class="btn sm" id="bk-non" ${n - nArt === n ? 'disabled' : ''}>Jadikan Non-artikel</button>
-    <button class="btn sm primary" id="bk-art" ${nArt === n ? 'disabled' : ''}>Jadikan Artikel</button>`;
+    <button class="btn sm" id="bk-non" ${cnt('Non-artikel') === n ? 'disabled' : ''}>Jadikan Non-artikel</button>
+    <button class="btn sm" id="bk-soc" ${cnt('Sosmed') === n ? 'disabled' : ''}>Jadikan Sosmed</button>
+    <button class="btn sm primary" id="bk-art" ${cnt('Artikel') === n ? 'disabled' : ''}>Jadikan Artikel</button>`;
   $('#bk-none').onclick = () => { S.tsel.clear(); renderTaskTable(); };
   $('#bk-art').onclick = () => bulkSetType('Artikel');
   $('#bk-non').onclick = () => bulkSetType('Non-artikel');
+  $('#bk-soc').onclick = () => bulkSetType('Sosmed');
   void list;
 }
 
 async function bulkSetType(type) {
   const ids = [...S.tsel];
-  const todo = S.all.tasks.filter((t) => ids.includes(t.id) && L.isArticle(t) !== (type === 'Artikel'));
+  const todo = S.all.tasks.filter((t) => ids.includes(t.id) && taskType(t) !== type);
   if (!todo.length) return;
-  const ok = await confirmBox(type === 'Artikel' ? 'Jadikan task artikel?' : 'Jadikan task non-artikel?',
+  const ok = await confirmBox('Jadikan task ' + type.toLowerCase() + '?',
     type === 'Artikel'
       ? `${todo.length} task akan memakai alur artikel 8 tahap. Tahap awal ditebak dari status: Done → selesai, On-Progress/Review → menyusun brief, lainnya → ditugaskan. Bisa dikoreksi lewat Edit.`
-      : `${todo.length} task akan kembali memakai alur biasa (Mulai → Ajukan review → Done). Riwayat tahapnya tetap tersimpan.`,
-    type === 'Artikel' ? 'Jadikan Artikel' : 'Jadikan Non-artikel');
+      : `${todo.length} task akan memakai alur biasa (Mulai → Ajukan review → Done)${type === 'Sosmed' ? ' dengan jenis Sosmed' : ''}. Riwayat tahap artikel (jika ada) tetap tersimpan.`,
+    'Jadikan ' + type);
   if (!ok) return;
-  const btn = $(type === 'Artikel' ? '#bk-art' : '#bk-non');
+  const btn = $({ Artikel: '#bk-art', Sosmed: '#bk-soc' }[type] || '#bk-non');
   try {
     const r = await busy(btn, () => api.call('bulkSetType', { taskIds: todo.map((t) => t.id), type }));
     (r.tasks || []).forEach((nt) => patchTask(nt.id, { type: nt.type, stage: nt.stage, status: nt.status, stageLog: nt.stageLog, startedAt: nt.startedAt, doneAt: nt.doneAt, reviewAt: nt.reviewAt }));
@@ -1386,6 +1392,8 @@ function renderTaskTable() {
   });
 }
 
+const TYPE_HINT = { 'Non-artikel': 'Alur biasa: Mulai → Ajukan review → Done.', Artikel: 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.', Sosmed: 'Konten sosmed: alur biasa (Mulai → Ajukan review → Done). Brief-nya dibuat dari menu Brief › Sosmed.' };
+const taskType = (t) => L.isArticle(t) ? 'Artikel' : t && t.type === 'Sosmed' ? 'Sosmed' : 'Non-artikel';
 function taskModal(t, prefill) {
   const all = S.all, edit = !!t && !prefill;
   t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '18:00', priority: 'Medium', status: 'Backlog' };
@@ -1401,9 +1409,8 @@ function taskModal(t, prefill) {
       </div>
       <label class="field"><span>Nama task / URL *</span><textarea name="task" rows="2" required>${esc(t.task || '')}</textarea></label>
       <div class="field"><span>Jenis task</span><div class="seg seg-pick" id="tf-type" role="radiogroup" aria-label="Jenis task">
-        <button type="button" role="radio" data-type="Non-artikel" class="${L.isArticle(t) ? '' : 'on'}" aria-checked="${!L.isArticle(t)}">Non-artikel</button>
-        <button type="button" role="radio" data-type="Artikel" class="${L.isArticle(t) ? 'on' : ''}" aria-checked="${L.isArticle(t)}">Artikel</button></div>
-        <small class="muted" id="tf-type-hint" style="display:block;margin-top:5px">${L.isArticle(t) ? 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.' : 'Alur biasa: Mulai → Ajukan review → Done.'}</small></div>
+        ${['Non-artikel', 'Artikel', 'Sosmed'].map((k) => `<button type="button" role="radio" data-type="${k}" class="${taskType(t) === k ? 'on' : ''}" aria-checked="${taskType(t) === k}">${k}</button>`).join('')}</div>
+        <small class="muted" id="tf-type-hint" style="display:block;margin-top:5px">${TYPE_HINT[taskType(t)]}</small></div>
       <div class="grid4">
         <label class="field"><span>Tanggal mulai</span><input type="date" name="startDate" value="${esc(t.startDate || '')}"></label>
         <label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="${esc(t.startTime || '09:00')}"></label>
@@ -1423,13 +1430,13 @@ function taskModal(t, prefill) {
     onMount: (m, close) => {
       const f = $('#tf', m);
       f.startDate.addEventListener('change', () => { if (!f.endDate.value) f.endDate.value = f.startDate.value; });
-      let type = L.isArticle(t) ? 'Artikel' : 'Non-artikel';
+      let type = taskType(t);
       $$('#tf-type button', m).forEach((b) => b.onclick = () => {
         type = b.dataset.type;
         $$('#tf-type button', m).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
         $('#tf-status', m).classList.toggle('hidden', type === 'Artikel');
         $('#tf-stage', m).classList.toggle('hidden', !(type === 'Artikel' && edit && L.isArticle(t)));
-        $('#tf-type-hint', m).textContent = type === 'Artikel' ? 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.' : 'Alur biasa: Mulai → Ajukan review → Done.';
+        $('#tf-type-hint', m).textContent = TYPE_HINT[type];
       });
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
