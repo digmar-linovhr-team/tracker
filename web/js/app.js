@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.22.0';
+const CSS_VERSION = '2.22.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1721,45 +1721,76 @@ function viewUsers() {
   });
 }
 
+const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+function ufToggle(name, title, desc, on, extra) {
+  return `<label class="uf-tg"><span class="uf-tg-t"><b>${title}</b><small${name === 'active' ? ' id="uf-active-d"' : ''}>${desc}</small></span>
+    <input type="checkbox" name="${name}" ${on ? 'checked' : ''} ${extra || ''}><span class="uf-sw" aria-hidden="true"></span></label>`;
+}
 function userModal(u) {
   const edit = !!u;
   u = u || { role: 'member', active: true };
+  const users = S.all ? S.all.users : [];
+  const uniq = (k) => [...new Set(users.map((x) => x[k]).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('');
+  const [jy, jm] = String(u.joined || '').split('-');
+  const nowY = new Date().getFullYear(), years = [];
+  for (let y = nowY + 1; y >= 2010; y--) years.push(y);
+  const isAdmin = u.role === 'admin';
   modal({
     title: edit ? 'Edit pengguna' : 'Pengguna baru',
-    body: `<form id="uf">
-      <label class="field"><span>Nama *</span><input name="name" value="${esc(u.name || '')}" required placeholder="mis. Wildan"></label>
-      <label class="field"><span>Username *</span><input name="username" value="${esc(u.username || '')}" ${edit ? 'readonly' : ''} required pattern="[a-zA-Z0-9._-]+" placeholder="huruf kecil tanpa spasi"></label>
-      <label class="field"><span>Jabatan</span><input name="position" list="pos-list" maxlength="80" value="${esc(u.position || '')}" placeholder="mis. UI UX &amp; Design Grafis Intern">
-        <datalist id="pos-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.position).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
-      <div class="grid2">
-        <label class="field"><span>Atasan langsung</span><select name="reportsTo" data-pick="person"><option value="">— tidak ada (puncak struktur) —</option>${(S.all ? S.all.users : []).filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
-        <label class="field"><span>Divisi</span><input name="division" list="div-list" maxlength="60" value="${esc(u.division || '')}" placeholder="mis. SEO dan konten">
-          <datalist id="div-list">${[...new Set((S.all ? S.all.users : []).map((x) => x.division).filter(Boolean))].map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
-      </div>
-      <div class="grid2">
-        <label class="field"><span>Bergabung (bulan)</span><input type="month" name="joined" value="${esc(u.joined || '')}"></label>
-        <label class="field"><span>Keahlian / fokus kerja</span><input name="skills" maxlength="120" value="${esc(u.skills || '')}" placeholder="mis. Riset keyword, technical SEO"></label>
-      </div>
-      <label class="check"><input type="checkbox" name="wfoExempt" ${u.wfoExempt ? 'checked' : ''}> Pengecualian jadwal kerja — tidak wajib WFO Selasa maupun 2 hari seminggu (Fleksibel)</label>
-      <label class="check"><input type="checkbox" name="orgOnly" ${u.orgOnly ? 'checked' : ''}> Tanpa akun — hanya tampil di menu Struktur (mis. owner/direksi; tidak bisa login dan tidak punya task)</label>
-      <div id="uf-acc" class="${u.orgOnly ? 'hidden' : ''}">
-      <label class="field"><span>Email (untuk Google Calendar &amp; pengingat)</span><input type="email" name="email" value="${esc(u.email || '')}" placeholder="nama@perusahaan.com"></label>
-      <label class="field"><span>Hak akses</span><select name="role"><option value="member" ${u.role !== 'admin' ? 'selected' : ''}>Anggota — melihat & mengubah task sendiri</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin — mengelola semua task, project & pengguna</option></select></label>
-      <label class="check"><input type="checkbox" name="hasTasks" ${!edit || u.sheetName ? 'checked' : ''} ${edit && u.sheetName ? 'disabled' : ''}> Punya daftar task (membuat tab di spreadsheet)</label>
-      </div>
-      ${edit ? `<label class="check"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Aktif (tampil di aplikasi${u.orgOnly ? '' : ' dan bisa login'})</label>` : ''}
+    body: `<form id="uf" class="uf">
+      ${edit ? `<div class="uf-who"><span class="avatar">${initials(u.name || u.username)}</span><div><b>${esc(u.name || u.username)}</b><small>@${esc(u.username)} · ${u.orgOnly ? 'Tanpa akun' : isAdmin ? 'Admin' : 'Anggota'}</small></div></div>` : ''}
+      <section class="uf-sec"><h3>Profil</h3>
+        <div class="grid2 uf-g">
+          <label class="field"><span>Nama *</span><input name="name" value="${esc(u.name || '')}" required placeholder="mis. Wildan"></label>
+          <label class="field"><span>Username *</span><input name="username" value="${esc(u.username || '')}" ${edit ? 'readonly class="uf-ro"' : ''} required pattern="[a-zA-Z0-9._-]+" placeholder="huruf kecil tanpa spasi"></label>
+        </div>
+        <label class="field"><span>Jabatan</span><input name="position" list="pos-list" maxlength="80" value="${esc(u.position || '')}" placeholder="mis. UI UX &amp; Design Grafis Intern"><datalist id="pos-list">${uniq('position')}</datalist></label>
+      </section>
+      <section class="uf-sec"><h3>Posisi di struktur</h3>
+        <div class="grid2 uf-g">
+          <label class="field"><span>Atasan langsung</span><select name="reportsTo" data-pick="person"><option value="">— tidak ada (puncak struktur) —</option>${users.filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
+          <label class="field"><span>Divisi</span><input name="division" list="div-list" maxlength="60" value="${esc(u.division || '')}" placeholder="mis. SEO dan konten"><datalist id="div-list">${uniq('division')}</datalist></label>
+        </div>
+        <div class="grid2 uf-g">
+          <div class="field"><span class="uf-lbl">Bergabung</span><div class="uf-my">
+            <label><span class="sr-only">Bulan bergabung</span><select name="joinM" data-pick="plain"><option value="">Bulan</option>${MONTHS_ID.map((m, i) => { const v = String(i + 1).padStart(2, '0'); return `<option value="${v}" ${v === jm ? 'selected' : ''}>${m}</option>`; }).join('')}</select></label>
+            <label><span class="sr-only">Tahun bergabung</span><select name="joinY" data-pick="plain"><option value="">Tahun</option>${years.map((y) => `<option value="${y}" ${String(y) === jy ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
+          </div></div>
+          <label class="field"><span>Keahlian / fokus kerja</span><input name="skills" maxlength="120" value="${esc(u.skills || '')}" placeholder="mis. Riset keyword, technical SEO"></label>
+        </div>
+      </section>
+      <section class="uf-sec ${u.orgOnly ? 'hidden' : ''}" id="uf-acc"><h3>Akun dan akses</h3>
+        <label class="field"><span>Email (untuk Google Calendar &amp; pengingat)</span><input type="email" name="email" value="${esc(u.email || '')}" placeholder="nama@perusahaan.com"></label>
+        <div class="field"><span class="uf-lbl">Hak akses</span><div class="uf-role">
+          <label><input type="radio" name="role" value="member" ${!isAdmin ? 'checked' : ''}><span><b>Anggota</b><small>Melihat &amp; mengubah task sendiri</small></span></label>
+          <label><input type="radio" name="role" value="admin" ${isAdmin ? 'checked' : ''}><span><b>Admin</b><small>Mengelola semua task, project &amp; pengguna</small></span></label>
+        </div></div>
+      </section>
+      <section class="uf-sec uf-tgs">
+        ${edit ? ufToggle('active', 'Aktif', u.orgOnly ? 'Tampil di aplikasi' : 'Tampil di aplikasi dan bisa login', u.active) : ''}
+        <div id="uf-tasks" class="${u.orgOnly ? 'hidden' : ''}">${ufToggle('hasTasks', 'Punya daftar task', edit && u.sheetName ? 'Tab di spreadsheet sudah dibuat' : 'Membuat tab baru di spreadsheet', !edit || u.sheetName, edit && u.sheetName ? 'disabled' : '')}</div>
+        ${ufToggle('wfoExempt', 'Jadwal fleksibel', 'Tidak wajib WFO Selasa maupun 2 hari seminggu', u.wfoExempt)}
+        ${ufToggle('orgOnly', 'Tanpa akun', 'Hanya tampil di menu Struktur (mis. owner/direksi) — tidak bisa login dan tidak punya task', u.orgOnly)}
+      </section>
       <div id="uerr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">Simpan</button>`,
     onMount: (m, close) => {
+      m.classList.add('modal-uf');
       formPick(m);
       const f = $('#uf', m);
       if (!edit) f.name.addEventListener('input', () => { f.username.value = f.name.value.toLowerCase().replace(/[^a-z0-9._-]+/g, ''); });
-      f.orgOnly.onchange = () => $('#uf-acc', m).classList.toggle('hidden', f.orgOnly.checked);
+      f.orgOnly.onchange = () => {
+        $('#uf-acc', m).classList.toggle('hidden', f.orgOnly.checked);
+        $('#uf-tasks', m).classList.toggle('hidden', f.orgOnly.checked);
+        const d = $('#uf-active-d', m); if (d) d.textContent = f.orgOnly.checked ? 'Tampil di aplikasi' : 'Tampil di aplikasi dan bisa login';
+      };
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
-        const data = { name: f.name.value.trim(), username: f.username.value.trim().toLowerCase(), role: f.role.value,
+        const jM = f.joinM.value, jY = f.joinY.value;
+        if (!!jM !== !!jY) { $('#uerr', m).innerHTML = '<div class="error">Lengkapi bulan dan tahun bergabung, atau kosongkan keduanya.</div>'; return; }
+        const data = { name: f.name.value.trim(), username: f.username.value.trim().toLowerCase(), role: f.querySelector('input[name="role"]:checked').value,
           hasTasks: f.hasTasks.checked && !f.orgOnly.checked, active: edit ? f.active.checked : true, email: f.email.value.trim(), position: f.position.value.trim(),
-          reportsTo: f.reportsTo.value, division: f.division.value.trim(), joined: f.joined.value, skills: f.skills.value.trim(), orgOnly: f.orgOnly.checked, wfoExempt: f.wfoExempt.checked };
+          reportsTo: f.reportsTo.value, division: f.division.value.trim(), joined: jM && jY ? jY + '-' + jM : '', skills: f.skills.value.trim(), orgOnly: f.orgOnly.checked, wfoExempt: f.wfoExempt.checked };
         try {
           const r = await busy($('#save', m), () => api.call('saveUser', { user: data }));
           close();
