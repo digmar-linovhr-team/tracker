@@ -1,0 +1,150 @@
+rules_version = '2';
+// Aturan keamanan Project Tracker.
+// Prinsip: semua anggota aktif boleh MEMBACA data tim; MENULIS dibatasi per peran.
+// Apps Script memakai OAuth pemilik proyek sehingga tidak terikat aturan ini (akun, Calendar, email, push, salinan Sheets).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- identitas ----------
+    function signedIn() { return request.auth != null && request.auth.token.email is string; }
+    function uname() { return request.auth.token.email.split('@')[0]; }
+    function userPath(u) { return /databases/$(database)/documents/users/$(u); }
+    function me() { return get(userPath(uname())).data; }
+    function active() { return signedIn() && exists(userPath(uname())) && me().active == true && me().get('orgOnly', false) != true; }
+    function admin() { return active() && me().role == 'admin'; }
+
+    // ---------- bantu ----------
+    function d() { return request.resource.data; }
+    function old() { return resource.data; }
+    function changed() { return d().diff(old()).affectedKeys(); }
+    function onlyChanges(keys) { return changed().hasOnly(keys); }
+    function unchanged(k) { return !changed().hasAny([k]); }
+    function isActiveUser(u) { return u is string && exists(userPath(u)) && get(userPath(u)).data.active == true; }
+    function stamped() { return d().updatedBy == uname(); }
+
+    // ---------- pengguna ----------
+    match /users/{u} {
+      allow read: if active();
+      // akun dibuat/dihapus Apps Script; admin mengubah profil siapa pun
+      allow update: if admin()
+        || (uname() == u && active() && onlyChanges(['skills', 'onboard', 'mustChange', 'updatedAt'])
+            && (unchanged('mustChange') || d().mustChange == false));
+      allow create, delete: if false;
+    }
+    match /private/{u} {
+      allow read: if admin() || (active() && uname() == u);
+      allow create, update: if admin() || (active() && uname() == u && d().keys().hasOnly(['email', 'prefs', 'updatedAt']));
+      allow delete: if admin();
+    }
+
+    // ---------- project ----------
+    match /projects/{code} {
+      allow read: if active();
+      allow write: if admin();
+    }
+
+    // ---------- task ----------
+    // Kolom yang boleh diubah penanggung jawab saat mengerjakan task-nya.
+    function workKeys() { return ['status', 'stage', 'stageLog', 'startedAt', 'reviewAt', 'results', 'resultNote', 'liveUrl', 'aiCheckUrl', 'updatedAt', 'updatedBy']; }
+    // Kolom perencanaan yang boleh diubah pembuat Request/Sosmed (penerima, judul, deadline).
+    function planKeys() { return ['owner', 'task', 'code', 'startDate', 'startTime', 'endDate', 'endTime', 'priority', 'updatedAt', 'updatedBy']; }
+    // Tahap artikel: anggota hanya boleh maju satu langkah dari tahap kerja ke tahap berikutnya (tidak bisa menyetujui review sendiri).
+    function stageOk() {
+      return unchanged('stage') || (
+        (old().get('stage', 0) == 1 && d().stage == 2) || (old().get('stage', 0) == 2 && d().stage == 3) ||
+        (old().get('stage', 0) == 4 && d().stage == 5) || (old().get('stage', 0) == 6 && d().stage == 7) ||
+        (old().get('stage', 0) == 7 && d().stage == 8));
+    }
+    function ownerWorkOk() {
+      return old().owner == uname() && onlyChanges(workKeys()) && stamped()
+        && d().status != 'Done' && old().status != 'Done' && stageOk()
+        // task artikel & request mengikuti alurnya; status tidak boleh diubah bebas
+        && (old().get('type', '') != 'Artikel' || unchanged('status') || changed().hasAny(['stage']));
+    }
+    function creatorOk() {
+      return old().get('createdBy', '') == uname() && old().get('type', '') in ['Request', 'Sosmed'] && stamped()
+        && (onlyChanges(planKeys())
+            // pembuat Request menyetujui / mengembalikan hasil
+            || (old().type == 'Request' && onlyChanges(['status', 'doneAt', 'reviewAt', 'stageLog', 'endDate', 'endTime', 'updatedAt', 'updatedBy'])))
+        && (unchanged('owner') || isActiveUser(d().owner));
+    }
+    match /tasks/{id} {
+      allow read: if active();
+      allow create: if admin()
+        || (active() && d().get('createdBy', '') == uname() && d().get('type', '') in ['Request', 'Sosmed']
+            && d().status == 'Backlog' && isActiveUser(d().owner) && d().owner != uname());
+      allow update: if admin() || (active() && (ownerWorkOk() || creatorOk()));
+      allow delete: if admin();
+    }
+
+    // ---------- brief (artikel, sosmed, request) ----------
+    match /briefs/{id} {
+      allow read: if active();
+      allow create: if active() && d().createdBy == uname();
+      allow update: if admin() || (active() && (old().createdBy == uname() || old().get('owner', '') == uname())
+        && unchanged('createdBy'));
+      allow delete: if admin() || (active() && old().createdBy == uname() && old().get('taskId', '') == '');
+    }
+
+    // ---------- jadwal kerja ----------
+    match /schedule/{id} {
+      allow read: if active();
+      allow write: if admin() || (active() && d().username == uname() && d().source == 'choice'
+        && id == d().week + '_' + uname());
+    }
+    match /schedRequests/{id} {
+      allow read: if active();
+      allow create: if active() && d().username == uname() && d().status == 'Menunggu';
+      allow update: if admin() || (active() && old().username == uname() && old().status == 'Menunggu'
+        && d().status == 'Dibatalkan' && onlyChanges(['status', 'decidedBy', 'decidedAt']));
+      allow delete: if false;
+    }
+    match /holidays/{date} {
+      allow read: if active();
+      allow write: if admin();
+    }
+    match /leaves/{id} {
+      allow read: if admin() || (active() && (resource.data.username == uname() || resource.data.status == 'Disetujui'));
+      allow create: if admin() || (active() && d().username == uname() && d().status == 'Menunggu');
+      allow update: if admin() || (active() && old().username == uname() && old().status == 'Menunggu'
+        && d().status == 'Dibatalkan' && onlyChanges(['status', 'decidedBy', 'decidedAt']));
+      allow delete: if false;
+    }
+
+    // ---------- komentar & notifikasi ----------
+    match /comments/{id} {
+      allow read: if active();
+      allow create: if active() && d().author == uname() && d().deleted == false && d().createdAt == request.time
+        && d().text is string && d().text.size() <= 2000;
+      allow update: if active() && (
+        (old().author == uname() && old().kind == 'user' && request.time < old().createdAt + duration.value(15, 'm')
+          && onlyChanges(['text', 'editedAt', 'deleted']))
+        || (admin() && old().kind == 'user' && onlyChanges(['deleted'])));
+      allow delete: if false;
+    }
+    match /notifications/{id} {
+      allow read: if active() && resource.data.to == uname();
+      allow create: if active() && d().from == uname() && d().read == false && d().createdAt == request.time;
+      allow update: if active() && old().to == uname() && onlyChanges(['read']);
+      allow delete: if active() && old().to == uname();
+    }
+    match /devices/{token} {
+      allow read: if admin() || (active() && resource.data.username == uname());
+      allow create, update: if active() && d().username == uname();
+      allow delete: if active() && old().username == uname();
+    }
+
+    // ---------- lain-lain ----------
+    match /logs/{id} {
+      allow read: if admin();
+      allow create: if active() && d().user == uname();
+    }
+    match /settings/{doc} {
+      allow read: if active();
+      allow write: if admin();
+    }
+    match /serverMeta/{doc} {
+      allow read, write: if false;   // hanya Apps Script
+    }
+  }
+}
