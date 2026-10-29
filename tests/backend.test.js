@@ -246,7 +246,7 @@ it('aktifkan pengingat: anggota mengisi email sendiri → event mulai & deadline
   assert.strictEqual(ev.length, 6, JSON.stringify(ev.map((e) => e.title)));
   assert.ok(ev.some((e) => e.title.startsWith('⏰ Deadline: [A7] Weekly Report SEO')));
   const due = ev.find((e) => e.title.startsWith('⏰ Deadline: [A7]'));
-  assert.strictEqual(due.end.getHours(), 17, 'jam default deadline 17:00');
+  assert.strictEqual(due.end.getHours(), 18, 'jam default deadline 18:00');
   assert.ok(due.desc.includes('https://tim.github.io/tracker/'));
 });
 
@@ -449,12 +449,9 @@ it('Brief: anggota membuat brief untuk task-nya, satu brief per task, izin, konf
   assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, data: {} } }).ok, false, 'satu task satu brief');
   const wTask = post({ action: 'getAll', token: admin }).data.tasks.find((x) => x.owner === 'wisnu');
   assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { taskId: wTask.id, data: {} } }).ok, false, 'bukan task miliknya');
-  // siap ditulis butuh minimal 2 kompetitor
-  r = post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, status: 'Siap ditulis', baseUpdatedAt: b.updatedAt, data } });
-  assert.strictEqual(r.ok, false); assert.ok(/kompetitor/.test(r.error));
   const data2 = Object.assign({}, data, { competitors: [data.competitors[0], { url: 'https://gadjian.com/y', insight: 'alur visual' }] });
   r = post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, status: 'Siap ditulis', baseUpdatedAt: b.updatedAt, data: data2 } });
-  assert.ok(r.ok, r.error); assert.strictEqual(r.data.brief.status, 'Siap ditulis');
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.brief.status, 'Draft', 'status brief tidak bisa diubah langsung');
   const b2 = r.data.brief;
   if (b2.updatedAt !== b.updatedAt) assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, baseUpdatedAt: b.updatedAt, data } }).ok, false, 'versi lama ditolak');
   assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: b.id, taskId: t.id, data: { big: 'x'.repeat(46000) } } }).ok, false);
@@ -472,6 +469,64 @@ it('Brief: anggota membuat brief untuk task-nya, satu brief per task, izin, konf
   assert.ok(!post({ action: 'briefs', token: ari }).data.briefs.some((x) => x.id === b.id));
   logs.length = 0; sandbox.setup();
   assert.ok(!post({ action: 'getAll', token: admin }).data.users.some((u) => u.username === 'briefs'));
+});
+
+it('Alur artikel 8 tahap: brief → review → menulis → review → publish → cek AI → review → Done', () => {
+  let r = post({ action: 'saveTask', token: admin, task: { owner: 'ari', type: 'Artikel', code: 'A1', task: 'https://www.linovhr.com/blog/payroll-indonesia/', startDate: '2026-11-02', endDate: '2026-11-06', status: 'Done' } });
+  assert.ok(r.ok, r.error);
+  const id = r.data.id; let t = r.data.task;
+  assert.strictEqual(t.type, 'Artikel'); assert.strictEqual(t.stage, 1); assert.strictEqual(t.status, 'Backlog', 'status mengikuti tahap, bukan isian form');
+  const step = (s, url) => post({ action: 'advanceStage', token: ari, taskId: id, step: s, url });
+  const rev = (decision, reason) => post({ action: 'reviewTask', token: admin, taskId: id, decision, reason });
+  assert.strictEqual(post({ action: 'updateStatus', token: ari, taskId: id, status: 'On-Progress' }).ok, false, 'anggota tidak mengubah status task artikel langsung');
+  assert.strictEqual(step('submitBrief').ok, false, 'tidak bisa lompat tahap');
+  r = step('start'); assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 2); assert.strictEqual(r.data.task.status, 'On-Progress');
+  r = step('submitBrief'); assert.strictEqual(r.ok, false); assert.ok(/Buat brief/.test(r.error));
+  const bd = { v: 2, kwMain: 'payroll indonesia', h1: '', competitors: [{ url: 'https://a.com', insight: '' }], sections: [{ h2: 'Apa itu payroll', points: '', sources: [''], h3: [] }] };
+  r = post({ action: 'saveBrief', token: ari, brief: { taskId: id, data: bd } }); assert.ok(r.ok, r.error);
+  const bid = r.data.brief.id;
+  r = step('submitBrief'); assert.strictEqual(r.ok, false); assert.ok(/H1/.test(r.error) && /kompetitor/.test(r.error), r.error);
+  const bd2 = Object.assign({}, bd, { h1: 'Payroll Indonesia: Panduan Lengkap', competitors: [{ url: 'https://a.com', insight: 'x' }, { url: 'https://b.com', insight: 'y' }] });
+  post({ action: 'saveBrief', token: ari, brief: { id: bid, taskId: id, data: bd2 } });
+  r = step('submitBrief'); assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 3); assert.strictEqual(r.data.task.status, 'Review');
+  assert.strictEqual(post({ action: 'briefs', token: ari }).data.briefs.find((x) => x.id === bid).status, 'Diajukan');
+  assert.strictEqual(post({ action: 'saveBrief', token: ari, brief: { id: bid, taskId: id, data: bd2 } }).ok, false, 'brief terkunci saat direview');
+  mails.length = 0; sandbox.runReminders();
+  assert.ok(mails.some((m) => m.subject.includes('menunggu review') && m.htmlBody.includes('Review brief')), 'admin diberi tahu review brief');
+  mails.length = 0;
+  r = rev('return', 'Tambah 1 kompetitor lagi'); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.task.stage, 2); assert.ok(/Brief dikembalikan/.test(r.data.task.notes));
+  assert.ok(mails.some((m) => m.to === 'ari@linovhr.com' && m.subject.startsWith('↩️ Brief dikembalikan')));
+  assert.strictEqual(post({ action: 'briefs', token: ari }).data.briefs.find((x) => x.id === bid).status, 'Dikembalikan');
+  assert.ok(post({ action: 'saveBrief', token: ari, brief: { id: bid, taskId: id, data: bd2 } }).ok, 'bisa direvisi setelah dikembalikan');
+  step('submitBrief');
+  r = rev('approve'); assert.strictEqual(r.data.task.stage, 4); assert.strictEqual(r.data.task.status, 'On-Progress');
+  assert.strictEqual(post({ action: 'briefs', token: ari }).data.briefs.find((x) => x.id === bid).status, 'Disetujui');
+  r = step('submitArticle'); assert.strictEqual(r.ok, false); assert.ok(/link Docs/.test(r.error));
+  post({ action: 'setResults', token: ari, taskId: id, results: [{ label: 'Draft artikel', url: 'https://docs.google.com/document/d/art/edit' }] });
+  r = step('submitArticle'); assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 5);
+  r = rev('approve'); assert.strictEqual(r.data.task.stage, 6);
+  assert.strictEqual(step('publish', 'bukan-url').ok, false);
+  r = step('publish', 'https://www.linovhr.com/blog/payroll-indonesia/'); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.task.stage, 7); assert.strictEqual(r.data.task.liveUrl, 'https://www.linovhr.com/blog/payroll-indonesia/');
+  r = step('submitAiCheck', 'https://docs.google.com/document/d/aicheck/edit'); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.task.stage, 8); assert.strictEqual(r.data.task.status, 'Review');
+  r = rev('return', 'Perbaiki skor readability'); assert.strictEqual(r.data.task.stage, 7);
+  step('submitAiCheck', 'https://docs.google.com/document/d/aicheck2/edit');
+  r = rev('approve'); assert.ok(r.ok, r.error);
+  t = r.data.task;
+  assert.strictEqual(t.stage, 9); assert.strictEqual(t.status, 'Done'); assert.ok(t.doneAt);
+  assert.deepStrictEqual(t.stageLog.map((x) => x.s), [1, 2, 3, 2, 3, 4, 5, 6, 7, 8, 7, 8, 9]);
+  assert.strictEqual(rev('approve').ok, false, 'tidak ada yang perlu direview lagi');
+  // task non-artikel tetap alur lama
+  const nt = post({ action: 'saveTask', token: admin, task: { owner: 'ari', task: 'Rapat mingguan', startDate: '2026-11-02', endDate: '2026-11-02' } }).data.task;
+  assert.strictEqual(nt.type, 'Non-artikel');
+  assert.ok(post({ action: 'updateStatus', token: ari, taskId: nt.id, status: 'On-Progress' }).ok);
+  assert.strictEqual(post({ action: 'advanceStage', token: ari, taskId: nt.id, step: 'start' }).ok, false);
+  // admin mengubah tahap lewat form edit (koreksi)
+  const at2 = post({ action: 'saveTask', token: admin, task: { owner: 'ari', type: 'Artikel', task: 'Artikel koreksi', startDate: '2026-11-02', endDate: '2026-11-04' } }).data.task;
+  r = post({ action: 'saveTask', token: admin, task: Object.assign({}, at2, { stage: 4 }) });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 4); assert.strictEqual(r.data.task.status, 'On-Progress');
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

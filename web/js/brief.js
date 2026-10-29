@@ -19,13 +19,21 @@ function briefTask(b) { return allTasksForBrief().find((t) => t.id === b.taskId)
 function canEditBrief(b) {
   if (S.user.role === 'admin') return true;
   const t = briefTask(b);
-  return !!t && t.owner === S.user.username;
+  if (!t || t.owner !== S.user.username) return false;
+  return !L.isArticle(t) || L.stageOf(t) <= 2;   // setelah diajukan, brief terkunci untuk anggota
 }
+/** Status brief mengikuti tahap task artikel. */
 function briefStatus(b) {
   const t = briefTask(b);
   if (!t) return ['Task dihapus', 'muted'];
   if (L.isDone(t)) return ['Selesai', 'good'];
-  return b.status === 'Siap ditulis' ? ['Siap ditulis', 'info'] : ['Draft', 'warn'];
+  if (L.isArticle(t)) {
+    const st = L.stageOf(t);
+    if (st >= 4) return ['Disetujui', 'good'];
+    if (st === 3) return ['Diajukan', 'info'];
+    return b.status === 'Dikembalikan' ? ['Dikembalikan', 'bad'] : ['Draft', 'warn'];
+  }
+  return ['Draft', 'warn'];
 }
 const blankH2 = () => ({ h2: '', points: '', sources: [''], h3: [] });
 
@@ -82,7 +90,7 @@ function viewBriefs() {
     return;
   }
   const f = S.bf;
-  const tabs = [['all', 'Semua'], ['mine', 'Milik saya'], ['Draft', 'Draft'], ['Siap ditulis', 'Siap ditulis'], ['Selesai', 'Selesai']];
+  const tabs = [['all', 'Semua'], ['mine', 'Milik saya'], ['Draft', 'Draft'], ['Diajukan', 'Diajukan'], ['Disetujui', 'Disetujui'], ['Selesai', 'Selesai']];
   $('#view').innerHTML = `
     <div class="toolbar">
       <div class="seg" id="bftab">${tabs.map(([k, l]) => `<button data-k="${k}" class="${f.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -102,14 +110,15 @@ function renderBriefList() {
   let list = (S.briefs || []).filter((b) => {
     const t = briefTask(b), st = briefStatus(b)[0];
     if (f.tab === 'mine' && !(t && t.owner === S.user.username) && b.createdBy !== S.user.username) return false;
-    if (['Draft', 'Siap ditulis', 'Selesai'].includes(f.tab) && st !== f.tab) return false;
+    if (f.tab === 'Draft' && !['Draft', 'Dikembalikan'].includes(st)) return false;
+    if (['Diajukan', 'Disetujui', 'Selesai'].includes(f.tab) && st !== f.tab) return false;
     if (q && !(bKw(b) + ' ' + bTitle(b) + ' ' + (t ? t.task + ' ' + t.ownerName + ' ' + t.code : '')).toLowerCase().includes(q)) return false;
     return true;
   });
-  const order = { 'Siap ditulis': 0, Draft: 1, Selesai: 2, 'Task dihapus': 3 };
+  const order = { Diajukan: 0, Dikembalikan: 1, Draft: 2, Disetujui: 3, Selesai: 4, 'Task dihapus': 5 };
   list.sort((a, b) => (order[briefStatus(a)[0]] - order[briefStatus(b)[0]]) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   if (!list.length) {
-    $('#blist').innerHTML = `<div class="card empty"><b>${(S.briefs || []).length ? 'Tidak ada brief yang cocok' : 'Belum ada brief'}</b>${eligibleTasks().length ? 'Buat brief dari tombol “+ Brief baru” di kanan atas, atau tombol “+ Brief” di task.' : 'Brief dibuat dari task yang sedang dikerjakan.'}</div>`;
+    $('#blist').innerHTML = `<div class="card empty"><b>${(S.briefs || []).length ? 'Tidak ada brief yang cocok' : 'Belum ada brief'}</b>${eligibleTasks().length ? 'Buat brief dari tombol “+ Brief baru” di kanan atas, atau tombol “+ Buat brief” di task artikel.' : 'Brief dibuat untuk task berjenis Artikel.'}</div>`;
     return;
   }
   $('#blist').innerHTML = `<div class="card tlist brief-list">
@@ -127,10 +136,10 @@ function renderBriefList() {
   $$('[data-brief]', $('#blist')).forEach((r) => r.onclick = () => openBrief(r.dataset.brief));
 }
 
-/** Task yang boleh dibuatkan brief oleh pengguna ini (belum punya brief, belum Done). */
+/** Task artikel yang boleh dibuatkan brief oleh pengguna ini (belum punya brief, masih tahap 1–2). */
 function eligibleTasks() {
   const admin = S.user.role === 'admin';
-  return allTasksForBrief().filter((t) => t.id && !L.isDone(t) && !briefOf(t.id) && (admin || t.owner === S.user.username));
+  return allTasksForBrief().filter((t) => t.id && L.isArticle(t) && L.stageOf(t) <= 2 && !briefOf(t.id) && (admin || t.owner === S.user.username));
 }
 
 function taskOptions(list, sel) {
@@ -145,7 +154,7 @@ function taskOptions(list, sel) {
 
 function newBriefModal(taskId, copyFrom) {
   const list = eligibleTasks();
-  if (!list.length) return toast('Semua task Anda yang aktif sudah punya brief.', true);
+  if (!list.length) return toast('Tidak ada task artikel (tahap 1–2) yang belum punya brief.', true);
   modal({
     title: copyFrom ? 'Duplikat brief ke task lain' : 'Brief baru',
     body: `<form id="nbf">
@@ -177,6 +186,8 @@ function createBriefOptimistic(task, data, okMsg) {
   const tmp = { id: 'tmp-' + Date.now(), taskId: task.id, owner: task.owner, createdBy: S.user.username, type: data.contentType, status: 'Draft',
     keyword: data.kwMain || '', title: '', data: JSON.parse(JSON.stringify(data)), docUrl: '', createdAt: '', updatedAt: '', updatedBy: S.user.username, pending: true };
   putBrief(tmp);
+  if (L.isArticle(task) && L.stageOf(task) === 1) patchTask(task.id, { stage: 2, status: 'On-Progress', startedAt: task.startedAt || new Date().toISOString(),
+    stageLog: L.stageLog(task).map((x) => ({ s: x.s, t: x.t.toISOString() })).concat({ s: 2, t: new Date().toISOString() }) });
   openBrief(tmp.id);
   const E = S.bEdit;
   E.creating = api.call('saveBrief', { brief: { taskId: task.id, type: data.contentType, status: 'Draft', data } })
@@ -282,12 +293,22 @@ function viewBrief() {
   bindBriefEditor(edit);
 }
 
+/** Tombol alur di editor: anggota mengajukan brief (tahap 2); admin menyetujui/mengembalikan (tahap 3). */
+function briefStepButtons(b) {
+  const t = briefTask(b);
+  if (!t || !L.isArticle(t)) return '';
+  const st = L.stageOf(t), admin = S.user.role === 'admin';
+  if (st === 2 && (t.owner === S.user.username || admin)) return '<button class="btn sm primary" id="bsubmit">Ajukan brief</button>';
+  if (st === 3 && admin) return '<button class="btn sm" id="brev-return">Kembalikan</button><button class="btn sm primary" id="brev-ok">Setujui brief</button>';
+  return '';
+}
+
 function actionsHtml(b, edit, st) {
   if (String(b.id).startsWith('tmp-')) return '<span class="muted small">Membuat brief…</span>';
   return `${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
         ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
         ${edit && eligibleTasks().length ? '<button class="btn sm" id="bdup">Duplikat</button>' : ''}
-        ${edit && st !== 'Selesai' ? (b.status === 'Siap ditulis' ? '<button class="btn sm" id="bstat" data-to="Draft">Kembali ke draft</button>' : '<button class="btn sm primary" id="bstat" data-to="Siap ditulis">Tandai siap ditulis</button>') : ''}
+        ${briefStepButtons(b)}
         ${edit ? '<button class="btn sm ghost danger" id="bdel" title="Hapus brief">Hapus</button>' : ''}`;
 }
 
@@ -446,19 +467,19 @@ function bindBriefEditor(edit) {
 function bindBriefActions() {
   const E = S.bEdit; if (!E) return;
   const d = E.b.data;
-  if ($('#bstat')) $('#bstat').onclick = () => {
-    const to = $('#bstat').dataset.to;
-    if (to === 'Siap ditulis') {
-      const miss = [];
-      if (!String(d.kwMain || '').trim()) miss.push('keyword utama');
-      if (!String(d.h1 || '').trim()) miss.push('H1');
-      if (filledCompetitors(d) < MIN_COMPETITORS) miss.push(`minimal ${MIN_COMPETITORS} link kompetitor`);
-      if (!d.sections.some((s) => s.h2.trim())) miss.push('minimal 1 H2');
-      if (miss.length) return toast('Lengkapi dulu: ' + miss.join(', ') + '.', true);
-    }
-    E.b.status = to; E.dirty = true;
-    briefSave().then(() => { if (S.view === 'brief') rerenderBrief(); });
+  const t = briefTask(E.b);
+  if ($('#bsubmit')) $('#bsubmit').onclick = async () => {
+    if (E.dirty) await briefSave();
+    if (E.dirty || E.error) return toast('Brief belum tersimpan. Coba lagi sebentar.', true);
+    artStep(t.id, 'submitBrief');
   };
+  if ($('#brev-ok')) $('#brev-ok').onclick = async () => { if (E.dirty) await briefSave(); decideReview(t.id, 'approve'); };
+  if ($('#brev-return')) $('#brev-return').onclick = () => modal({
+    title: 'Kembalikan brief',
+    body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(bKw(E.b))}</b></p><label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="brv-reason" rows="3" placeholder="mis. Tambah 1 kompetitor, H2 ke-3 terlalu umum"></textarea></label>`,
+    actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="brv-send">Kembalikan</button>',
+    onMount: (m, close) => { $('#brv-send', m).onclick = () => { const r = $('#brv-reason', m).value.trim(); close(); decideReview(t.id, 'return', r); }; }
+  });
   if ($('#bdup')) $('#bdup').onclick = () => { briefFlush(); newBriefModal(null, E.b); };
   if ($('#bdoc')) $('#bdoc').onclick = async () => {
     const btn = $('#bdoc');
@@ -514,13 +535,10 @@ function briefFlush() { if (S.bEdit && S.bEdit.dirty && !S.bEdit.error) briefSav
 window.addEventListener('beforeunload', (e) => { if (S.bEdit && (S.bEdit.dirty || S.bEdit.saving) && !S.bEdit.error) { briefSave(); e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- integrasi dengan task ----------
-/** Chip Brief di baris task (atau tombol + Brief bila belum ada). */
+/** Chip Brief di baris task. */
 function briefChips(t, readonly) {
   const b = briefOf(t.id);
-  if (!b) {
-    const can = !readonly && t.id && !L.isDone(t) && (S.user.role === 'admin' || t.owner === S.user.username);
-    return can ? `<button type="button" class="res-add" data-newbrief="${esc(t.id)}">${fsvg('<path d="M12 5v14M5 12h14"/>')}Brief</button>` : '';
-  }
+  if (!b) return '';   // brief baru dibuat lewat tombol tahap "+ Buat brief" di task artikel
   return `<button type="button" class="res-chip brief-chip" data-openbrief="${esc(b.id)}" title="Buka brief: ${esc(bKw(b))}"><span class="res-ico">${ICONS.briefs}</span><span class="res-lbl">Brief${bKw(b) ? ' · ' + esc(bKw(b)) : ''}</span></button>`;
 }
 function bindBriefChips(root) {

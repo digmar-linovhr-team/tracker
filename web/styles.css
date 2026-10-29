@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.14.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.15.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -765,3 +765,20 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
   .sx-h input { order: 3; flex-basis: 100%; }
   .sx-h .sx-tools, .sx-h > .ibtn { margin-left: auto; }
 }
+
+/* ---------- Alur artikel ---------- */
+.stg { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--info); white-space: nowrap; }
+.stg.rv { color: var(--review); }
+.stg.dn { color: var(--good); }
+.stg-bar { display: inline-flex; gap: 2px; }
+.stg-bar i { width: 9px; height: 5px; border-radius: 3px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); }
+.stg-bar i.d { background: var(--good); box-shadow: none; }
+.stg-bar i.c { background: currentColor; box-shadow: none; }
+.tick.art { cursor: default; }
+.tick.art b { font-size: 11px; font-weight: 700; color: var(--muted); }
+.art-wait { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--review); background: var(--review-soft); border-radius: 999px; padding: 5px 11px; white-space: nowrap; }
+.rv-kind { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--review-soft); color: var(--review); }
+.rv-brief { display: grid; gap: 2px; border-left: 3px solid var(--review); padding: 2px 0 2px 10px; margin-bottom: 7px; font-size: 13px; }
+.rv-brief b { font-weight: 600; }
+.rv-brief span { color: var(--text-2); font-size: 12.5px; }
+#tf-type { margin-top: 2px; }

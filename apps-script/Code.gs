@@ -29,7 +29,8 @@ var CFG = {
 
 var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
-  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result', 'Result Note'];
+  'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result', 'Result Note',
+  'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
@@ -145,7 +146,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 9 });
+  return json_({ ok: true, app: 'project-tracker', version: 10 });
 }
 
 function doPost(e) {
@@ -182,6 +183,7 @@ function route_(b) {
     case 'deleteBrief': return deleteBrief_(me, b.briefId);
     case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
     case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
+    case 'advanceStage': return advanceStage_(me, b.taskId, b.step, b.url);
     case 'setMyEmail': return setMyEmail_(me, b.email);
     case 'setResults': return setResults_(me, b.taskId, b.results, b.note);
     case 'teamTasks': return teamTasks_();
@@ -587,7 +589,11 @@ function rowTask_(r, disp, col, sh, user, row) {
     reviewAt: normStamp_(g('review at')),
     notes: String(g('notes') || ''),
     results: parseResults_(g('result')),
-    resultNote: String(g('result note') || '').replace(/^'(?=[=+\-@])/, '')
+    resultNote: String(g('result note') || '').replace(/^'(?=[=+\-@])/, ''),
+    type: /artikel/i.test(String(g('type') || '')) && !/non/i.test(String(g('type') || '')) ? 'Artikel' : 'Non-artikel',
+    stage: Number(g('stage')) || 0,
+    liveUrl: String(g('live url') || ''), aiCheckUrl: String(g('ai check url') || ''),
+    stageLog: parseStageLog_(g('stage log'))
   };
 }
 
@@ -646,6 +652,10 @@ function updateStatus_(me, taskId, status) {
     var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     var prev = String(r[col['status']]), now = new Date(), ch = { 'status': status };
+    if (isArticleRow_(r, col)) {
+      if (me.role !== 'admin') throw new Error('Task artikel mengikuti tahapnya. Gunakan tombol tahap di task (mis. Ajukan brief / Ajukan review artikel).');
+      if (status === 'Done') { var tk = setStage_(sh, row, r, col, loc.user, me, 9); log_(me, 'status', taskId, prev + ' → Done'); return { task: tk }; }
+    }
     if (me.role !== 'admin') {
       if (status === 'Done') throw new Error('Hanya admin yang bisa menandai Done. Ajukan review agar diperiksa admin.');
       if (prev === 'Done') throw new Error('Task ini sudah disetujui admin. Minta admin untuk membukanya kembali.');
@@ -686,6 +696,10 @@ function saveTask_(me, t) {
     };
     if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
+    var article = t.type === 'Artikel';
+    if (t.type !== undefined) obj['type'] = article ? 'Artikel' : 'Non-artikel';
+    var wantStage = article && Number(t.stage) >= 1 && Number(t.stage) <= 9 ? Number(t.stage) : 0;
+    if (article) delete obj.status;   // status task artikel mengikuti tahap
     var id = t.id;
     if (obj.status === 'Review' && !t.reviewAt) obj['review at'] = new Date();
     var oldCode = '';
@@ -693,11 +707,10 @@ function saveTask_(me, t) {
       var loc = locateTask_(me, id);
       oldCode = String(loc.sheet.getRange(loc.row, loc.col['code'] + 1).getValue() || '').trim();
       if (loc.sheet.getName() !== target.getName()) {
-        // pindah penanggung jawab: salin timestamp lalu hapus baris lama
-        obj['started at'] = loc.sheet.getRange(loc.row, loc.col['started at'] + 1).getValue();
-        obj['done at'] = loc.sheet.getRange(loc.row, loc.col['done at'] + 1).getValue();
-        if (obj['result'] === undefined && loc.col['result'] !== undefined) obj['result'] = loc.sheet.getRange(loc.row, loc.col['result'] + 1).getValue();
-        if (obj['result note'] === undefined && loc.col['result note'] !== undefined) obj['result note'] = loc.sheet.getRange(loc.row, loc.col['result note'] + 1).getValue();
+        // pindah penanggung jawab: salin kolom yang tidak ada di form lalu hapus baris lama
+        ['status', 'started at', 'done at', 'review at', 'result', 'result note', 'type', 'stage', 'live url', 'ai check url', 'stage log'].forEach(function (k) {
+          if (obj[k] === undefined && loc.col[k] !== undefined) obj[k] = loc.sheet.getRange(loc.row, loc.col[k] + 1).getValue();
+        });
         obj['task id'] = id;
         trashRowEvents_(loc.sheet, loc.row);
         loc.sheet.deleteRow(loc.row);
@@ -707,18 +720,26 @@ function saveTask_(me, t) {
         writeObj_(target, loc.row, obj);
         formatTaskRow_(target, loc.row);
       }
-      syncStamps_(target, findRowById_(target, id), obj.status, false);
+      if (!article) syncStamps_(target, findRowById_(target, id), obj.status, false);
       log_(me, 'update-task', id, t.task + ' → ' + owner.username);
     } else {
       id = newId_();
       obj['task id'] = id;
       if (obj.status === 'Done') obj['done at'] = new Date();
       if (obj.status === 'On-Progress') obj['started at'] = new Date();
+      if (article) { obj.status = 'Backlog'; obj['stage'] = 1; obj['stage log'] = JSON.stringify([{ s: 1, t: new Date().toISOString(), by: me.username }]); }
       var row = appendObj_(target, obj);
       formatTaskRow_(target, row);
       log_(me, 'create-task', id, t.task + ' → ' + owner.username);
     }
     var savedRow = findRowById_(target, id);
+    if (article && savedRow) {
+      // task lama yang diubah menjadi artikel, atau admin mengoreksi tahap
+      var tc = colMap_(target), rr = target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0];
+      var cur = Number(rr[tc['stage']]) || 0;
+      if (!cur) wantStage = wantStage || (String(rr[tc['status']]) === 'Done' ? 9 : String(rr[tc['status']]) === 'On-Progress' ? 2 : 1);
+      if (wantStage && wantStage !== cur) setStage_(target, savedRow, rr, tc, owner, me, wantStage);
+    }
     var saved = savedRow ? rowTask_(target.getRange(savedRow, 1, 1, target.getLastColumn()).getValues()[0], null, colMap_(target), target, owner, savedRow) : null;
     queueProjectSync_([obj.code, oldCode]);
     return { id: id, task: saved };
@@ -803,6 +824,96 @@ function resultKind_(url) {
   return u.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
 }
 
+// ===================== Alur task Artikel (8 tahap) =====================
+var STAGE_NAMES = ['', 'Ditugaskan', 'Menyusun brief', 'Review brief', 'Menulis artikel', 'Review artikel', 'Publish', 'Cek ulang dengan AI', 'Review cek AI', 'Selesai'];
+var STAGE_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
+var REVIEW_NEXT = { 3: 4, 5: 6, 8: 9 }, REVIEW_BACK = { 3: 2, 5: 4, 8: 7 };
+var REVIEW_LABEL = { 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' };
+
+function isArticleRow_(r, col) {
+  var v = col['type'] === undefined ? '' : String(r[col['type']] || '');
+  return /artikel/i.test(v) && !/non/i.test(v);
+}
+function parseStageLog_(v) {
+  if (!v) return [];
+  try { var a = JSON.parse(String(v)); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+
+/** Pindah tahap: catat riwayat (dasar KPI), set status & cap waktu, antrekan sinkron project. */
+function setStage_(sh, row, r, col, user, me, stage, extra) {
+  var now = new Date(), log = parseStageLog_(r[col['stage log']]);
+  if (!log.length) {   // task lama yang baru dijadikan artikel: anggap mulai saat Started At (atau sekarang)
+    var t0 = isDate_(r[col['started at']]) ? r[col['started at']] : now;
+    log.push({ s: Number(r[col['stage']]) || 1, t: t0.toISOString() });
+  }
+  log.push({ s: stage, t: now.toISOString(), by: me.username });
+  var ch = Object.assign({ 'stage': stage, 'status': STAGE_STATUS[stage], 'stage log': JSON.stringify(log.slice(-80)) }, extra || {});
+  if (STAGE_STATUS[stage] === 'Review') ch['review at'] = now;
+  if (stage >= 2 && !r[col['started at']]) ch['started at'] = now;
+  if (stage === 9) ch['done at'] = now; else if (r[col['done at']]) ch['done at'] = '';
+  writeObj_(sh, row, ch);
+  Object.keys(ch).forEach(function (k) { if (col[k] !== undefined) r[col[k]] = ch[k]; });
+  queueProjectSync_([String(r[col['code']] || '')]);
+  return rowTask_(r, null, col, sh, user, row);
+}
+
+function briefRowOfTask_(taskId) {
+  var sh = sheet_(CFG.BRIEF_SHEET);
+  if (!sh || sh.getLastRow() < 2) return null;
+  var col = colMap_(sh);
+  var cell = sh.getRange(2, col['task id'] + 1, sh.getLastRow() - 1, 1).createTextFinder(String(taskId)).matchEntireCell(true).findNext();
+  if (!cell) return null;
+  var row = cell.getRow();
+  return { sheet: sh, col: col, row: row, brief: rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], col, row) };
+}
+function setBriefStatus_(taskId, status) {
+  var f = briefRowOfTask_(taskId);
+  if (f) f.sheet.getRange(f.row, f.col['status'] + 1).setValue(status);
+}
+
+/** Langkah anggota di task Artikel. step: start | submitBrief | submitArticle | publish | submitAiCheck */
+function advanceStage_(me, taskId, step, url) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var loc = locateTask_(me, taskId), sh = loc.sheet, row = loc.row;
+    ensureHeaders_(sh, TASK_HEADERS);
+    var col = colMap_(sh), r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
+    if (!isArticleRow_(r, col)) throw new Error('Task ini bukan task artikel.');
+    var stage = Number(r[col['stage']]) || 1, extra = {}, next;
+    var need = function (want, what) { if (stage !== want) throw new Error('Task ini sedang di tahap "' + STAGE_NAMES[stage] + '", bukan tahap ' + what + '. Muat ulang data.'); };
+    var cleanUrl = function (u, label) {
+      u = String(u || '').trim();
+      if (!/^https?:\/\/\S+$/i.test(u) || u.length > 1500) throw new Error(label + ' harus berupa link yang diawali http:// atau https://');
+      return u;
+    };
+    if (step === 'start') { need(1, 'awal'); next = 2; }
+    else if (step === 'submitBrief') {
+      need(2, 'menyusun brief');
+      var f = briefRowOfTask_(taskId);
+      if (!f) throw new Error('Buat brief dulu sebelum diajukan.');
+      var d = f.brief.data || {}, miss = [];
+      if (!String(d.kwMain || '').trim()) miss.push('keyword utama');
+      if (!String(d.h1 || '').trim()) miss.push('H1');
+      if ((d.competitors || []).filter(function (c) { return c && String(c.url || '').trim(); }).length < MIN_COMPETITORS) miss.push('minimal ' + MIN_COMPETITORS + ' link kompetitor');
+      if (!(d.sections || []).some(function (x) { return x && String(x.h2 || '').trim(); })) miss.push('minimal 1 H2');
+      if (miss.length) throw new Error('Lengkapi brief dulu: ' + miss.join(', ') + '.');
+      f.sheet.getRange(f.row, f.col['status'] + 1).setValue('Diajukan');
+      next = 3;
+    } else if (step === 'submitArticle') {
+      need(4, 'menulis artikel');
+      if (!parseResults_(r[col['result']]).length) throw new Error('Tambahkan link Docs artikel di "Hasil kerja" sebelum mengajukan review.');
+      next = 5;
+    } else if (step === 'publish') {
+      need(6, 'publish'); extra['live url'] = cleanUrl(url, 'URL artikel yang sudah tayang'); next = 7;
+    } else if (step === 'submitAiCheck') {
+      need(7, 'cek ulang dengan AI'); extra['ai check url'] = cleanUrl(url, 'Link Docs hasil cek AI'); next = 8;
+    } else throw new Error('Langkah tidak dikenal');
+    var task = setStage_(sh, row, r, col, loc.user, me, next, extra);
+    log_(me, 'stage', taskId, stage + ' → ' + next);
+    return { task: task };
+  } finally { lock.releaseLock(); }
+}
+
 /** Admin: setujui (Done) atau kembalikan (On-Progress + alasan di Catatan) task yang direview. */
 function reviewTask_(me, taskId, decision, reason) {
   if (decision !== 'approve' && decision !== 'return') throw new Error('Keputusan review tidak valid');
@@ -811,6 +922,7 @@ function reviewTask_(me, taskId, decision, reason) {
     var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     var now = new Date(), ch = {};
+    if (isArticleRow_(r, col)) return reviewArticle_(me, loc, r, decision, reason);
     if (decision === 'approve') {
       ch['status'] = 'Done'; ch['done at'] = now;
       if (!r[col['review at']]) ch['review at'] = now;
@@ -839,6 +951,38 @@ function reviewTask_(me, taskId, decision, reason) {
     queueProjectSync_([task.code]);
     return { task: task };
   } finally { lock.releaseLock(); }
+}
+
+/** Review admin untuk task Artikel di tahap 3 (brief), 5 (artikel), 8 (hasil cek AI). */
+function reviewArticle_(me, loc, r, decision, reason) {
+  var sh = loc.sheet, col = colMap_(sh), row = loc.row, stage = Number(r[col['stage']]) || 0, taskId = String(r[col['task id']]);
+  if (!REVIEW_NEXT[stage]) throw new Error('Task ini sedang di tahap "' + (STAGE_NAMES[stage] || '-') + '", tidak ada yang perlu direview. Muat ulang data.');
+  var extra = {}, what = REVIEW_LABEL[stage], next;
+  reason = String(reason || '').trim().slice(0, 500);
+  if (decision === 'approve') {
+    next = REVIEW_NEXT[stage];
+    if (stage === 3) setBriefStatus_(taskId, 'Disetujui');
+  } else {
+    next = REVIEW_BACK[stage];
+    var stamp = Utilities.formatDate(new Date(), tz_(), 'd MMM HH:mm');
+    var line = '[' + what.charAt(0).toUpperCase() + what.slice(1) + ' dikembalikan ' + stamp + ' oleh ' + me.name + ']' + (reason ? ' ' + reason : '');
+    var old = String(r[col['notes']] || '').trim();
+    extra['notes'] = old ? old + '\n' + line : line;
+    if (stage === 3) setBriefStatus_(taskId, 'Dikembalikan');
+  }
+  var task = setStage_(sh, row, r, col, loc.user, me, next, extra);
+  log_(me, 'review-' + decision, taskId, what + (reason ? ': ' + reason : ''));
+  if (loc.user.email && loc.user.active) {
+    var subj = decision === 'approve'
+      ? (stage === 8 ? '✅ Artikel selesai: ' : '✅ ' + what.charAt(0).toUpperCase() + what.slice(1) + ' disetujui: ') + shortTitle_(task.task)
+      : '↩️ ' + what.charAt(0).toUpperCase() + what.slice(1) + ' dikembalikan: ' + shortTitle_(task.task);
+    var body = decision === 'approve'
+      ? (stage === 8 ? 'Hasil cek AI disetujui ' + esc_(me.name) + '. Task ditandai <b>Done</b>. Terima kasih!' : esc_(what.charAt(0).toUpperCase() + what.slice(1)) + ' disetujui ' + esc_(me.name) + '. Lanjut ke tahap <b>' + esc_(STAGE_NAMES[next]) + '</b>.')
+      : esc_(what.charAt(0).toUpperCase() + what.slice(1)) + ' <b>dikembalikan</b> oleh ' + esc_(me.name) + (reason ? ':<br><i>' + esc_(reason) + '</i>' : '.');
+    try { MailApp.sendEmail({ to: loc.user.email, name: 'Project Tracker', subject: subj, htmlBody: emailShell_('Halo ' + esc_(loc.user.name) + ',', body + taskTableHtml_([task])) }); }
+    catch (e) { /* email tidak boleh menggagalkan keputusan */ }
+  }
+  return { task: task };
 }
 
 /** Menjaga Started At / Done At konsisten dengan status.
@@ -1142,13 +1286,13 @@ function setMyEmail_(me, email) {
   } finally { lock.releaseLock(); }
 }
 
-/** Waktu mulai & deadline (Date) sesuai zona waktu spreadsheet; jam default 09:00 / 17:00. */
+/** Waktu mulai & deadline (Date) sesuai zona waktu spreadsheet; jam default 09:00 / 18:00. */
 function taskTimes_(t) {
   var tz = tz_();
   var at = function (d, time, def) {
     return d ? Utilities.parseDate(d + ' ' + (time || def), tz, 'yyyy-MM-dd HH:mm') : null;
   };
-  return { start: at(t.startDate, t.startTime, '09:00'), end: at(t.endDate, t.endTime, '17:00') };
+  return { start: at(t.startDate, t.startTime, '09:00'), end: at(t.endDate, t.endTime, '18:00') };
 }
 
 function wantsReminders_(t) {
@@ -1370,6 +1514,7 @@ function taskTableHtml_(tasks, withOwner) {
     return '<tr>' + (withOwner ? '<td ' + td + '><b>' + esc_(t.ownerName) + '</b></td>' : '') +
       '<td ' + td + '>' + (t.code ? '<span style="font-family:monospace;background:#f1f2ef;padding:1px 6px;border-radius:8px">' + esc_(t.code) + '</span> ' : '') +
       (/^https?:\/\//.test(t.task) ? '<a href="' + esc_(t.task) + '">' + esc_(t.task.replace(/^https?:\/\/(www\.)?/, '')) + '</a>' : esc_(t.task)) +
+      (t.type === 'Artikel' && t.stage ? '<div style="font-size:12px;color:#2f6f9e;margin-top:3px">Tahap ' + t.stage + ' · ' + esc_(STAGE_NAMES[t.stage] || '') + (t.liveUrl ? ' · <a href="' + esc_(t.liveUrl) + '">URL live</a>' : '') + (t.aiCheckUrl ? ' · <a href="' + esc_(t.aiCheckUrl) + '">Hasil cek AI</a>' : '') + '</div>' : '') +
       resultsHtml_(t) + '</td>' +
       '<td ' + td + ' nowrap>' + (tm.end ? Utilities.formatDate(tm.end, tz_(), 'd MMM, HH:mm') : '–') + '</td></tr>';
   }).join('');
@@ -1401,7 +1546,6 @@ function shortTitle_(s) {
 // ===================== Brief artikel =====================
 var BRIEF_TYPES = ['Informasional', 'Consideration', 'Conversion'];   // jenis konten
 var MIN_COMPETITORS = 2;
-var BRIEF_STATUSES = ['Draft', 'Siap ditulis'];
 var BRIEF_MAX_CHARS = 45000;   // satu sel Sheets maksimal 50.000 karakter
 
 function briefSheet_() {
@@ -1466,26 +1610,23 @@ function cleanBriefData_(d) {
 function saveBrief_(me, b) {
   b = b || {};
   var type = BRIEF_TYPES.indexOf(b.type) >= 0 ? b.type : 'Informasional';
-  var status = BRIEF_STATUSES.indexOf(b.status) >= 0 ? b.status : 'Draft';
+  var status = 'Draft';   // status brief diatur oleh tahap task (Diajukan / Disetujui / Dikembalikan)
   var json = cleanBriefData_(b.data || {});
   var d = b.data || {};
-  if (status === 'Siap ditulis') {
-    var miss = [];
-    if (!String(d.kwMain || '').trim()) miss.push('keyword utama');
-    if (!String(d.h1 || '').trim()) miss.push('H1');
-    if ((d.competitors || []).filter(function (c) { return c && String(c.url || '').trim(); }).length < MIN_COMPETITORS) miss.push('minimal ' + MIN_COMPETITORS + ' link kompetitor');
-    if (miss.length) throw new Error('Lengkapi dulu: ' + miss.join(', ') + '.');
-  }
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var loc = locateTask_(me, b.taskId);   // anggota hanya bisa memilih task miliknya
+    var trow = loc.sheet.getRange(loc.row, 1, 1, loc.sheet.getLastColumn()).getValues()[0];
+    if (isArticleRow_(trow, loc.col) && me.role !== 'admin' && (Number(trow[loc.col['stage']]) || 1) >= 3) {
+      throw new Error('Brief sudah diajukan ke admin, jadi tidak bisa diubah lagi. Minta admin mengembalikannya bila perlu revisi.');
+    }
     var sh = briefSheet_(), col = colMap_(sh), now = new Date();
     var dupRow = sh.getLastRow() < 2 ? null : sh.getRange(2, col['task id'] + 1, sh.getLastRow() - 1, 1)
       .createTextFinder(String(b.taskId)).matchEntireCell(true).findAll()
       .filter(function (c) { return String(sh.getRange(c.getRow(), col['brief id'] + 1).getValue()) !== String(b.id || ''); })[0];
     if (dupRow) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
     var obj = {
-      'task id': String(b.taskId), 'owner': loc.user.username, 'type': type, 'status': status,
+      'task id': String(b.taskId), 'owner': loc.user.username, 'type': type,
       'keyword': safeCell_(String(d.kwMain || '').slice(0, 200)), 'title': safeCell_(String(d.h1 || '').slice(0, 300)),
       'data': json, 'updated at': now, 'updated by': me.username
     };
@@ -1500,10 +1641,13 @@ function saveBrief_(me, b) {
       writeObj_(sh, row, obj);
     } else {
       id = 'BR' + newId_().replace(/^T/, '');
-      obj['brief id'] = id; obj['created by'] = me.username; obj['created at'] = now;
+      obj['brief id'] = id; obj['created by'] = me.username; obj['created at'] = now; obj['status'] = status;
       row = appendObj_(sh, obj);
     }
-    if (!b.id) log_(me, 'create-brief', b.taskId, id + ' ' + (d.kwMain || ''));   // simpan otomatis tidak dicatat agar cepat
+    if (!b.id) {
+      log_(me, 'create-brief', b.taskId, id + ' ' + (d.kwMain || ''));
+      if (isArticleRow_(trow, loc.col) && (Number(trow[loc.col['stage']]) || 1) === 1) setStage_(loc.sheet, loc.row, trow, colMap_(loc.sheet), loc.user, me, 2);
+    }   // simpan otomatis tidak dicatat agar cepat
     return { brief: rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row) };
   } finally { lock.releaseLock(); }
 }

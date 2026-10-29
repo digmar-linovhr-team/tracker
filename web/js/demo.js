@@ -49,43 +49,60 @@ function build() {
   const nowH = now.getHours();
 
   // Ari
-  add('ari', 'A1', 'https://www.linovhr.com/blog/aplikasi-hr-terbaik-era-digital/', -2, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(-2, 9, 20), priority: 'High', results: [{ label: 'Brief konten', url: 'https://docs.google.com/document/d/1demoBrief/edit' }, { label: '', url: 'https://www.figma.com/file/demoHero/Hero' }] });
-  add('ari', 'B2', 'Fixing Technical Issue - Page with Redirect URL', 0, '13:00', 33, '17:00', 'Backlog', { priority: 'Low' });
-  add('ari', 'A1', 'https://www.linovhr.com/blog/talent-management-strategy/', 1, '09:00', 5, '17:00', 'Backlog');
+  add('ari', 'A1', 'https://www.linovhr.com/blog/aplikasi-hr-terbaik-era-digital/', -2, '09:00', 1, '18:00', 'On-Progress', { startedAt: stamp(-2, 9, 20), priority: 'High', results: [{ label: 'Brief konten', url: 'https://docs.google.com/document/d/1demoBrief/edit' }, { label: '', url: 'https://www.figma.com/file/demoHero/Hero' }] });
+  add('ari', 'B2', 'Fixing Technical Issue - Page with Redirect URL', 0, '13:00', 33, '18:00', 'Backlog', { priority: 'Low' });
+  add('ari', 'A1', 'https://www.linovhr.com/blog/talent-management-strategy/', 1, '09:00', 5, '18:00', 'Backlog');
   add('ari', 'A7', 'Weekly Report SEO', 5, '09:00', 5, '12:00', 'Backlog');
-  add('ari', 'A1', 'https://www.linovhr.com/blog/hris-indonesia/', -9, '09:00', -6, '17:00', 'Done', { startedAt: stamp(-9, 9, 5), doneAt: stamp(-7, 15, 30) });
+  add('ari', 'A1', 'https://www.linovhr.com/blog/hris-indonesia/', -9, '09:00', -6, '18:00', 'Done', { startedAt: stamp(-9, 9, 5), doneAt: stamp(-7, 15, 30) });
   add('ari', 'A7', 'Weekly Report SEO', -2, '09:00', -2, '12:00', 'Done', { startedAt: stamp(-2, 9, 0), doneAt: stamp(-2, 11, 10) });
   // Ammar
-  add('ammar', 'A1', 'https://www.linovhr.com/blog/payroll-outsourcing/', -6, '09:00', -3, '17:00', 'Done', { startedAt: stamp(-6, 9, 30), doneAt: stamp(-3, 16, 40) });
-  add('ammar', 'A1', 'https://www.linovhr.com/blog/aplikasi-absensi/', -3, '09:00', -1, '17:00', 'On-Progress', { startedAt: stamp(-3, 10, 0) });
-  add('ammar', 'A1', 'https://www.linovhr.com/blog/kpi-karyawan/', 0, String(Math.min(nowH + 1, 22)).padStart(2, '0') + ':00', 2, '17:00', 'Backlog', { priority: 'High' });
+  add('ammar', 'A1', 'https://www.linovhr.com/blog/payroll-outsourcing/', -6, '09:00', -3, '18:00', 'Done', { startedAt: stamp(-6, 9, 30), doneAt: stamp(-3, 16, 40) });
+  add('ammar', 'A1', 'https://www.linovhr.com/blog/aplikasi-absensi/', -3, '09:00', -1, '18:00', 'On-Progress', { startedAt: stamp(-3, 10, 0) });
+  add('ammar', 'A1', 'https://www.linovhr.com/blog/kpi-karyawan/', 0, String(Math.min(nowH + 1, 22)).padStart(2, '0') + ':00', 2, '18:00', 'Backlog', { priority: 'High' });
   // Fahmi
-  add('fahmi', 'A1', 'https://www.linovhr.com/blog/employee-engagement/', -8, '09:00', -5, '17:00', 'Done', { startedAt: stamp(-8, 9, 0), doneAt: stamp(-7, 14, 0) });
-  add('fahmi', 'A1', 'https://www.linovhr.com/blog/onboarding-karyawan/', -4, '09:00', -2, '17:00', 'Done', { startedAt: stamp(-4, 9, 15), doneAt: stamp(-2, 16, 0) });
-  add('fahmi', 'A1', 'https://www.linovhr.com/blog/offboarding/', 0, '09:00', 3, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 5) });
+  add('fahmi', 'A1', 'https://www.linovhr.com/blog/employee-engagement/', -8, '09:00', -5, '18:00', 'Done', { startedAt: stamp(-8, 9, 0), doneAt: stamp(-7, 14, 0) });
+  add('fahmi', 'A1', 'https://www.linovhr.com/blog/onboarding-karyawan/', -4, '09:00', -2, '18:00', 'Done', { startedAt: stamp(-4, 9, 15), doneAt: stamp(-2, 16, 0) });
+  add('fahmi', 'A1', 'https://www.linovhr.com/blog/offboarding/', 0, '09:00', 3, '18:00', 'On-Progress', { startedAt: stamp(0, 9, 5) });
   // Winona
-  add('winona', 'A1', 'https://www.linovhr.com/blog/hr-analytics/', -7, '09:00', -4, '17:00', 'Done', { startedAt: stamp(-7, 9, 0), doneAt: stamp(-3, 10, 30) });
-  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '17:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Fokus keyword "reimbursement karyawan"', resultNote: 'Sudah tambah meta description dan 3 internal link ke artikel payroll. Gambar ilustrasi ada di folder Drive.', results: [
+  add('winona', 'A1', 'https://www.linovhr.com/blog/hr-analytics/', -7, '09:00', -4, '18:00', 'Done', { startedAt: stamp(-7, 9, 0), doneAt: stamp(-3, 10, 30) });
+  add('winona', 'A1', 'https://www.linovhr.com/blog/reimbursement/', -1, '09:00', 2, '18:00', 'Review', { startedAt: stamp(-1, 9, 40), reviewAt: new Date(Date.now() - 2 * 36e5).toISOString(), notes: 'Fokus keyword "reimbursement karyawan"', resultNote: 'Sudah tambah meta description dan 3 internal link ke artikel payroll. Gambar ilustrasi ada di folder Drive.', results: [
     { label: 'Draft artikel', url: 'https://docs.google.com/document/d/1demoReimburse/edit' },
     { label: 'Folder gambar', url: 'https://drive.google.com/drive/folders/1demoImg' }] });
   // Dany
-  add('dany', 'A5', 'Page Solusi — Logistik', -5, '09:00', -3, '17:00', 'Done', { startedAt: stamp(-5, 9, 0), doneAt: stamp(-4, 15, 0) });
-  add('dany', 'A5', 'Page Solusi — Construction', -3, '09:00', -1, '17:00', 'Done', { startedAt: stamp(-3, 9, 0), doneAt: stamp(-1, 17, 0) });
-  add('dany', 'A5', 'Page Solusi — Mining', 0, '09:00', 1, '17:00', 'On-Progress', { startedAt: stamp(0, 9, 10) });
+  add('dany', 'A5', 'Page Solusi — Logistik', -5, '09:00', -3, '18:00', 'Done', { startedAt: stamp(-5, 9, 0), doneAt: stamp(-4, 15, 0) });
+  add('dany', 'A5', 'Page Solusi — Construction', -3, '09:00', -1, '18:00', 'Done', { startedAt: stamp(-3, 9, 0), doneAt: stamp(-1, 17, 0) });
+  add('dany', 'A5', 'Page Solusi — Mining', 0, '09:00', 1, '18:00', 'On-Progress', { startedAt: stamp(0, 9, 10) });
   // Arya
-  add('arya', 'A3', 'NavBar — struktur menu & mega menu', -2, '09:00', 0, '17:00', 'Done', { startedAt: stamp(-2, 9, 0), doneAt: stamp(-1, 13, 0) });
-  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '17:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString(), resultNote: 'Tracking 25 keyword utama sudah jalan; rekap mingguan ada di Slides.', results: [
+  add('arya', 'A3', 'NavBar — struktur menu & mega menu', -2, '09:00', 0, '18:00', 'Done', { startedAt: stamp(-2, 9, 0), doneAt: stamp(-1, 13, 0) });
+  add('arya', 'A2', 'Setup tracking visibilitas AI Overview', -2, '09:00', 4, '18:00', 'Review', { startedAt: stamp(-2, 11, 0), reviewAt: new Date(Date.now() - 40 * 60000).toISOString(), resultNote: 'Tracking 25 keyword utama sudah jalan; rekap mingguan ada di Slides.', results: [
     { label: 'Dashboard AIO', url: 'https://docs.google.com/spreadsheets/d/1demoAIO/edit' },
     { label: 'Slides laporan', url: 'https://docs.google.com/presentation/d/1demoSlides/edit' },
     { label: '', url: 'https://lookerstudio.google.com/reporting/demo' }] });
   // Wisnu
   add('wisnu', 'A6', 'Discuss dengan Koh Yos terkait competitor Lawencon + report', -2, '09:00', 0, '12:00', 'Backlog', { priority: 'High' });
-  add('wisnu', 'B3', 'Skema FAQ untuk semua landing page LinovHR', 1, '09:00', 1, '17:00', 'Backlog', { priority: 'High' });
-  add('wisnu', 'A2', 'Riset tools AIO tracking', -9, '09:00', -6, '17:00', 'Done', { startedAt: stamp(-9, 9, 0), doneAt: stamp(-5, 11, 0) });
+  add('wisnu', 'B3', 'Skema FAQ untuk semua landing page LinovHR', 1, '09:00', 1, '18:00', 'Backlog', { priority: 'High' });
+  add('wisnu', 'A2', 'Riset tools AIO tracking', -9, '09:00', -6, '18:00', 'Done', { startedAt: stamp(-9, 9, 0), doneAt: stamp(-5, 11, 0) });
 
   const users = [['admin', 'Administrator', 'admin', '']].concat(people.map((p) => [p[0], p[1], 'member', p[1]]))
     .map((u) => ({ username: u[0], name: u[1], role: u[2], sheetName: u[3], mustChange: false, active: true, email: u[0] === 'wisnu' ? '' : u[0] + '@contoh.com',
       position: { ari: 'SEO Specialist', ammar: 'Content Writer', fahmi: 'Content Writer', winona: 'Content Writer Intern', dany: 'Frontend Developer', arya: 'Frontend Developer', wisnu: 'Digital Marketing Lead' }[u[0]] || '' }));
+  // Task artikel (A1 berupa URL blog): jenis, tahap, dan riwayat tahap untuk contoh KPI
+  const ST_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
+  const artStage = { '/aplikasi-hr-terbaik-era-digital/': 4, '/talent-management-strategy/': 1, '/hris-indonesia/': 9, '/payroll-outsourcing/': 9,
+    '/aplikasi-absensi/': 2, '/kpi-karyawan/': 3, '/employee-engagement/': 9, '/onboarding-karyawan/': 9, '/offboarding/': 8, '/hr-analytics/': 9, '/reimbursement/': 5 };
+  tasks.forEach((t) => {
+    const key = Object.keys(artStage).find((k) => t.task.includes(k));
+    if (!key) { t.type = 'Non-artikel'; return; }
+    const st = artStage[key];
+    t.type = 'Artikel'; t.stage = st; t.status = ST_STATUS[st];
+    const from = new Date(t.startedAt || (t.startDate + 'T09:00:00')), to = st === 9 ? new Date(t.doneAt) : new Date(Date.now() - 45 * 60000);
+    const steps = st === 9 ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : Array.from({ length: st }, (_, i) => i + 1);
+    t.stageLog = steps.map((s2, i) => ({ s: s2, t: new Date(+from + ((to - from) * i) / Math.max(steps.length - 1, 1)).toISOString() }));
+    if (ST_STATUS[st] === 'Review') t.reviewAt = t.stageLog[t.stageLog.length - 1].t;
+    if (st >= 7) t.liveUrl = t.task;
+    if (st >= 8) t.aiCheckUrl = 'https://docs.google.com/document/d/demo-aicheck-' + t.id + '/edit';
+    if (st >= 5 && !t.results.length) t.results = [{ label: 'Draft artikel', url: 'https://docs.google.com/document/d/demo-' + t.id + '/edit' }];
+  });
   const tid = (frag) => (tasks.find((t) => t.task.includes(frag)) || {}).id;
   const briefs = [
     { id: 'BRDEMO1', taskId: tid('/reimbursement/'), owner: 'winona', createdBy: 'wisnu', type: 'Informasional', status: 'Siap ditulis', docUrl: '',
@@ -114,6 +131,13 @@ function build() {
       createdAt: stamp(-8, 9, 0), updatedAt: stamp(-4, 9, 0), updatedBy: 'winona',
       data: { v: 2, kwMain: 'hr analytics', h1: 'HR Analytics: Pengertian dan Cara Menerapkannya', contentType: 'Informasional', wordEst: '1.500',
         competitors: [{ url: 'https://a.com', insight: '' }, { url: 'https://b.com', insight: '' }], sections: [{ h2: 'Apa itu HR analytics', points: '', sources: [''], h3: [] }] } }
+    ,{ id: 'BRDEMO4', taskId: tid('/kpi-karyawan/'), owner: 'ammar', createdBy: 'ammar', type: 'Informasional', status: 'Diajukan', docUrl: '',
+      createdAt: stamp(0, 8, 0), updatedAt: stamp(0, 8, 30), updatedBy: 'ammar',
+      data: { v: 2, kwMain: 'kpi karyawan', kwSecondary: ['contoh kpi karyawan', 'cara menentukan kpi'], h1: 'KPI Karyawan: Pengertian, Contoh, dan Cara Menyusunnya', contentType: 'Informasional', wordEst: '2.000',
+        metaTitle: 'KPI Karyawan: Contoh & Cara Menyusun (2026)', metaDesc: 'Panduan menyusun KPI karyawan lengkap dengan contoh per divisi.',
+        competitors: [{ url: 'https://www.talenta.co/blog/kpi/', insight: 'Contoh per divisi lengkap' }, { url: 'https://www.gadjian.com/blog/kpi/', insight: 'Tanpa template' }],
+        intro: 'Kenapa KPI penting untuk penilaian kinerja.', sections: [{ h2: 'Apa itu KPI karyawan', points: 'Definisi + beda dengan OKR', sources: [''], h3: [] }, { h2: 'Contoh KPI per divisi', points: 'HR, sales, marketing, finance', sources: [''], h3: [] }],
+        ctaPage: '/fitur/performance-management', ctaText: 'Coba modul Performance', internalLinks: [], externalLinks: [], faq: [], extras: ['Template unduhan'] } }
   ].filter((b) => b.taskId).map((b) => Object.assign(b, { keyword: b.data.kwMain || '', title: b.data.h1 || '' }));
   return { projects, tasks, users, briefs };
 }
@@ -122,6 +146,15 @@ let db = null;
 function state() { if (!db) db = build(); return db; }
 function reset() { db = null; }
 
+function demoStage(t, next, me) {
+  const STS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
+  const now = new Date().toISOString();
+  t.stageLog = (t.stageLog || []).concat({ s: next, t: now, by: me && me.username });
+  t.stage = next; t.status = STS[next];
+  if (STS[next] === 'Review') t.reviewAt = now;
+  if (!t.startedAt && next >= 2) t.startedAt = now;
+  t.doneAt = next === 9 ? now : '';
+}
 const ST = ['Backlog', 'On-Progress', 'Review', 'Hold', 'Done', 'Recurring'];
 function syncProj(s, codes) {
   const out = [];
@@ -160,6 +193,7 @@ function handle(action, b, session) {
       const br = b.brief || {};
       const t = s.tasks.find((x) => x.id === br.taskId && (me.role === 'admin' || x.owner === me.username));
       if (!t) throw new Error('Task tidak ditemukan');
+      if (t.type === 'Artikel' && me.role !== 'admin' && (t.stage || 1) >= 3) throw new Error('Brief sudah diajukan ke admin, jadi tidak bisa diubah lagi.');
       if (s.briefs.some((x) => x.taskId === br.taskId && x.id !== br.id)) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
       if (JSON.stringify(br.data || {}).length > 45000) throw new Error('Isi brief terlalu panjang');
       if (br.status === 'Siap ditulis' && ((br.data && br.data.competitors) || []).filter((c) => c && c.url).length < 2) throw new Error('Lengkapi dulu: minimal 2 link kompetitor.');
@@ -167,8 +201,8 @@ function handle(action, b, session) {
       let cur = br.id && s.briefs.find((x) => x.id === br.id);
       if (br.id && !cur) throw new Error('Brief tidak ditemukan');
       if (cur && br.baseUpdatedAt && cur.updatedAt !== br.baseUpdatedAt) throw new Error('Brief ini baru saja diubah oleh ' + cur.updatedBy + '. Muat ulang supaya perubahannya tidak tertimpa.');
-      if (!cur) { cur = { id: 'BRDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '' }; s.briefs.push(cur); }
-      Object.assign(cur, { taskId: br.taskId, owner: t.owner, type: br.type || 'Informasional', status: br.status || 'Draft', data: br.data || {},
+      if (!cur) { cur = { id: 'BRDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '', status: 'Draft' }; s.briefs.push(cur); if (t.type === 'Artikel' && (t.stage || 1) === 1) demoStage(t, 2, me); }
+      Object.assign(cur, { taskId: br.taskId, owner: t.owner, type: br.type || 'Informasional', data: br.data || {},
         keyword: (br.data && br.data.kwMain) || '', title: (br.data && br.data.h1) || '', updatedAt: now, updatedBy: me.username });
       return { brief: cur };
     }
@@ -189,9 +223,35 @@ function handle(action, b, session) {
       if (b.note !== undefined) { if (String(b.note).length > 2000) throw new Error('Keterangan hasil maksimal 2000 karakter'); t.resultNote = String(b.note); }
       return { task: t };
     }
+    case 'advanceStage': {
+      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
+      if (!t) throw new Error('Task tidak ditemukan');
+      if (t.type !== 'Artikel') throw new Error('Task ini bukan task artikel.');
+      const st = t.stage || 1, want = { start: 1, submitBrief: 2, submitArticle: 4, publish: 6, submitAiCheck: 7 }[b.step];
+      if (st !== want) throw new Error('Task ini sedang di tahap lain. Muat ulang data.');
+      if (b.step === 'submitBrief') {
+        const br = s.briefs.find((x) => x.taskId === t.id);
+        if (!br) throw new Error('Buat brief dulu sebelum diajukan.');
+        const d = br.data || {}, miss = [];
+        if (!String(d.kwMain || '').trim()) miss.push('keyword utama');
+        if (!String(d.h1 || '').trim()) miss.push('H1');
+        if ((d.competitors || []).filter((c) => c && c.url).length < 2) miss.push('minimal 2 link kompetitor');
+        if (!(d.sections || []).some((x) => x && String(x.h2 || '').trim())) miss.push('minimal 1 H2');
+        if (miss.length) throw new Error('Lengkapi brief dulu: ' + miss.join(', ') + '.');
+        br.status = 'Diajukan';
+      }
+      if (b.step === 'submitArticle' && !(t.results || []).length) throw new Error('Tambahkan link Docs artikel di "Hasil kerja" sebelum mengajukan review.');
+      if ((b.step === 'publish' || b.step === 'submitAiCheck') && !/^https?:\/\/\S+$/i.test(String(b.url || ''))) throw new Error('Link harus diawali http:// atau https://');
+      if (b.step === 'publish') t.liveUrl = b.url;
+      if (b.step === 'submitAiCheck') t.aiCheckUrl = b.url;
+      demoStage(t, { start: 2, submitBrief: 3, submitArticle: 5, publish: 7, submitAiCheck: 8 }[b.step], me);
+      return { task: t };
+    }
     case 'updateStatus': {
       const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
       if (!t) throw new Error('Task tidak ditemukan');
+      if (t.type === 'Artikel' && me.role !== 'admin') throw new Error('Task artikel mengikuti tahapnya. Gunakan tombol tahap di task.');
+      if (t.type === 'Artikel' && b.status === 'Done') { demoStage(t, 9, me); return { task: t }; }
       if (me.role !== 'admin' && b.status === 'Done') throw new Error('Hanya admin yang bisa menandai Done. Ajukan review agar diperiksa admin.');
       if (me.role !== 'admin' && t.status === 'Done') throw new Error('Task ini sudah disetujui admin.');
       if (b.status === 'Review' && t.status !== 'Review') t.reviewAt = new Date().toISOString();
@@ -210,8 +270,12 @@ function handle(action, b, session) {
       const t = b.task; const owner = s.users.find((u) => u.username === t.owner);
       if (!owner) throw new Error('Penanggung jawab tidak ditemukan');
       let saved, oldCode = '';
-      if (t.id) { saved = s.tasks.find((x) => x.id === t.id); oldCode = saved.code; Object.assign(saved, t, { ownerName: owner.name }); }
-      else { saved = Object.assign({ startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '' }, t, { id: 'TDEMO' + Date.now(), ownerName: owner.name }); s.tasks.push(saved); }
+      const art = t.type === 'Artikel', wantStage = Number(t.stage) || 0;
+      const clean = Object.assign({}, t); delete clean.stage; if (art) delete clean.status;
+      if (t.id) { saved = s.tasks.find((x) => x.id === t.id); oldCode = saved.code; Object.assign(saved, clean, { ownerName: owner.name }); }
+      else { saved = Object.assign({ startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', status: 'Backlog' }, clean, { id: 'TDEMO' + Date.now(), ownerName: owner.name }); s.tasks.push(saved); }
+      if (art && !saved.stage) { saved.stage = 1; saved.status = 'Backlog'; saved.stageLog = [{ s: 1, t: new Date().toISOString() }]; }
+      if (art && wantStage && wantStage !== saved.stage) demoStage(saved, wantStage, me);
       return { id: saved.id, task: saved, projects: syncProj(s, [saved.code, oldCode]) };
     }
     case 'deleteTask': { const old = s.tasks.find((x) => x.id === b.taskId); s.tasks = s.tasks.filter((x) => x.id !== b.taskId); return { ok: true, projects: syncProj(s, [old && old.code]) }; }
@@ -219,6 +283,15 @@ function handle(action, b, session) {
     case 'reviewTask': {
       const t = s.tasks.find((x) => x.id === b.taskId);
       if (!t) throw new Error('Task tidak ditemukan');
+      if (t.type === 'Artikel') {
+        const st = t.stage, next = b.decision === 'approve' ? { 3: 4, 5: 6, 8: 9 }[st] : { 3: 2, 5: 4, 8: 7 }[st];
+        if (!next) throw new Error('Tidak ada yang perlu direview. Muat ulang data.');
+        const br = s.briefs.find((x) => x.taskId === t.id);
+        if (st === 3 && br) br.status = b.decision === 'approve' ? 'Disetujui' : 'Dikembalikan';
+        if (b.decision !== 'approve') { const d = new Date(), what = { 3: 'Brief', 5: 'Artikel', 8: 'Hasil cek AI' }[st]; const line = `[${what} dikembalikan ${d.getDate()}/${d.getMonth() + 1} oleh ${me.name}]` + (b.reason ? ' ' + b.reason : ''); t.notes = t.notes ? t.notes + '\n' + line : line; }
+        demoStage(t, next, me);
+        return { task: t, projects: syncProj(s, [t.code]) };
+      }
       if (b.decision === 'approve') { t.status = 'Done'; t.doneAt = new Date().toISOString(); if (!t.reviewAt) t.reviewAt = t.doneAt; }
       else {
         t.status = 'On-Progress'; t.doneAt = ''; t.reviewAt = '';

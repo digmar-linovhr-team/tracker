@@ -6,9 +6,9 @@ const t = (o) => Object.assign({ id: 'X', task: 'Tes', status: 'Backlog', startT
 let pass = 0;
 const it = (name, fn) => { fn(); pass++; console.log('  ✓ ' + name); };
 
-it('jam default 09:00 / 17:00 bila kolom jam kosong', () => {
+it('jam default 09:00 / 18:00 bila kolom jam kosong', () => {
   const s = L.schedule(t({ startDate: '2026-10-26', endDate: '2026-10-29' }));
-  assert.strictEqual(s.start.getHours(), 9); assert.strictEqual(s.end.getHours(), 17);
+  assert.strictEqual(s.start.getHours(), 9); assert.strictEqual(s.end.getHours(), 18);
 });
 
 it('overperforming: selesai cepat (≤80% durasi rencana)', () => {
@@ -95,6 +95,39 @@ it('format durasi', () => {
   assert.strictEqual(L.humanDuration(45 * 60000), '45 menit');
   assert.strictEqual(L.humanDuration(3 * 36e5 + 15 * 60000), '3 jam 15 mnt');
   assert.strictEqual(L.humanDuration(3 * 864e5), '3 hari');
+});
+
+const D = (d, h, m) => new Date(2026, 9, d, h, m || 0);   // Okt 2026: 26 = Senin, 30 = Jumat
+it('jam kerja: hanya Senin–Jumat 09:00–18:00 WIB', () => {
+  assert.strictEqual(L.workMs(D(26, 9), D(26, 18)), 9 * 36e5);
+  assert.strictEqual(L.workMs(D(30, 17), new Date(2026, 10, 2, 10)), 2 * 36e5, 'Jumat 17:00 → Senin 10:00 = 2 jam');
+  assert.strictEqual(L.workMs(D(26, 20), D(27, 8)), 0, 'malam tidak dihitung');
+  assert.strictEqual(L.workMs(new Date(2026, 9, 31, 10), new Date(2026, 10, 1, 15)), 0, 'akhir pekan tidak dihitung');
+});
+
+const art = (s8, s9) => t({ type: 'Artikel', status: 'Done', startDate: '2026-10-26', startTime: '09:00', endDate: '2026-10-28', endTime: '18:00',
+  doneAt: s9.toISOString(),
+  stageLog: JSON.stringify([[1, D(26, 9)], [2, D(26, 9)], [3, D(26, 14)], [4, D(27, 10)], [5, D(28, 15)], [4, D(29, 9)], [5, D(29, 12)], [6, D(29, 14)], [7, D(29, 15)], [8, s8], [9, s9]]
+    .map(([st, d]) => ({ s: st, t: d.toISOString() }))) });
+it('KPI artikel: waktu murni = jam kerja − waktu review admin; terlambat bila > jatah + 2 jam', () => {
+  // waktu anggota: 5 (brief) + 14 (menulis) + 3 (revisi) + 1 (publish) + 1 (cek AI) = 24 jam; jatah Sen 09 → Rab 18 = 27 jam
+  let e = L.evaluate(art(D(29, 16), D(30, 10)), D(30, 12));
+  assert.strictEqual(e.plannedMs, 27 * 36e5);
+  assert.strictEqual(e.reviewMs, (5 + 3 + 2 + 3) * 36e5, 'review brief 5 + artikel 3 + 2 + cek AI 3 jam');
+  assert.strictEqual(e.durationMs, 24 * 36e5);
+  assert.strictEqual(e.outcome, 'ontime');
+  e = L.evaluate(art(D(30, 12), D(30, 13)), D(30, 16));   // cek AI 6 jam → murni 29 = jatah + 2 → masih tepat waktu
+  assert.strictEqual(e.durationMs, 29 * 36e5); assert.strictEqual(e.outcome, 'ontime');
+  e = L.evaluate(art(D(30, 13), D(30, 14)), D(30, 16));   // murni 30 jam → terlambat
+  assert.strictEqual(e.durationMs, 30 * 36e5); assert.strictEqual(e.outcome, 'late');
+  // lama review admin tidak membuat anggota terlambat
+  e = L.evaluate(art(D(29, 16), new Date(2026, 10, 4, 17)), new Date(2026, 10, 5, 9));
+  assert.strictEqual(e.durationMs, 24 * 36e5); assert.strictEqual(e.outcome, 'ontime');
+  assert.strictEqual(L.humanWork(30 * 36e5), '3 hari kerja 3 jam');
+});
+it('task non-artikel tetap memakai cara hitung lama', () => {
+  const e = L.evaluate(t({ status: 'Done', startDate: '2026-10-26', endDate: '2026-10-26', startedAt: D(26, 9).toISOString(), doneAt: D(26, 20).toISOString() }), D(27, 9));
+  assert.strictEqual(e.article, undefined); assert.strictEqual(e.outcome, 'late');
 });
 
 console.log(`\n${pass} uji lulus`);

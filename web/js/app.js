@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.14.0';
+const CSS_VERSION = '2.15.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -472,6 +472,14 @@ function whenInfo(t) {
     return { cls: late ? 'warn' : 'review', main: 'Menunggu review', sub: e.reviewAt ? 'Diajukan ' + shortDT(e.reviewAt) + (late ? ' · lewat deadline' : '') : '' };
   }
   if (t.status === 'Recurring') return { cls: 'muted', main: 'Rutin', sub: '' };
+  if (L.isArticle(t)) {
+    const k = L.articleKpi(t, now);
+    if (k.allowanceMs !== null && k.netMs !== null) {
+      const left = k.allowanceMs - k.netMs;
+      return { cls: k.late ? 'bad' : left < 2 * 36e5 ? 'warn' : 'normal', main: left >= 0 ? `Sisa ${L.humanWork(left)}` : `Lewat ${L.humanWork(-left)}`,
+        sub: (end ? 'Deadline ' + shortDT(end) + ' · ' : '') + 'jam kerja', pct: k.allowanceMs ? Math.min(100, (k.netMs / k.allowanceMs) * 100) : null };
+    }
+  }
   if (!s && !end) return { cls: 'muted', main: 'Belum dijadwalkan', sub: [t.startRaw, t.endRaw].filter(Boolean).join(' → ') };
   if (end && now > end) return { cls: 'bad', main: `Terlambat ${relDur(now - end)}`, sub: 'Deadline ' + shortDT(end) };
   if (s && now < s) {
@@ -489,6 +497,12 @@ const HOURGLASS_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="non
 function tickHtml(t, readonly) {
   const id = esc(t.id), admin = S.user.role === 'admin', done = L.isDone(t);
   if (!t.id) return '<span class="tick disabled"></span>';
+  if (L.isArticle(t)) {
+    const st = L.stageOf(t);
+    if (st >= 9) return `<span class="tick on" title="Selesai">${CHECK_SVG}</span>`;
+    if (L.REVIEW_STAGES.includes(st)) return `<span class="tick review" title="Menunggu review admin">${HOURGLASS_SVG}</span>`;
+    return `<span class="tick ro art" title="Tahap ${st}: ${esc(L.STAGES[st])}"><b>${st}</b></span>`;
+  }
   if (t.status === 'Review') {
     if (admin && !readonly) return `<button class="tick review" data-st="Done" data-id="${id}" title="Setujui (Done)" aria-label="Setujui">${HOURGLASS_SVG}</button>`;
     return `<span class="tick review" title="Menunggu review admin">${HOURGLASS_SVG}</span>`;
@@ -552,6 +566,7 @@ function resultsModal(t, opts) {
   modal({
     title: 'Hasil kerja',
     body: `<p class="muted small" style="margin:0 0 12px">${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</p>
+      ${opts.hint ? `<div class="banner" style="margin-bottom:12px"><div>${esc(opts.hint)}</div></div>` : ''}
       <label class="field"><span>Keterangan hasil</span><textarea id="res-note" rows="3" maxlength="2000" placeholder="mis. Sudah tambah meta description dan 3 internal link. Gambar ada di folder Drive.">${esc(t.resultNote || '')}</textarea></label>
       <div class="res-sect-h">Link dokumen</div>
       <div id="res-list">${listHtml()}</div>
@@ -561,7 +576,7 @@ function resultsModal(t, opts) {
         <p class="muted small" id="res-kind" style="margin:-4px 0 10px">Docs, Sheets, Slides, Drive, Forms, Figma, Canva, atau link lain.</p>
         <button type="button" class="btn sm" id="res-addbtn">+ Tambah ke daftar</button>
       </div><div id="res-err"></div>`,
-    actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="res-save">${opts.thenReview ? 'Simpan & ajukan review' : 'Simpan'}</button>`,
+    actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="res-save">${opts.saveLabel || (opts.thenReview ? 'Simpan & ajukan review' : 'Simpan')}</button>`,
     onMount: (m, close) => {
       const url = $('#res-url', m), lbl = $('#res-label', m), err = (msg) => { $('#res-err', m).innerHTML = msg ? `<div class="error">${esc(msg)}</div>` : ''; };
       const draw = () => {
@@ -582,11 +597,12 @@ function resultsModal(t, opts) {
       [url, lbl].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }));
       $('#res-addbtn', m).onclick = add;
       draw();
-      (opts.focusUrl ? url : $('#res-note', m)).focus();
+      (opts.focusUrl || opts.then ? url : $('#res-note', m)).focus();
       $('#res-save', m).onclick = () => {
         if (url.value.trim() && add() === null) return;   // link yang masih di kolom ikut disimpan
         close();
-        saveResults(t.id, items.map((x) => ({ label: x.label.trim(), url: x.url })), $('#res-note', m).value.trim(), opts.thenReview);
+        if (opts.then && !items.length && !url.value.trim()) { err('Tambahkan minimal 1 link.'); return; }
+        saveResults(t.id, items.map((x) => ({ label: x.label.trim(), url: x.url })), $('#res-note', m).value.trim(), opts.then || opts.thenReview);
       };
     }
   });
@@ -603,7 +619,8 @@ async function saveResults(id, results, note, thenReview) {
     const r = await api.call('setResults', { taskId: id, results, note });
     if (r && r.task) patchTask(id, { results: r.task.results, resultNote: r.task.resultNote });
     S.pending.delete(id); saveCache(); softRender();
-    if (thenReview) setStatus(id, 'Review');
+    if (typeof thenReview === 'function') thenReview();
+    else if (thenReview) setStatus(id, 'Review');
   } catch (e) {
     S.pending.delete(id); patchTask(id, before); softRender();
     toast('Gagal menyimpan hasil kerja: ' + cleanErr(e), true);
@@ -629,7 +646,7 @@ function askReview(id) {
 
 function resultsLine(t, readonly) {
   const list = resultsOf(t), note = (t.resultNote || '').trim(), edit = !readonly && canEditResults(t);
-  const bc = briefChips(t, readonly);
+  const bc = briefChips(t, readonly) + (L.isArticle(t) ? artLinks(t) : '');
   if (!list.length && !note && !edit && !bc) return '';
   const has = list.length || note;
   return `${note ? `<div class="t-rnote" title="${esc(note)}"><b>Hasil:</b> ${esc(note.replace(/\s*\n\s*/g, ' · '))}</div>` : ''}
@@ -646,7 +663,8 @@ function taskRow(t, opts) {
   const id = esc(t.id);
   const prio = String(t.priority || '').toLowerCase();
   const admin = S.user.role === 'admin';
-  const canStart = !readonly && !done && ['Backlog', 'Hold'].includes(t.status);
+  const art = L.isArticle(t);
+  const canStart = !art && !readonly && !done && ['Backlog', 'Hold'].includes(t.status);
   const options = admin ? STATUSES : STATUSES.filter((x) => x !== 'Done');
   const staticPill = `<span class="pill ${ST_CLASS[t.status] || 'st-backlog'}">${esc(t.status)}</span>`;
   const statusSel = readonly || (done && !admin) ? staticPill
@@ -657,6 +675,7 @@ function taskRow(t, opts) {
       <div class="t-title">${prettyTitle(t.task)}</div>
       <div class="t-sub">
         ${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}
+        ${art ? artStageHtml(t) : ''}
         ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
         ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes.split('\n').pop())}</span>` : ''}
@@ -670,7 +689,7 @@ function taskRow(t, opts) {
     </div>
     <div class="t-ctrl">
       ${canStart && t.id ? `<button class="btn sm start" data-st="On-Progress" data-id="${id}">Mulai</button>` : ''}
-      ${t.id ? statusSel : '<span class="muted small">Task ID kosong</span>'}
+      ${!t.id ? '<span class="muted small">Task ID kosong</span>' : art ? artActions(t, readonly) : statusSel}
     </div>
   </div>`;
 }
@@ -685,6 +704,7 @@ function bindTaskRows(root) {
   });
   $$('[data-res]', root).forEach((b) => b.onclick = () => resultsModal(findTask(b.dataset.res)));
   bindBriefChips(root);
+  bindArtActions(root);
 }
 
 function findTask(id) {
@@ -785,7 +805,7 @@ function viewDashboard() {
       ${tile('Selesai terlambat', sum.late, 'done setelah deadline', css('--bad'))}
       ${tile('Overdue aktif', sum.overdue, 'lewat deadline, belum done', css('--warn'))}
       ${tile('Rata-rata selisih deadline', sum.avgSlackMs === null ? '–' : (sum.avgSlackMs >= 0 ? '+' : '') + L.humanDuration(sum.avgSlackMs), 'positif = lebih cepat dari deadline')}
-      ${tile('Masih berjalan', sum.open, sum.review ? `${sum.review} menunggu review admin` : 'belum jatuh tempo')}
+      ${sum.articleDone ? tile('Rata-rata review admin', L.humanWork(sum.avgReviewMs), `per artikel selesai (${sum.articleDone} artikel) · jam kerja`, css('--review')) : tile('Masih berjalan', sum.open, sum.review ? `${sum.review} menunggu review admin` : 'belum jatuh tempo')}
     </div>
     <div class="dash-grid">
       <div class="card"><div class="card-h"><h2>${team ? 'Hasil per orang' : 'Task selesai per minggu'}</h2>
@@ -795,7 +815,7 @@ function viewDashboard() {
     </div>
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
     <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="hist"></div></div>
-    <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.</p>`;
+    <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.<br><b>Task artikel</b>: dihitung dengan jam kerja (Senin–Jumat ${pad(L.WORK.startH)}:00–${L.WORK.endH}:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, dikurangi lama review admin. <b>Terlambat</b> bila waktu kerja melebihi jatah (jadwal mulai → deadline) lebih dari ${L.GRACE_MS / 36e5} jam kerja.</p>`;
 
   $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; go('dashboard'); });
 
@@ -883,11 +903,13 @@ function renderBoard(tasks, range) {
 function renderHistory(sum, admin) {
   const rows = sum.rows.filter((x) => L.isDone(x.t)).sort((a, b) => (b.e.doneAt || 0) - (a.e.doneAt || 0)).slice(0, 60);
   if (!rows.length) { $('#hist').innerHTML = '<div class="empty"><b>Belum ada task selesai</b>di periode ini.</div>'; return; }
-  $('#hist').innerHTML = `<table class="tbl"><thead><tr><th>Task</th>${admin ? '<th>PIC</th>' : ''}<th>Mulai kerja</th><th>Done</th><th class="num">Durasi kerja</th><th class="num">Rencana</th><th class="num">Selisih</th><th>Hasil</th></tr></thead><tbody>
+  $('#hist').innerHTML = `<table class="tbl"><thead><tr><th>Task</th>${admin ? '<th>PIC</th>' : ''}<th>Mulai kerja</th><th>Done</th><th class="num">Durasi kerja</th><th class="num">Rencana</th><th class="num">Selisih</th><th class="num" title="Task artikel: lama di review admin (jam kerja), tidak mengurangi nilai anggota">Review admin</th><th>Hasil</th></tr></thead><tbody>
     ${rows.map(({ t, e }) => `<tr><td class="clip" title="${esc(t.task)}">${t.code ? `<span class="chip code">${esc(t.code)}</span> ` : ''}${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</td>
       ${admin ? `<td>${esc(t.ownerName)}</td>` : ''}<td class="nw">${fmtS(e.startedAt || e.plannedStart)}</td><td class="nw">${fmtS(e.doneAt)}</td>
-      <td class="num nw">${L.humanDuration(e.durationMs)}</td><td class="num nw">${L.humanDuration(e.plannedMs)}</td>
-      <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanDuration(e.slackMs)}</td><td class="nw">${outcomeChip(t)}</td></tr>`).join('')}
+      ${e.article ? `<td class="num nw" title="Jam kerja, tanpa waktu review admin">${L.humanWork(e.durationMs)}</td><td class="num nw">${L.humanWork(e.plannedMs)}</td>
+      <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanWork(e.slackMs)}</td><td class="num nw">${L.humanWork(e.reviewMs)}</td>`
+      : `<td class="num nw">${L.humanDuration(e.durationMs)}</td><td class="num nw">${L.humanDuration(e.plannedMs)}</td>
+      <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanDuration(e.slackMs)}</td><td class="num nw muted">–</td>`}<td class="nw">${outcomeChip(t)}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -1150,37 +1172,38 @@ function viewReview() {
     return;
   }
   $('#view').innerHTML = `<div class="card tlist">${list.map((t) => {
-    const e = L.evaluate(t), id = esc(t.id), pname = projectName(t.code);
-    const late = e.reviewAt && e.plannedEnd && e.reviewAt > e.plannedEnd;
+    const e = L.evaluate(t), id = esc(t.id), pname = projectName(t.code), art = L.isArticle(t);
+    const k = art ? L.articleKpi(t) : null;
+    const late = art ? k.late : e.reviewAt && e.plannedEnd && e.reviewAt > e.plannedEnd;
     const pos = posOf(t.owner);
     return `<div class="rv-row ${S.pending.has(t.id) ? 'is-saving' : ''}" id="task-${id}">
       <div class="rv-who"><span class="avatar">${initials(t.ownerName)}</span><div><b>${esc(t.ownerName)}</b>${pos ? `<small>${esc(pos)}</small>` : ''}</div></div>
       <div class="t-main">
         <div class="t-title">${prettyTitle(t.task)}</div>
-        <div class="t-sub">${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
+        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[L.stageOf(t)] || 'Review')}</span>` : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
-        <div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
+        ${art ? artReviewBlock(t) : `<div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
           ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
-          <div class="rv-res">${briefChips(t, true)}${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div></div>
+          <div class="rv-res">${briefChips(t, true)}${resultsOf(t).length ? resultsOf(t).map((x) => resChip(x)).join('') : (t.resultNote ? '' : '<span class="muted small">Belum ada keterangan maupun link</span>')}</div></div>`}
       </div>
       <div class="t-when ${late ? 'w-warn' : 'w-good'}">
-        <b>${late ? 'Lewat deadline' : 'Tepat waktu'}</b>
+        <b>${late ? (art ? 'Lewat jatah waktu' : 'Lewat deadline') : 'Tepat waktu'}</b>
         <span>Diajukan ${esc(ago(e.reviewAt))}</span>
-        ${e.plannedEnd ? `<span>Deadline ${esc(shortDT(e.plannedEnd))}</span>` : ''}
+        ${art && k.netMs !== null && k.allowanceMs !== null ? `<span title="Jam kerja anggota, tanpa waktu review admin">Kerja ${esc(L.humanWork(k.netMs))}</span><span>Jatah ${esc(L.humanWork(k.allowanceMs))}</span>` : e.plannedEnd ? `<span>Deadline ${esc(shortDT(e.plannedEnd))}</span>` : ''}
       </div>
       <div class="t-ctrl rv-ctrl">
         <button class="btn sm" data-return="${id}">Kembalikan</button>
-        <button class="btn sm primary" data-approve="${id}">Setujui</button>
+        <button class="btn sm primary" data-approve="${id}">${art ? artApproveLabel(t) : 'Setujui'}</button>
       </div>
     </div>`; }).join('')}</div>
-    <p class="def"><b>Setujui</b> menandai task sebagai Done. <b>Kembalikan</b> mengubahnya menjadi On-Progress; alasan Anda tercatat di Catatan task dan dikirim ke email anggota.</p>`;
+    <p class="def"><b>Setujui</b> menandai task sebagai Done (task artikel: lanjut ke tahap berikutnya). <b>Kembalikan</b> mengembalikannya ke anggota; alasan Anda tercatat di Catatan task dan dikirim ke email anggota.</p>`;
   $$('[data-ext]', $('#view')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
   bindBriefChips($('#view'));
   $$('[data-approve]').forEach((b) => b.onclick = () => decideReview(b.dataset.approve, 'approve'));
   $$('[data-return]').forEach((b) => b.onclick = () => {
     const t = findTask(b.dataset.return);
     modal({
-      title: 'Kembalikan task',
+      title: L.isArticle(t) ? 'Kembalikan ' + ({ 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' }[L.stageOf(t)] || 'task') : 'Kembalikan task',
       body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
         <label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="rv-reason" rows="3" placeholder="mis. Tambahkan meta description dan 2 internal link"></textarea></label>`,
       actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rv-send">Kembalikan</button>',
@@ -1192,9 +1215,16 @@ function viewReview() {
 async function decideReview(id, decision, reason) {
   const t = findTask(id);
   if (!t) return;
-  const before = { status: t.status, doneAt: t.doneAt, reviewAt: t.reviewAt, notes: t.notes };
+  const before = { status: t.status, doneAt: t.doneAt, reviewAt: t.reviewAt, notes: t.notes, stage: t.stage, stageLog: t.stageLog };
   const now = new Date();
-  if (decision === 'approve') patchTask(id, { status: 'Done', doneAt: now.toISOString(), reviewAt: t.reviewAt || now.toISOString() });
+  const art = L.isArticle(t), st = L.stageOf(t), br = art ? briefOf(t.id) : null, brBefore = br ? br.status : null;
+  if (art) {
+    const next = decision === 'approve' ? ART_REVIEW_NEXT[st] : ART_REVIEW_BACK[st];
+    const p = { stage: next, status: L.STAGE_STATUS[next], doneAt: next === 9 ? now.toISOString() : '', stageLog: L.stageLog(t).map((x) => ({ s: x.s, t: x.t.toISOString() })).concat({ s: next, t: now.toISOString() }) };
+    if (decision !== 'approve') { const what = { 3: 'Brief', 5: 'Artikel', 8: 'Hasil cek AI' }[st]; const line = `[${what} dikembalikan ${now.getDate()} ${MONTHS[now.getMonth()]} ${pad(now.getHours())}:${pad(now.getMinutes())} oleh ${S.user.name}]` + (reason ? ' ' + reason : ''); p.notes = t.notes ? t.notes + '\n' + line : line; }
+    patchTask(id, p);
+    if (br && st === 3) br.status = decision === 'approve' ? 'Disetujui' : 'Dikembalikan';
+  } else if (decision === 'approve') patchTask(id, { status: 'Done', doneAt: now.toISOString(), reviewAt: t.reviewAt || now.toISOString() });
   else {
     const line = `[Dikembalikan ${now.getDate()} ${MONTHS[now.getMonth()]} ${pad(now.getHours())}:${pad(now.getMinutes())} oleh ${S.user.name}]` + (reason ? ' ' + reason : '');
     patchTask(id, { status: 'On-Progress', doneAt: '', reviewAt: '', notes: t.notes ? t.notes + '\n' + line : line });
@@ -1202,14 +1232,14 @@ async function decideReview(id, decision, reason) {
   syncProjects([t.code]);
   S.pending.add(id);
   softRender(); renderNav();
-  toast(decision === 'approve' ? `Disetujui — task ${t.ownerName} ditandai Done.` : `Dikembalikan ke ${t.ownerName}.`);
+  toast(decision === 'approve' ? (art && st !== 8 ? `Disetujui — ${t.ownerName} lanjut ke tahap ${L.STAGES[ART_REVIEW_NEXT[st]]}.` : `Disetujui — task ${t.ownerName} ditandai Done.`) : `Dikembalikan ke ${t.ownerName}.`);
   try {
     const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '' });
-    if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes });
+    if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes, stage: r.task.stage, stageLog: r.task.stageLog });
     if (r) syncProjects([t.code], r.projects);
     saveCache();
   } catch (e) {
-    patchTask(id, before); syncProjects([t.code]);
+    patchTask(id, before); if (br) br.status = brBefore; syncProjects([t.code]);
     toast('Gagal menyimpan keputusan: ' + cleanErr(e), true);
   } finally {
     S.pending.delete(id);
@@ -1270,7 +1300,7 @@ function renderTaskTable() {
       <div>
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
         <div class="task-title">${prettyTitle(t.task)}</div>
-        <div class="task-meta">${statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
+        <div class="task-meta">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
         ${resultsLine(t, true)}
       </div>
       <div class="task-actions"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></div>
@@ -1280,7 +1310,7 @@ function renderTaskTable() {
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
       <td class="clip" title="${esc(t.task)}">${prettyTitle(t.task)}</td><td>${esc(t.ownerName)}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
-      <td class="nw">${statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
+      <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
       <td style="white-space:nowrap"><button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button></td></tr>`; }).join('')}
   </tbody></table>`;
   $$('[data-ext]', $('#tt')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
@@ -1301,7 +1331,7 @@ function renderTaskTable() {
 
 function taskModal(t, prefill) {
   const all = S.all, edit = !!t && !prefill;
-  t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '17:00', priority: 'Medium', status: 'Backlog' };
+  t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '18:00', priority: 'Medium', status: 'Backlog' };
   if (edit && !t.id) return toast('Task ini belum punya Task ID. Jalankan menu Setup di spreadsheet.', true);
   const people = all.users.filter((u) => u.sheetName && u.active);
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label || v)}</option>`;
@@ -1313,15 +1343,20 @@ function taskModal(t, prefill) {
         <label class="field"><span>Project</span><select name="code"><option value="">— tanpa project —</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
       </div>
       <label class="field"><span>Nama task / URL *</span><textarea name="task" rows="2" required>${esc(t.task || '')}</textarea></label>
+      <div class="field"><span>Jenis task</span><div class="seg seg-pick" id="tf-type" role="radiogroup" aria-label="Jenis task">
+        <button type="button" role="radio" data-type="Non-artikel" class="${L.isArticle(t) ? '' : 'on'}" aria-checked="${!L.isArticle(t)}">Non-artikel</button>
+        <button type="button" role="radio" data-type="Artikel" class="${L.isArticle(t) ? 'on' : ''}" aria-checked="${L.isArticle(t)}">Artikel</button></div>
+        <small class="muted" id="tf-type-hint" style="display:block;margin-top:5px">${L.isArticle(t) ? 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.' : 'Alur biasa: Mulai → Ajukan review → Done.'}</small></div>
       <div class="grid4">
         <label class="field"><span>Tanggal mulai</span><input type="date" name="startDate" value="${esc(t.startDate || '')}"></label>
         <label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="${esc(t.startTime || '09:00')}"></label>
         <label class="field"><span>Deadline</span><input type="date" name="endDate" value="${esc(t.endDate || '')}"></label>
-        <label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="${esc(t.endTime || '17:00')}"></label>
+        <label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="${esc(t.endTime || '18:00')}"></label>
       </div>
       <div class="grid2">
         <label class="field"><span>Prioritas</span><select name="priority">${PRIORITIES.map((p) => opt(p, t.priority || 'Medium')).join('')}</select></label>
-        <label class="field"><span>Status</span><select name="status">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
+        <label class="field ${L.isArticle(t) ? 'hidden' : ''}" id="tf-status"><span>Status</span><select name="status">${STATUSES.map((s) => opt(s, t.status || 'Backlog')).join('')}</select></label>
+        <label class="field ${L.isArticle(t) && edit ? '' : 'hidden'}" id="tf-stage"><span>Tahap (koreksi admin)</span><select name="stage">${L.STAGES.slice(1).map((n, i) => `<option value="${i + 1}" ${L.stageOf(t) === i + 1 ? 'selected' : ''}>${i + 1} · ${esc(n)}</option>`).join('')}</select></label>
       </div>
       <label class="field"><span>Catatan</span><textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>
       <label class="field"><span>Keterangan hasil (dari anggota)</span><textarea name="resultNote" rows="2" maxlength="2000">${esc(t.resultNote || '')}</textarea></label>
@@ -1331,12 +1366,23 @@ function taskModal(t, prefill) {
     onMount: (m, close) => {
       const f = $('#tf', m);
       f.startDate.addEventListener('change', () => { if (!f.endDate.value) f.endDate.value = f.startDate.value; });
+      let type = L.isArticle(t) ? 'Artikel' : 'Non-artikel';
+      $$('#tf-type button', m).forEach((b) => b.onclick = () => {
+        type = b.dataset.type;
+        $$('#tf-type button', m).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
+        $('#tf-status', m).classList.toggle('hidden', type === 'Artikel');
+        $('#tf-stage', m).classList.toggle('hidden', !(type === 'Artikel' && edit && L.isArticle(t)));
+        $('#tf-type-hint', m).textContent = type === 'Artikel' ? 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.' : 'Alur biasa: Mulai → Ajukan review → Done.';
+      });
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
         const data = Object.fromEntries(new FormData(f).entries());
         const s = L.at(data.startDate, data.startTime), e = L.at(data.endDate, data.endTime);
         if (s && e && e < s) { $('#terr', m).innerHTML = '<div class="error">Deadline tidak boleh sebelum waktu mulai.</div>'; return; }
         if (edit) data.id = t.id;
+        data.type = type;
+        if (type === 'Artikel') { delete data.status; if (!(edit && L.isArticle(t))) delete data.stage; else data.stage = Number(data.stage); }
+        else delete data.stage;
         const parsed = parseResultsText(data.results || '');
         if (parsed.error) { $('#terr', m).innerHTML = `<div class="error">${esc(parsed.error)}</div>`; return; }
         data.results = parsed.list;
@@ -1417,7 +1463,7 @@ function projectModal(p) {
         <div class="as-task-b hidden" id="as-task-b">
           <div class="grid2">
             <label class="field"><span>Penanggung jawab *</span><select name="owner"><option value="">Pilih…</option>${S.all.users.filter((u) => u.sheetName && u.active).map((u) => `<option value="${esc(u.username)}">${esc(u.name)}</option>`).join('')}</select></label>
-            <div class="grid2"><label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="09:00"></label><label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="17:00"></label></div>
+            <div class="grid2"><label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="09:00"></label><label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="18:00"></label></div>
           </div>
           <p class="muted small" style="margin:0">Nama task, code, tanggal, dan prioritas mengikuti project. Status project selanjutnya mengikuti task ini.</p>
         </div></div>`}
@@ -1464,7 +1510,7 @@ function projectModal(p) {
 /** Data task baru dari sebuah project (untuk project 1 task). */
 function taskFromProject(p) {
   return { owner: (ownerFromPic(p.pic || '') || {}).username || '', code: p.code || '', task: p.project || '',
-    startDate: p.start || '', endDate: p.end || p.start || '', startTime: '09:00', endTime: '17:00',
+    startDate: p.start || '', endDate: p.end || p.start || '', startTime: '09:00', endTime: '18:00',
     priority: p.priority || 'Medium', status: 'Backlog' };
 }
 /** Cocokkan isi kolom PIC ("Ari, Wisnu") dengan akun anggota; ambil yang pertama cocok. */

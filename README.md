@@ -99,6 +99,10 @@ Kirim link aplikasi + username & password sementara masing-masing. Setiap orang:
 
 **Status project otomatis**: project dengan 1 task → status project selalu sama dengan task-nya (task disetujui Done → project Done). Project dengan banyak task → otomatis Done saat semua task Done, dan kembali On-Progress bila ada task yang dibuka lagi/ditambah; selain itu status manual (mis. Hold) tidak diubah. Tampilan aplikasi langsung berubah; kolom Status di tab Main Project diperbarui ±1 menit kemudian (perubahan yang diketik langsung di spreadsheet ≤ 5 menit).
 
+**Jenis task: Artikel vs Non-artikel**: saat membuat task, admin memilih jenisnya. Task **Non-artikel** memakai alur biasa (Mulai → Ajukan review → Done). Task **Artikel** memakai 8 tahap: 1 Ditugaskan → 2 Menyusun brief → 3 Review brief (admin) → 4 Menulis artikel (link Docs di Hasil kerja) → 5 Review artikel (admin) → 6 Publish (anggota mengisi URL live) → 7 Cek ulang dengan AI (link Docs hasil cek) → 8 Review cek AI (admin) → Done. Di tiap tahap anggota melihat satu tombol langkah berikutnya; admin menyetujui atau mengembalikan (dengan alasan) di menu **Review** yang menandai jenis pengajuannya (Review brief / artikel / cek AI). Status lama terisi otomatis dari tahap. Riwayat tahap disimpan di kolom *Stage Log*.
+
+**KPI task Artikel**: dihitung dengan **jam kerja** saja (Senin–Jumat 09:00–18:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, **dikurangi** lama di review admin (waktu review tetap dicatat dan ditampilkan terpisah). **Terlambat** bila waktu kerja melebihi jatah (jadwal mulai → deadline, dalam jam kerja) lebih dari **2 jam kerja**. Ubah aturan ini di `WORK` / `GRACE_MS` pada `web/js/logic.js`.
+
 **Brief**: menu **Brief** untuk menyusun brief artikel yang terhubung ke task (satu brief per task). Anggota membuat brief untuk task miliknya (tombol **+ Brief** di task atau **+ Brief baru**), admin untuk task siapa pun. Isi brief: keyword utama & turunan · analisis kompetitor (link + insight, minimal 2) · H1, jenis konten (Informasional/Consideration/Conversion), estimasi jumlah kata, meta title & description (dengan pratinjau Google) · struktur artikel: Introduction, H2 + poin pembahasan + source, H3 + poin pembahasan · CTA (halaman produk + ajakan) · internal & external link · FAQ (pertanyaan + jawaban) · extra feature (infographic, tabel, dll.). Simpan otomatis, status Draft → Siap ditulis (butuh keyword, H1, dan minimal 2 kompetitor), **Duplikat** ke task lain, dan ekspor **Google Doc** (folder Drive "Brief Artikel", dibagikan ke penulis). Semua anggota bisa membaca brief; yang bisa mengubah hanya pemilik task dan admin. Data tersimpan di tab **Briefs**.
 
 **Tim**: semua anggota bisa melihat task setiap orang (judul, project, status, jadwal, catatan) beserta ringkasan beban kerja — hanya lihat, tidak bisa mengubah. Server menolak setiap perubahan pada task milik orang lain.
@@ -115,7 +119,7 @@ Kirim link aplikasi + username & password sementara masing-masing. Setiap orang:
 | Overdue aktif | Belum done dan sudah lewat deadline |
 | Selisih deadline | Deadline − waktu Done (positif = lebih cepat) |
 
-Jam default bila kolom jam kosong: mulai 09:00, deadline 17:00. Task berstatus *Recurring* atau bertanggal teks (*TBD*) tetap tampil tapi tidak memicu pengingat.
+Jam default bila kolom jam kosong: mulai 09:00, deadline 18:00. Task berstatus *Recurring* atau bertanggal teks (*TBD*) tetap tampil tapi tidak memicu pengingat.
 
 ---
 

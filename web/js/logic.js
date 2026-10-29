@@ -5,9 +5,63 @@
   else root.PTLogic = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   var DEFAULT_START = '09:00';
-  var DEFAULT_END = '17:00';
+  var DEFAULT_END = '18:00';
   var OVERPERFORM_RATIO = 0.8; // selesai ≤ deadline dan memakai ≤ 80% durasi rencana
   var HOUR = 36e5;
+  // KPI task Artikel: hanya jam kerja Senin–Jumat 09:00–18:00 WIB; toleransi terlambat 2 jam kerja
+  var WORK = { startH: 9, endH: 18, tzOffsetMin: 7 * 60, days: [1, 2, 3, 4, 5] };
+  var GRACE_MS = 2 * HOUR;
+  var STAGES = ['', 'Ditugaskan', 'Menyusun brief', 'Review brief', 'Menulis artikel', 'Review artikel', 'Publish', 'Cek ulang dengan AI', 'Review cek AI', 'Selesai'];
+  var REVIEW_STAGES = [3, 5, 8];
+  var STAGE_STATUS = ['', 'Backlog', 'On-Progress', 'Review', 'On-Progress', 'Review', 'On-Progress', 'On-Progress', 'Review', 'Done'];
+
+  function isArticle(t) { return String(t && t.type || '').toLowerCase() === 'artikel'; }
+  function stageOf(t) { var n = Number(t && t.stage); return n >= 1 && n <= 9 ? n : (isDone(t) ? 9 : 1); }
+
+  /** Lama jam kerja (ms) di antara a dan b — hanya Senin–Jumat 09:00–18:00 WIB. */
+  function workMs(a, b) {
+    if (!a || !b || b <= a) return 0;
+    var off = WORK.tzOffsetMin * 60000, DAY = 864e5;
+    var A = a.getTime() + off, B = b.getTime() + off, total = 0;
+    for (var d = Math.floor(A / DAY) * DAY; d < B; d += DAY) {
+      if (WORK.days.indexOf(new Date(d).getUTCDay()) < 0) continue;
+      var s = Math.max(A, d + WORK.startH * HOUR), e = Math.min(B, d + WORK.endH * HOUR);
+      if (e > s) total += e - s;
+    }
+    return total;
+  }
+
+  /** Riwayat tahap: [{s: tahap, t: ISO}] diurutkan waktu. */
+  function stageLog(t) {
+    var log = t && t.stageLog;
+    if (typeof log === 'string') { try { log = JSON.parse(log); } catch (e) { log = []; } }
+    return (Array.isArray(log) ? log : []).map(function (x) { return { s: Number(x.s), t: stamp(x.t) }; })
+      .filter(function (x) { return x.t; }).sort(function (a, b) { return a.t - b.t; });
+  }
+
+  /** KPI satu task Artikel: waktu murni = jam kerja (mulai → selesai/sekarang) − jam kerja selama review admin. */
+  function articleKpi(task, now) {
+    now = now || new Date();
+    var s = schedule(task), log = stageLog(task);
+    var assigned = log.length ? log[0].t : (stamp(task.startedAt) || s.start);
+    var clockStart = assigned && s.start ? new Date(Math.max(assigned, s.start)) : (assigned || s.start);
+    var doneAt = isDone(task) ? (stamp(task.doneAt) || (log.length && log[log.length - 1].s === 9 ? log[log.length - 1].t : null)) : null;
+    var endAt = doneAt || now;
+    var reviewMs = 0, perStage = {};
+    log.forEach(function (x, i) {
+      if (REVIEW_STAGES.indexOf(x.s) < 0) return;
+      var a = clockStart && x.t < clockStart ? clockStart : x.t;
+      var b = i + 1 < log.length ? log[i + 1].t : endAt;
+      if (b > endAt) b = endAt;
+      var w = workMs(a, b);
+      reviewMs += w; perStage[x.s] = (perStage[x.s] || 0) + w;
+    });
+    var gross = clockStart ? workMs(clockStart, endAt) : null;
+    var net = gross === null ? null : Math.max(gross - reviewMs, 0);
+    var allowance = s.start && s.end ? workMs(s.start, s.end) : null;
+    return { clockStart: clockStart, doneAt: doneAt, grossMs: gross, reviewMs: reviewMs, reviewByStage: perStage, netMs: net, allowanceMs: allowance,
+      late: net !== null && allowance !== null && net > allowance + GRACE_MS };
+  }
 
   function at(dateStr, timeStr) {
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
@@ -31,6 +85,7 @@
   /** Ringkasan performa satu task. */
   function evaluate(task, now) {
     now = now || new Date();
+    if (isArticle(task)) return evaluateArticle(task, now);
     var s = schedule(task);
     var startedAt = stamp(task.startedAt);
     var doneAt = stamp(task.doneAt);
@@ -64,13 +119,33 @@
     return r;
   }
 
+  function evaluateArticle(task, now) {
+    var s = schedule(task), k = articleKpi(task, now);
+    var r = {
+      article: true, stage: stageOf(task), plannedStart: s.start, plannedEnd: s.end, startedAt: k.clockStart, doneAt: k.doneAt, reviewAt: stamp(task.reviewAt),
+      finishAt: k.doneAt, plannedMs: k.allowanceMs, durationMs: null, slackMs: null, reviewMs: k.reviewMs, reviewByStage: k.reviewByStage,
+      netSoFarMs: k.netMs, outcome: null
+    };
+    if (isDone(task)) {
+      r.durationMs = k.netMs;
+      if (k.netMs !== null && k.allowanceMs !== null) {
+        r.slackMs = k.allowanceMs - k.netMs;
+        r.outcome = k.late ? 'late' : (k.netMs <= k.allowanceMs * OVERPERFORM_RATIO ? 'over' : 'ontime');
+      } else r.outcome = 'done-nodate';
+    } else if (task.status === 'Review') r.outcome = 'review';
+    else if (k.late) { r.outcome = 'overdue'; r.slackMs = k.allowanceMs - k.netMs; }
+    else r.outcome = 'open';
+    return r;
+  }
+
   /** Kelompok tampilan untuk daftar "Task Saya". */
   function bucket(task, now) {
     now = now || new Date();
     if (isDone(task)) return 'done';
     if (task.status === 'Review') return 'review';
     var s = schedule(task);
-    if (s.end && now > s.end && task.status !== 'Recurring') return 'overdue';
+    if (isArticle(task)) { if (articleKpi(task, now).late) return 'overdue'; }
+    else if (s.end && now > s.end && task.status !== 'Recurring') return 'overdue';
     if (s.start && s.end && now >= s.start && now <= s.end) return 'today';
     if (s.end && s.end - now <= 24 * HOUR) return 'today';
     if (task.status === 'On-Progress') return 'today';
@@ -128,7 +203,7 @@
       return (!from || ref >= from) && (!to || ref <= to);
     });
     var k = { total: rows.length, done: 0, over: 0, ontime: 0, late: 0, overdue: 0, open: 0, review: 0,
-      durSum: 0, durN: 0, slackSum: 0, slackN: 0 };
+      durSum: 0, durN: 0, slackSum: 0, slackN: 0, revSum: 0, revN: 0 };
     rows.forEach(function (x) {
       var o = x.e.outcome;
       if (isDone(x.t)) k.done++;
@@ -140,6 +215,7 @@
       else if (o === 'review') k.review++;
       if (x.e.durationMs !== null) { k.durSum += x.e.durationMs; k.durN++; }
       if (isDone(x.t) && x.e.slackMs !== null) { k.slackSum += x.e.slackMs; k.slackN++; }
+      if (x.e.article && isDone(x.t)) { k.revSum += x.e.reviewMs || 0; k.revN++; }
     });
     var judged = k.over + k.ontime + k.late;
     return {
@@ -149,7 +225,8 @@
       completionRate: k.total ? k.done / k.total : 0,
       onTimeRate: judged ? (k.over + k.ontime) / judged : null,
       avgDurationMs: k.durN ? k.durSum / k.durN : null,
-      avgSlackMs: k.slackN ? k.slackSum / k.slackN : null
+      avgSlackMs: k.slackN ? k.slackSum / k.slackN : null,
+      articleDone: k.revN, avgReviewMs: k.revN ? k.revSum / k.revN : null
     };
   }
 
@@ -177,7 +254,20 @@
     return (neg ? '-' : '') + out;
   }
 
+  /** Durasi jam kerja: 1 hari kerja = 9 jam. */
+  function humanWork(ms) {
+    if (ms === null || ms === undefined || isNaN(ms)) return '–';
+    var neg = ms < 0; ms = Math.abs(ms);
+    var min = Math.round(ms / 60000), dayMin = (WORK.endH - WORK.startH) * 60, out;
+    if (min < 60) out = min + ' menit';
+    else if (min < dayMin) { var h = Math.floor(min / 60), m = min % 60; out = h + ' jam' + (m ? ' ' + m + ' mnt' : ''); }
+    else { var d = Math.floor(min / dayMin), hh = Math.round((min % dayMin) / 60); out = d + ' hari kerja' + (hh ? ' ' + hh + ' jam' : ''); }
+    return (neg ? '-' : '') + out;
+  }
+
   return {
+    WORK: WORK, GRACE_MS: GRACE_MS, STAGES: STAGES, REVIEW_STAGES: REVIEW_STAGES, STAGE_STATUS: STAGE_STATUS,
+    isArticle: isArticle, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
     DEFAULT_START: DEFAULT_START, DEFAULT_END: DEFAULT_END, OVERPERFORM_RATIO: OVERPERFORM_RATIO,
     at: at, schedule: schedule, evaluate: evaluate, bucket: bucket, isDone: isDone,
     dueNotifications: dueNotifications, summarize: summarize, byPerson: byPerson,
