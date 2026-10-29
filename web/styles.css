@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.21.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.21.1"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -994,3 +994,5 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
   #rqf .link-r { grid-template-columns: minmax(0, 1fr); }
   .rq-send { flex-direction: column; align-items: stretch; }
 }
+@media (min-width: 761px) { #rqf .link-r { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; } }
+#rqf .link-r .btn { white-space: nowrap; }
