@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.22.3';
+const CSS_VERSION = '2.22.4';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -24,7 +24,7 @@ const S = {
   bgTimer: null,
   f: {
     mineTab: 'active', mineQ: '',
-    period: '30', persons: [],
+    period: '30', persons: [], showOff: false,
     tq: '', towners: [], tstatus: 'active', tcodes: [],
     teamQ: '', teamPeople: [], teamTab: 'active', teamCodes: []
   },
@@ -803,8 +803,12 @@ function periodRange(p) {
 function viewDashboard() {
   const admin = S.user.role === 'admin' && S.all;
   const f = S.f;
-  const users = admin ? S.all.users.filter((u) => u.sheetName) : [];
+  const allUsers = admin ? S.all.users.filter((u) => u.sheetName) : [];
+  const offSet = new Set(allUsers.filter((u) => !u.active).map((u) => u.username));
+  if (!offSet.size) f.showOff = false;
+  const users = f.showOff ? allUsers : allUsers.filter((u) => u.active);
   let tasks = admin ? S.all.tasks : S.mine.tasks;
+  if (admin && !f.showOff && offSet.size) tasks = tasks.filter((t) => !offSet.has(t.owner));
   f.persons = f.persons.filter((x) => users.some((u) => u.username === x));
   if (admin && f.persons.length) { const p = new Set(f.persons); tasks = tasks.filter((t) => p.has(t.owner)); }
   const range = periodRange(f.period);
@@ -818,6 +822,7 @@ function viewDashboard() {
       <div class="seg" id="per">${[['7', '7 hari'], ['30', '30 hari'], ['month', 'Bulan ini'], ['all', 'Semua']].map(([k, l]) => `<button data-k="${k}" class="${f.period === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${admin ? `<div class="fbar fbar-auto">${msTrigger({ id: 'person', kind: 'person', icon: 'user', allLabel: 'Semua orang', selected: f.persons,
         items: personItems(users.slice().sort((a, b) => a.name.localeCompare(b.name))), onApply: (v) => { f.persons = v; go('dashboard'); } })}</div>` : ''}
+      ${admin && offSet.size ? `<button class="btn sm dash-off${f.showOff ? ' on' : ''}" id="showoff" aria-pressed="${f.showOff}" title="KPI anggota yang sudah dinonaktifkan">${f.showOff ? 'Sembunyikan nonaktif' : `Tampilkan nonaktif (${offSet.size})`}</button>` : ''}
     </div>
     <div class="tiles">
       ${tile('Penyelesaian', pct(sum.completionRate), `${sum.done} dari ${sum.total} task selesai`)}
@@ -843,6 +848,7 @@ function viewDashboard() {
     <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.<br><b>Task artikel</b>: dihitung dengan jam kerja (Senin–Jumat ${pad(L.WORK.startH)}:00–${L.WORK.endH}:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, dikurangi lama review admin. <b>Terlambat</b> bila waktu kerja melebihi jatah (jadwal mulai → deadline) lebih dari ${L.GRACE_MS / 36e5} jam kerja.</p>`;
 
   $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; go('dashboard'); });
+  const so = $('#showoff'); if (so) so.onclick = () => { f.showOff = !f.showOff; go('dashboard'); };
 
   renderDist(sum);
   if (team) { renderPersonChart(tasks, range); renderBoard(tasks, range); } else renderWeeklyChart(tasks);
@@ -916,7 +922,7 @@ function posOf(username) {
 function renderBoard(tasks, range) {
   const ppl = L.byPerson(tasks, range).sort((a, b) => ((b.onTimeRate || 0) - (a.onTimeRate || 0)) || (b.over - a.over) || (b.done - a.done));
   $('#board').innerHTML = `<table class="tbl"><thead><tr><th>#</th><th>Nama</th><th class="num">Task</th><th class="num">Done</th><th>Penyelesaian</th><th class="num">Tepat waktu</th><th class="num" title="Overperforming">Over&shy;perform</th><th class="num">Telat</th><th class="num">Overdue</th><th class="num">Rata² durasi</th><th class="num">Rata² selisih</th></tr></thead><tbody>
-    ${ppl.map((p, i) => `<tr><td class="muted">${i + 1}</td><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(p.name)}</span><div><b>${esc(p.name)}</b>${posOf(p.owner) ? `<div class="muted" style="font-size:11.5px">${esc(posOf(p.owner))}</div>` : ''}</div></div></td>
+    ${ppl.map((p, i) => `<tr><td class="muted">${i + 1}</td><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(p.name)}</span><div><b>${esc(p.name)}</b>${S.all && (S.all.users.find((u) => u.username === p.owner) || { active: true }).active === false ? ' <span class="chip">Nonaktif</span>' : ''}${posOf(p.owner) ? `<div class="muted" style="font-size:11.5px">${esc(posOf(p.owner))}</div>` : ''}</div></div></td>
       <td class="num">${p.total}</td><td class="num">${p.done}</td>
       <td><div class="row" style="gap:8px"><div class="bar" style="flex:1;min-width:60px"><i style="width:${p.completionRate * 100}%"></i></div><span class="small" style="width:34px">${pct(p.completionRate)}</span></div></td>
       <td class="num">${pct(p.onTimeRate)}</td><td class="num">${p.over ? `<span class="chip good">★ ${p.over}</span>` : '0'}</td>
@@ -1104,7 +1110,7 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('resize', () => { if ($('#ms-pop') && !$('#ms-pop').classList.contains('sheet')) msClose(); });
 document.addEventListener('scroll', (e) => { const p = $('#ms-pop'); if (p && !p.classList.contains('sheet') && !p.contains(e.target)) msClose(); }, true);
 
-const personItems = (users) => users.map((u) => ({ value: u.username, label: u.name, sub: u.position || '' }));
+const personItems = (users) => users.map((u) => ({ value: u.username, label: u.name, sub: u.active === false ? 'Nonaktif' + (u.position ? ' · ' + u.position : '') : u.position || '' }));
 
 /** Ganti <select> di formulir dengan dropdown standar aplikasi (sama dengan filter): avatar untuk orang, kode untuk project,
  *  pencarian bila pilihannya banyak. <select> asli tetap ada (tersembunyi) sehingga kode formulir membaca nilainya seperti biasa.
