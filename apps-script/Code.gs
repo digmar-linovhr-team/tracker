@@ -89,11 +89,12 @@ function setup() {
   var created = [];
 
   var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET];
+  var seenIds = {};
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
     if (system.indexOf(name) >= 0 || name.charAt(0) === '_') return;
     ensureHeaders_(sh, TASK_HEADERS);
-    assignMissingIds_(sh);
+    assignMissingIds_(sh, seenIds);
     var uname = slug_(name);
     var taken = readUsers_().some(function (u) { return u.sheetName === name; });
     if (!existing[uname] && !taken) {
@@ -128,7 +129,13 @@ function setup() {
   } else {
     html += '<p>Tidak ada akun baru yang dibuat.</p>';
   }
+  var dups = Object.keys(seenIds).filter(function (k) { return seenIds[k].length > 1; });
+  if (dups.length) {
+    html += '<p style="color:#a32d2d"><b>Task ID ganda (' + dups.length + ')</b> — biasanya baris yang disalin. Hapus baris salinannya, atau kosongkan sel Task ID-nya lalu jalankan Setup lagi:</p><ul>' +
+      dups.slice(0, 20).map(function (k) { return '<li><code>' + esc_(k) + '</code>: ' + esc_(seenIds[k].join(', ')) + '</li>'; }).join('') + '</ul>';
+  }
   html += '</div>';
+  dataCacheClear_();
   try {
     SpreadsheetApp.getUi().showModalDialog(
       HtmlService.createHtmlOutput(html).setWidth(560).setHeight(420), 'Project Tracker');
@@ -148,7 +155,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 15 });
+  return json_({ ok: true, app: 'project-tracker', version: 16 });
 }
 
 function doPost(e) {
@@ -191,7 +198,7 @@ function route_(b) {
     case 'saveSocialBrief': return saveSocialBrief_(me, b.brief);
     case 'deleteBrief': return deleteBrief_(me, b.briefId);
     case 'exportBriefDoc': return exportBriefDoc_(me, b.briefId);
-    case 'updateStatus': return updateStatus_(me, b.taskId, b.status);
+    case 'updateStatus': return updateStatus_(me, b.taskId, b.status, b.owner);
     case 'advanceStage': return advanceStage_(me, b.taskId, b.step, b.url);
     case 'setMyEmail': return setMyEmail_(me, b.email);
     case 'setMySkills': return setMySkills_(me, b.skills);
@@ -209,7 +216,7 @@ function route_(b) {
     case 'deleteProject': return deleteProject_(me, b.row, b.code);
     case 'saveUser': return saveUser_(me, b.user);
     case 'resetPassword': return { password: resetPassword_(b.username) };
-    case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason);
+    case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason, b.owner);
     case 'reviewQueue': return { tasks: cachedTasks_().filter(function (t) { return t.status === 'Review'; }) };
   }
   throw new Error('Aksi tidak dikenal: ' + a);
@@ -724,15 +731,21 @@ function teamTasks_() {
 }
 
 function getAll_() {
-  return { tasks: cachedTasks_(), projects: cachedProjects_(), users: readUsers_().map(publicUser_),
+  var tasks = cachedTasks_(), seen = {}, dup = {};
+  tasks.forEach(function (t) { if (!t.id) return; if (seen[t.id]) dup[t.id] = true; seen[t.id] = true; });
+  return { dupIds: Object.keys(dup), tasks: tasks, projects: cachedProjects_(), users: readUsers_().map(publicUser_),
     statuses: STATUSES, priorities: PRIORITIES, notifications: calEnabled_(), briefs: cachedBriefs_() };
 }
 
 /** Cari baris task berdasarkan Task ID. Member hanya boleh di tab miliknya. */
-function locateTask_(me, taskId) {
+function locateTask_(me, taskId, owner) {
   if (!taskId) throw new Error('Task ID kosong');
   var list = me.role === 'admin' ? personSheets_()
     : personSheets_().filter(function (p) { return p.user.username === me.username; });
+  if (owner) {   // admin: cari dulu di tab penanggung jawab yang terlihat di aplikasi (aman bila Task ID ganda di tab lain)
+    owner = String(owner).toLowerCase();
+    list = list.filter(function (p) { return p.user.username === owner; }).concat(list.filter(function (p) { return p.user.username !== owner; }));
+  }
   var cache = null, key = 'loc_' + taskId;
   try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
   var find = function (p) {
@@ -743,7 +756,7 @@ function locateTask_(me, taskId) {
     return cell ? { sheet: sh, row: cell.getRow(), col: col, user: p.user } : null;
   };
   // tab terakhir tempat task ini ditemukan dicoba lebih dulu (hemat 1 pencarian per tab orang)
-  var hint = cache && cache.get(key);
+  var hint = !owner && cache && cache.get(key);
   if (hint) {
     var hp = list.filter(function (p) { return p.sheet.getName() === hint; })[0];
     var hr = hp && find(hp);
@@ -757,16 +770,21 @@ function locateTask_(me, taskId) {
   throw new Error('Task tidak ditemukan (mungkin sudah dihapus). Muat ulang data.');
 }
 
-function updateStatus_(me, taskId, status) {
+function updateStatus_(me, taskId, status, owner) {
   if (STATUSES.indexOf(status) < 0) throw new Error('Status tidak valid');
   var lock = lock_(20000);
   try {
-    var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
+    var loc = locateTask_(me, taskId, owner), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     var prev = String(r[col['status']]), now = new Date(), ch = { 'status': status };
     if (isArticleRow_(r, col)) {
       if (me.role !== 'admin') throw new Error('Task artikel mengikuti tahapnya. Gunakan tombol tahap di task (mis. Ajukan brief / Ajukan review artikel).');
       if (status === 'Done') { var tk = setStage_(sh, row, r, col, loc.user, me, 9); log_(me, 'status', taskId, prev + ' → Done'); return { task: tk }; }
+      if (status === 'Review') {
+        var cs = Number(r[col['stage']]) || 1, rs = REVIEW_NEXT[cs] ? cs : REVIEW_NEXT[cs + 1] ? cs + 1 : 0;
+        if (!rs) throw new Error('Task artikel di tahap ini tidak bisa diajukan review. Ubah tahapnya lewat Edit task.');
+        var tr = setStage_(sh, row, r, col, loc.user, me, rs); log_(me, 'status', taskId, prev + ' → Review (tahap ' + rs + ')'); return { task: tr };
+      }
     }
     if (me.role !== 'admin') {
       if (status === 'Done') throw new Error('Hanya admin yang bisa menandai Done. Ajukan review agar diperiksa admin.');
@@ -1064,14 +1082,15 @@ function advanceStage_(me, taskId, step, url) {
 }
 
 /** Admin: setujui (Done) atau kembalikan (On-Progress + alasan di Catatan) task yang direview. */
-function reviewTask_(me, taskId, decision, reason) {
+function reviewTask_(me, taskId, decision, reason, owner) {
   if (decision !== 'approve' && decision !== 'return') throw new Error('Keputusan review tidak valid');
   var lock = lock_(20000);
   try {
-    var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
+    var loc = locateTask_(me, taskId, owner), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
     var now = new Date(), ch = {};
     if (isArticleRow_(r, col)) return reviewArticle_(me, loc, r, decision, reason);
+    if (String(r[col['status']]).trim() !== 'Review') throw new Error('Task ini sudah tidak menunggu review (status sekarang: ' + (String(r[col['status']]).trim() || 'Backlog') + '). Data dimuat ulang.');
     if (decision === 'approve') {
       ch['status'] = 'Done'; ch['done at'] = now;
       if (!r[col['review at']]) ch['review at'] = now;
@@ -1110,7 +1129,9 @@ function reviewTask_(me, taskId, decision, reason) {
 /** Review admin untuk task Artikel di tahap 3 (brief), 5 (artikel), 8 (hasil cek AI). */
 function reviewArticle_(me, loc, r, decision, reason) {
   var sh = loc.sheet, col = colMap_(sh), row = loc.row, stage = Number(r[col['stage']]) || 0, taskId = String(r[col['task id']]);
-  if (!REVIEW_NEXT[stage]) throw new Error('Task ini sedang di tahap "' + (STAGE_NAMES[stage] || '-') + '", tidak ada yang perlu direview. Muat ulang data.');
+  // Status "Review" tapi tahap belum ikut naik (mis. status diubah langsung di spreadsheet): anggap sedang di tahap review berikutnya
+  if (!REVIEW_NEXT[stage] && String(r[col['status']]).trim() === 'Review' && REVIEW_NEXT[stage + 1]) stage = stage + 1;
+  if (!REVIEW_NEXT[stage]) throw new Error('Task ini sedang di tahap "' + (STAGE_NAMES[stage] || '-') + '", tidak ada yang perlu direview — mungkin sudah diputuskan sebelumnya. Data dimuat ulang.');
   var extra = {}, what = REVIEW_LABEL[stage], next;
   reason = String(reason || '').trim().slice(0, 500);
   if (decision === 'approve') {
@@ -1178,7 +1199,9 @@ function deleteTask_(me, taskId) {
   } finally { unlock_(lock); }
 }
 
-function assignMissingIds_(sh) {
+/** Isi Task ID yang kosong, dan catat Task ID ganda (biasanya baris yang disalin di spreadsheet) untuk dilaporkan. */
+function assignMissingIds_(sh, seen) {
+  seen = seen || {};
   var col = colMap_(sh);
   if (sh.getLastRow() < 2 || col['task'] === undefined) return;
   var n = sh.getLastRow() - 1;
@@ -1187,7 +1210,9 @@ function assignMissingIds_(sh) {
   var ids = idRange.getValues();
   var changed = false;
   for (var i = 0; i < n; i++) {
-    if (String(titles[i][0]).trim() && !String(ids[i][0]).trim()) { ids[i][0] = newId_(); changed = true; }
+    var id = String(ids[i][0]).trim();
+    if (String(titles[i][0]).trim() && !id) { ids[i][0] = newId_(); changed = true; }
+    else if (id && String(titles[i][0]).trim()) { if (seen[id]) seen[id].push(sh.getName() + ' baris ' + (i + 2)); else seen[id] = [sh.getName() + ' baris ' + (i + 2)]; }
   }
   if (changed) idRange.setValues(ids);
   ['start time', 'end time'].forEach(function (k) {

@@ -5,7 +5,8 @@ const ART_STEPS = { 1: 'start', 2: 'submitBrief', 4: 'submitArticle', 6: 'publis
 const ART_REVIEW_NEXT = { 3: 4, 5: 6, 8: 9 }, ART_REVIEW_BACK = { 3: 2, 5: 4, 8: 7 };
 const ART_REVIEW_LABEL = { 3: 'Review brief', 5: 'Review artikel', 8: 'Review cek AI' };
 const isArt = (t) => L.isArticle(t);
-const artStage = (t) => L.stageOf(t);
+/** Tahap efektif: status "Review" tapi tahap belum naik (diubah langsung di spreadsheet) → anggap tahap review berikutnya. */
+const artStage = (t) => { const s = L.stageOf(t); return !ART_REVIEW_NEXT[s] && t.status === 'Review' && ART_REVIEW_NEXT[s + 1] ? s + 1 : s; };
 
 /** Label tahap + bar 8 langkah. */
 function artStageHtml(t) {

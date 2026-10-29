@@ -22,7 +22,7 @@ function canEditBrief(b) {
   if (S.user.role === 'admin') return true;
   const t = briefTask(b);
   if (!t || t.owner !== S.user.username) return false;
-  return !L.isArticle(t) || L.stageOf(t) <= 2;   // setelah diajukan, brief terkunci untuk anggota
+  return !L.isArticle(t) || artStage(t) <= 2;   // setelah diajukan, brief terkunci untuk anggota
 }
 /** Status brief mengikuti tahap task artikel. */
 function briefStatus(b) {
@@ -31,7 +31,7 @@ function briefStatus(b) {
   if (!t) return ['Task dihapus', 'muted'];
   if (L.isDone(t)) return ['Selesai', 'good'];
   if (L.isArticle(t)) {
-    const st = L.stageOf(t);
+    const st = artStage(t);
     if (st >= 4) return ['Disetujui', 'good'];
     if (st === 3) return ['Diajukan', 'info'];
     return b.status === 'Dikembalikan' ? ['Dikembalikan', 'bad'] : ['Draft', 'warn'];
@@ -351,7 +351,7 @@ function viewBrief() {
 function briefStepButtons(b) {
   const t = briefTask(b);
   if (!t || !L.isArticle(t)) return '';
-  const st = L.stageOf(t), admin = S.user.role === 'admin';
+  const st = artStage(t), admin = S.user.role === 'admin';
   if (st === 2 && (t.owner === S.user.username || admin)) return '<button class="btn sm primary" id="bsubmit">Ajukan brief</button>';
   if (st === 3 && admin) return '<button class="btn sm" id="brev-return">Kembalikan</button><button class="btn sm primary" id="brev-ok">Setujui brief</button>';
   return '';

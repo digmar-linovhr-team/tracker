@@ -664,6 +664,32 @@ it('Kunci: perubahan di-flush sebelum kunci dilepas; server sibuk → pesan jela
   assert.strictEqual(props.REM_RUNNING, undefined, 'penanda dibersihkan');
 });
 
+it('Review artikel tahan data tidak konsisten: status Review tapi tahap 2, Task ID ganda di tab lain, keputusan ganda', () => {
+  const t = post({ action: 'saveTask', token: admin, task: { owner: 'ari', type: 'Artikel', task: 'Artikel uji review', startDate: '2026-11-02', endDate: '2026-11-04' } }).data.task;
+  const sh = ss.getSheetByName('Ari'), h = sh.data[0], ri = sh.data.findIndex((r) => r[h.indexOf('Task ID')] === t.id);
+  // status diubah langsung di spreadsheet jadi Review, tahap masih 2
+  sh.data[ri][h.indexOf('Stage')] = 2; sh.data[ri][h.indexOf('Status')] = 'Review';
+  let r = post({ action: 'reviewTask', token: admin, taskId: t.id, decision: 'approve', owner: 'ari' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 4);
+  // keputusan kedua → pesan jelas
+  r = post({ action: 'reviewTask', token: admin, taskId: t.id, decision: 'approve', owner: 'ari' });
+  assert.strictEqual(r.ok, false); assert.ok(/sudah diputuskan/.test(r.error), r.error);
+  // baris disalin ke tab Wisnu (Task ID ganda): review mengikuti tab pemilik yang dikirim aplikasi
+  const ws = ss.getSheetByName('Wisnu'), copy = sh.data[ri].slice(); copy[h.indexOf('Stage')] = 2; copy[h.indexOf('Status')] = 'On-Progress';
+  const wh = ws.data[0]; const row = wh.map((k) => copy[h.indexOf(k)] === undefined ? '' : copy[h.indexOf(k)]); ws.data.splice(1, 0, row);
+  sh.data[ri][h.indexOf('Stage')] = 5; sh.data[ri][h.indexOf('Status')] = 'Review';
+  r = post({ action: 'reviewTask', token: admin, taskId: t.id, decision: 'approve', owner: 'ari' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 6); assert.strictEqual(r.data.task.owner, 'ari');
+  assert.ok(post({ action: 'getAll', token: admin }).data.dupIds.includes(t.id), 'ID ganda terdeteksi');
+  // salinan dihapus → tidak ganda lagi
+  ws.data.splice(1, 1); sandbox.dataCacheClear_();
+  assert.ok(!post({ action: 'getAll', token: admin }).data.dupIds.length);
+  // admin mengubah status artikel ke Review → tahap ikut naik
+  sh.data[ri][h.indexOf('Stage')] = 4; sh.data[ri][h.indexOf('Status')] = 'On-Progress';
+  r = post({ action: 'updateStatus', token: admin, taskId: t.id, status: 'Review', owner: 'ari' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 5); assert.strictEqual(r.data.task.status, 'Review');
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

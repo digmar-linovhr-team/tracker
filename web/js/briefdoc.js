@@ -19,7 +19,7 @@ function briefDocMode(b) {
   if (E && E.forceEdit) return false;
   if (!canEditBrief(b)) return true;
   const t = briefTask(b);
-  return !!(t && L.isArticle(t) && L.stageOf(t) >= 3);
+  return !!(t && L.isArticle(t) && artStage(t) >= 3);
 }
 
 function articleDocHtml(b, task) {

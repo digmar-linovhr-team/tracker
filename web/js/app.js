@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.20.0';
+const CSS_VERSION = '2.20.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -756,7 +756,7 @@ async function setStatus(id, status) {
   softRender();
   toast(status === 'Done' ? 'Task ditandai selesai.' : status === 'Review' ? 'Diajukan ke admin untuk direview.' : status === 'On-Progress' ? 'Task mulai dikerjakan' : `Status diubah ke ${status}`);
   try {
-    const r = await api.call('updateStatus', { taskId: id, status });
+    const r = await api.call('updateStatus', { taskId: id, status, owner: t.owner });
     if (r && r.task) patchTask(id, { status: r.task.status, startedAt: r.task.startedAt, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt });
     if (r && r.brief) putBriefSummary(r.brief);
     if (r) syncProjects([t.code], r.projects);
@@ -1172,13 +1172,19 @@ function renderTeamList(d, users) {
 // ---------- Admin: Review ----------
 function ago(d) { if (!d) return ''; const ms = Date.now() - d; return ms < 60000 ? 'baru saja' : relDur(ms) + ' lalu'; }
 
+function dupBanner() {
+  const d = (S.all && S.all.dupIds) || [];
+  if (!d.length) return '';
+  const names = S.all.tasks.filter((t) => d.includes(t.id)).map((t) => t.ownerName + ': ' + String(t.task).replace(/^https?:\/\/(www\.)?/, '').slice(0, 50));
+  return `<div class="banner warn"><div><b>${d.length} Task ID ganda</b> — ada baris task yang disalin di spreadsheet, sehingga review/status bisa mengenai baris yang salah. Hapus baris salinannya di spreadsheet (jalankan menu <b>Setup</b> untuk melihat lokasinya).<br><span class="small">${esc([...new Set(names)].slice(0, 6).join(' · '))}</span></div></div>`;
+}
 function viewReview() {
   const list = S.all.tasks.filter((t) => t.status === 'Review').sort((a, b) => new Date(a.reviewAt || 0) - new Date(b.reviewAt || 0));
   if (!list.length) {
-    $('#view').innerHTML = '<div class="card empty"><b>Tidak ada task yang menunggu review</b>Pengajuan baru dari anggota akan muncul di sini, dan Anda akan diberi tahu lewat notifikasi & email.</div>';
+    $('#view').innerHTML = dupBanner() + '<div class="card empty"><b>Tidak ada task yang menunggu review</b>Pengajuan baru dari anggota akan muncul di sini, dan Anda akan diberi tahu lewat notifikasi & email.</div>';
     return;
   }
-  $('#view').innerHTML = `<div class="card tlist">${list.map((t) => {
+  $('#view').innerHTML = `${dupBanner()}<div class="card tlist">${list.map((t) => {
     const e = L.evaluate(t), id = esc(t.id), pname = projectName(t.code), art = L.isArticle(t);
     const k = art ? L.articleKpi(t) : null;
     const late = art ? k.late : e.reviewAt && e.plannedEnd && e.reviewAt > e.plannedEnd;
@@ -1187,7 +1193,7 @@ function viewReview() {
       <div class="rv-who"><span class="avatar">${initials(t.ownerName)}</span><div><b>${esc(t.ownerName)}</b>${pos ? `<small>${esc(pos)}</small>` : ''}</div></div>
       <div class="t-main">
         <div class="t-title">${prettyTitle(t.task)}</div>
-        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[L.stageOf(t)] || 'Review')}</span>` : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
+        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[artStage(t)] || 'Review')}</span>` : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}</div>
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
         ${art ? artReviewBlock(t) : `<div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
           ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
@@ -1210,7 +1216,7 @@ function viewReview() {
   $$('[data-return]').forEach((b) => b.onclick = () => {
     const t = findTask(b.dataset.return);
     modal({
-      title: L.isArticle(t) ? 'Kembalikan ' + ({ 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' }[L.stageOf(t)] || 'task') : 'Kembalikan task',
+      title: L.isArticle(t) ? 'Kembalikan ' + ({ 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' }[artStage(t)] || 'task') : 'Kembalikan task',
       body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
         <label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="rv-reason" rows="3" placeholder="mis. Tambahkan meta description dan 2 internal link"></textarea></label>`,
       actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rv-send">Kembalikan</button>',
@@ -1224,7 +1230,8 @@ async function decideReview(id, decision, reason) {
   if (!t) return;
   const before = { status: t.status, doneAt: t.doneAt, reviewAt: t.reviewAt, notes: t.notes, stage: t.stage, stageLog: t.stageLog };
   const now = new Date();
-  const art = L.isArticle(t), st = L.stageOf(t), br = art ? briefOf(t.id) : null, brBefore = br ? br.status : null;
+  const art = L.isArticle(t), st0 = L.stageOf(t), br = art ? briefOf(t.id) : null, brBefore = br ? br.status : null;
+  const st = art ? artStage(t) : st0;   // sama dengan perbaikan di server
   if (art) {
     const next = decision === 'approve' ? ART_REVIEW_NEXT[st] : ART_REVIEW_BACK[st];
     const p = { stage: next, status: L.STAGE_STATUS[next], doneAt: next === 9 ? now.toISOString() : '', stageLog: L.stageLog(t).map((x) => ({ s: x.s, t: x.t.toISOString() })).concat({ s: next, t: now.toISOString() }) };
@@ -1241,7 +1248,7 @@ async function decideReview(id, decision, reason) {
   softRender(); renderNav();
   toast(decision === 'approve' ? (art && st !== 8 ? `Disetujui — ${t.ownerName} lanjut ke tahap ${L.STAGES[ART_REVIEW_NEXT[st]]}.` : `Disetujui — task ${t.ownerName} ditandai Done.`) : `Dikembalikan ke ${t.ownerName}.`);
   try {
-    const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '' });
+    const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '', owner: t.owner });
     if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes, stage: r.task.stage, stageLog: r.task.stageLog });
     if (r && r.brief) putBriefSummary(r.brief);
     if (r) syncProjects([t.code], r.projects);
@@ -1249,6 +1256,7 @@ async function decideReview(id, decision, reason) {
   } catch (e) {
     patchTask(id, before); if (br) br.status = brBefore; syncProjects([t.code]);
     toast('Gagal menyimpan keputusan: ' + cleanErr(e), true);
+    if (/dimuat ulang|muat ulang|tidak ditemukan/i.test(cleanErr(e))) refreshInBackground(300);
   } finally {
     S.pending.delete(id);
     softRender(); renderNav();

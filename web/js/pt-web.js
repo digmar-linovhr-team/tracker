@@ -4,7 +4,7 @@
   'use strict';
   var CFG = window.PT_CONFIG || {};
   var L = window.PTLogic;
-  var VERSION = '2.20.0';
+  var VERSION = '2.20.1';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
 
