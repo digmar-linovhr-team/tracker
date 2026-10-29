@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.22.1';
+const CSS_VERSION = '2.22.2';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1695,27 +1695,39 @@ function ownerFromPic(pic) {
 }
 
 // ---------- Admin: Pengguna ----------
+const UL_ICON = {
+  key: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 19 4M18 5l2 2M15 8l2 2"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.83 2.83 0 0 0-4-4L4 16v4"/><path d="m13.5 6.5 4 4"/></svg>'
+};
 function viewUsers() {
   const all = S.all;
-  const noEmail = all.users.filter((u) => u.sheetName && u.active && !u.email && !u.orgOnly).length;
+  const rank = (u) => !u.active ? 3 : u.orgOnly ? 2 : u.role === 'admin' ? 0 : 1;
+  const list = all.users.slice().sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
+  const nameOf_ = (un) => (all.users.find((x) => x.username === un) || {}).name || un;
+  const row = (u) => {
+    const boss = u.reportsTo ? nameOf_(u.reportsTo) : '';
+    const tags = [u.role === 'admin' ? '<span class="chip accent">Admin</span>' : '',
+      !u.active ? '<span class="chip">Nonaktif</span>' : u.orgOnly ? '<span class="chip" title="Hanya tampil di menu Struktur">Tanpa akun</span>' : u.mustChange ? '<span class="chip warn">Belum login</span>' : ''].join('');
+    const email = u.email ? `<span class="ul-1">${esc(u.email)}</span>`
+      : u.orgOnly || !u.sheetName ? '<span class="ul-1 muted">Tanpa email</span>' : '<span class="ul-1 ul-warn">Email belum diisi</span>';
+    return `<div class="ul-row${!u.active ? ' off' : ''}">
+      <div class="ul-who"><span class="avatar">${initials(u.name)}</span><div class="ul-txt"><span class="ul-name">${esc(u.name)}</span><span class="ul-2${u.position ? '' : ' muted'}">${u.position ? esc(u.position) : (u.role === 'admin' && !u.sheetName ? 'Admin sistem' : 'Jabatan belum diisi')}</span></div></div>
+      <div class="ul-txt ul-c"><span class="ul-k">Kontak</span>${email}<span class="ul-2">@${esc(u.username)}</span></div>
+      <div class="ul-txt ul-c ul-boss"><span class="ul-k">Atasan</span>${boss ? `<span class="ul-1">${esc(boss)}</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}` : `<span class="ul-1 muted">—</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}`}</div>
+      <div class="ul-act">${tags}${u.orgOnly ? '' : `<button class="ul-ib" data-ur="${esc(u.username)}" title="Reset password" aria-label="Reset password ${esc(u.name)}">${UL_ICON.key}</button>`}<button class="ul-ib" data-ue="${esc(u.username)}" title="Edit" aria-label="Edit ${esc(u.name)}">${UL_ICON.edit}</button></div>
+    </div>`;
+  };
   $('#view').innerHTML = `${all.notifications === false ? `<div class="banner warn"><div><b>Pengingat Google Calendar & email belum aktif.</b> Buka spreadsheet → menu <b>Project Tracker → 2. Aktifkan Calendar &amp; email pengingat</b>, lalu deploy ulang Web App.</div></div>` : ''}
-    ${noEmail ? `<div class="banner"><div><b>${noEmail} anggota belum punya email</b> — task mereka belum masuk Google Calendar. Isi lewat tombol Edit, atau minta mereka mengisinya di Pengaturan.</div></div>` : ''}
     <div class="toolbar"><span class="muted small">${all.users.length} akun</span><span class="spacer"></span><button class="btn primary" id="newu">+ Pengguna</button></div>
-    <div class="card" style="overflow:auto"><table class="tbl"><thead><tr><th>Nama</th><th>Jabatan</th><th>Atasan · divisi</th><th>Username</th><th>Email (Calendar)</th><th>Akses</th><th>Tab task</th><th class="num">Task aktif</th><th>Status</th><th></th></tr></thead><tbody>
-    ${all.users.map((u) => `<tr><td><div class="row" style="gap:8px"><span class="avatar" style="width:26px;height:26px;font-size:11px">${initials(u.name)}</span><b>${esc(u.name)}</b></div></td>
-      <td class="small">${u.position ? esc(u.position) : '<span class="muted">—</span>'}</td>
-      <td class="small">${u.reportsTo || u.division ? esc([((all.users.find((x) => x.username === u.reportsTo) || {}).name || u.reportsTo), u.division].filter(Boolean).join(' · ')) : '<span class="muted">—</span>'}</td>
-      <td><code>${esc(u.username)}</code></td><td class="small">${u.email ? esc(u.email) : (u.sheetName ? '<span class="chip warn">belum diisi</span>' : '<span class="muted">—</span>')}</td><td>${u.role === 'admin' ? '<span class="chip accent">Admin</span>' : 'Anggota'}</td>
-      <td>${u.sheetName ? esc(u.sheetName) : '<span class="muted">—</span>'}</td>
-      <td class="num">${all.tasks.filter((t) => t.owner === u.username && !L.isDone(t)).length}</td>
-      <td>${!u.active ? '<span class="chip">Nonaktif</span>' : u.orgOnly ? '<span class="chip" title="Hanya tampil di menu Struktur">Tanpa akun</span>' : u.mustChange ? '<span class="chip warn">Belum login</span>' : '<span class="chip good">Aktif</span>'}</td>
-      <td style="white-space:nowrap"><button class="btn sm" data-ue="${esc(u.username)}">Edit</button>${u.orgOnly ? '' : ` <button class="btn sm" data-ur="${esc(u.username)}">Reset password</button>`}</td></tr>`).join('')}
-    </tbody></table></div>
-    <p class="def">Setiap anggota dengan tab task punya satu tab di spreadsheet (nama tab = kolom "Tab task"). Password tersimpan sebagai hash di tab Users dan tidak bisa dilihat siapa pun.</p>`;
+    <div class="card ul">
+      <div class="ul-row ul-h"><span>Anggota</span><span>Kontak</span><span>Atasan</span><span></span></div>
+      ${list.map(row).join('')}
+    </div>
+    <p class="def">Email dipakai untuk Google Calendar &amp; pengingat. Password tersimpan sebagai hash dan tidak bisa dilihat siapa pun — pakai ikon kunci untuk membuat password sementara baru.</p>`;
   $('#newu').onclick = () => userModal(null);
   $$('[data-ue]').forEach((b) => b.onclick = () => userModal(all.users.find((u) => u.username === b.dataset.ue)));
   $$('[data-ur]').forEach((b) => b.onclick = async () => {
-    if (!(await confirmBox('Reset password?', `Password ${b.dataset.ur} akan diganti dengan password sementara baru.`, 'Reset'))) return;
+    if (!(await confirmBox('Reset password?', `Password ${nameOf_(b.dataset.ur)} akan diganti dengan password sementara baru.`, 'Reset'))) return;
     const r = await busy(null, () => api.call('resetPassword', { username: b.dataset.ur }));
     showPassword(b.dataset.ur, r.password); await loadData(true); go('users');
   });
