@@ -89,12 +89,13 @@ function setup() {
   var created = [];
 
   var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET];
-  var seenIds = {};
+  var seenIds = {}, fixedVal = [];
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
     if (system.indexOf(name) >= 0 || name.charAt(0) === '_') return;
     ensureHeaders_(sh, TASK_HEADERS);
     assignMissingIds_(sh, seenIds);
+    try { if (fixStatusValidation_(sh)) fixedVal.push(name); } catch (e) { Logger.log('validasi ' + name + ': ' + e); }
     var uname = slug_(name);
     var taken = readUsers_().some(function (u) { return u.sheetName === name; });
     if (!existing[uname] && !taken) {
@@ -129,6 +130,7 @@ function setup() {
   } else {
     html += '<p>Tidak ada akun baru yang dibuat.</p>';
   }
+  if (fixedVal.length) html += '<p>Dropdown Status dilengkapi (Review, Hold, Recurring) di tab: ' + esc_(fixedVal.join(', ')) + '.</p>';
   var dups = Object.keys(seenIds).filter(function (k) { return seenIds[k].length > 1; });
   if (dups.length) {
     html += '<p style="color:#a32d2d"><b>Task ID ganda (' + dups.length + ')</b> — biasanya baris yang disalin. Hapus baris salinannya, atau kosongkan sel Task ID-nya lalu jalankan Setup lagi:</p><ul>' +
@@ -155,7 +157,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 16 });
+  return json_({ ok: true, app: 'project-tracker', version: 17 });
 }
 
 function doPost(e) {
@@ -701,7 +703,7 @@ function rowTask_(r, disp, col, sh, user, row) {
     startDate: normDate_(g('start date')), startRaw: d('start date'),
     endDate: normDate_(g('end date')), endRaw: d('end date'),
     startTime: normTime_(g('start time')), endTime: normTime_(g('end time')),
-    status: String(g('status') || 'Backlog').trim(),
+    status: (function (v) { v = String(v || 'Backlog').trim(); return /^on[\s-]?hold$/i.test(v) ? 'Hold' : v; })(g('status')),
     priority: String(g('priority') || '').trim(),
     startedAt: normStamp_(g('started at')),
     doneAt: normStamp_(g('done at')),
@@ -1064,7 +1066,7 @@ function advanceStage_(me, taskId, step, url) {
       if ((d.competitors || []).filter(function (c) { return c && String(c.url || '').trim(); }).length < MIN_COMPETITORS) miss.push('minimal ' + MIN_COMPETITORS + ' link kompetitor');
       if (!(d.sections || []).some(function (x) { return x && String(x.h2 || '').trim(); })) miss.push('minimal 1 H2');
       if (miss.length) throw new Error('Lengkapi brief dulu: ' + miss.join(', ') + '.');
-      f.sheet.getRange(f.row, f.col['status'] + 1).setValue('Diajukan');
+      var briefLoc = f;
       next = 3;
     } else if (step === 'submitArticle') {
       need(4, 'menulis artikel');
@@ -1076,6 +1078,7 @@ function advanceStage_(me, taskId, step, url) {
       need(7, 'cek ulang dengan AI'); extra['ai check url'] = cleanUrl(url, 'Link Docs hasil cek AI'); next = 8;
     } else throw new Error('Langkah tidak dikenal');
     var task = setStage_(sh, row, r, col, loc.user, me, next, extra);
+    if (step === 'submitBrief') briefLoc.sheet.getRange(briefLoc.row, briefLoc.col['status'] + 1).setValue('Diajukan');   // setelah tahap benar-benar tersimpan
     log_(me, 'stage', taskId, stage + ' → ' + next);
     return { task: task };
   } finally { unlock_(lock); }
@@ -1362,8 +1365,30 @@ function appendObj_(sh, obj) {
   return row;
 }
 
-/** Tulis beberapa kolom dalam satu baris; kolom bersebelahan ditulis sekaligus. */
+/** Tulis beberapa kolom dalam satu baris. Bila dropdown Status di sheet menolak nilai baru (mis. "Review"),
+ *  daftar dropdown-nya dilengkapi otomatis lalu penulisan diulang sekali. */
 function writeObj_(sh, row, obj) {
+  try { writeObjRaw_(sh, row, obj); }
+  catch (e) {
+    if (obj.status === undefined || !/validation|validasi|aturan/i.test(String(e && e.message))) throw e;
+    fixStatusValidation_(sh);
+    writeObjRaw_(sh, row, obj);
+  }
+}
+var STATUS_LIST = ['Backlog', 'On-Progress', 'Review', 'Hold', 'On-Hold', 'Done', 'Recurring'];
+/** Dropdown kolom Status harus memuat semua status aplikasi (termasuk Review). Warna chip bawaan dropdown tidak bisa diatur dari Apps Script. */
+function fixStatusValidation_(sh) {
+  var col = colMap_(sh)['status'];
+  if (col === undefined || sh.getMaxRows() < 2) return false;
+  var rng = sh.getRange(2, col + 1, sh.getMaxRows() - 1, 1), cur = rng.getCell(1, 1).getDataValidation();
+  if (!cur) return false;
+  var vals = cur.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST ? (cur.getCriteriaValues()[0] || []) : [];
+  if (STATUS_LIST.every(function (v) { return vals.indexOf(v) >= 0; })) return false;
+  var list = vals.concat(STATUS_LIST.filter(function (v) { return vals.indexOf(v) < 0; }));
+  rng.setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(list, true).setAllowInvalid(false).build());
+  return true;
+}
+function writeObjRaw_(sh, row, obj) {
   var col = colMap_(sh), cells = {};
   Object.keys(obj).forEach(function (k) { if (col[k] !== undefined) cells[col[k]] = obj[k]; });
   var idx = Object.keys(cells).map(Number).sort(function (a, b) { return a - b; });

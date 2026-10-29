@@ -9,7 +9,7 @@ const assert = require('assert');
 function col2arr(n) { return Array.from({ length: n }, () => ''); }
 
 class Sheet {
-  constructor(name, rows) { this.name = name; this.data = rows.map((r) => r.slice()); this.maxRows = 1000; this.maxCols = 26; }
+  constructor(name, rows) { this.name = name; this.data = rows.map((r) => r.slice()); this.maxRows = 1000; this.maxCols = 26; this.validation = {}; }
   getName() { return this.name; }
   getLastRow() { for (let i = this.data.length - 1; i >= 0; i--) if (this.data[i].some((v) => v !== '' && v !== null)) return i + 1; return 0; }
   getLastColumn() { let m = 0; this.data.forEach((r) => r.forEach((v, i) => { if (v !== '' && v !== null) m = Math.max(m, i + 1); })); return m; }
@@ -27,8 +27,12 @@ class Range {
   getValues() { const out = []; for (let i = 0; i < this.nr; i++) { const row = []; for (let j = 0; j < this.nc; j++) { const v = (this.sh.data[this.r - 1 + i] || [])[this.c - 1 + j]; row.push(v === undefined ? '' : v); } out.push(row); } return out; }
   getDisplayValues() { return this.getValues().map((r) => r.map((v) => (v instanceof Date ? v.toDateString() : String(v)))); }
   getValue() { return this.getValues()[0][0]; }
-  setValues(vals) { vals.forEach((row, i) => row.forEach((v, j) => { this.sh.cell(this.r + i, this.c + j)[this.c + j - 1] = v; })); return this; }
-  setValue(v) { this.sh.cell(this.r, this.c)[this.c - 1] = v; return this; }
+  check(c, r, v) { const l = this.sh.validation[c]; if (l && r > 1 && v !== '' && !l.includes(v)) throw new Error('The data you entered in cell ' + String.fromCharCode(64 + c) + r + ' violates the data validation rules set on this cell.'); }
+  setValues(vals) { vals.forEach((row, i) => row.forEach((v, j) => this.check(this.c + j, this.r + i, v))); vals.forEach((row, i) => row.forEach((v, j) => { this.sh.cell(this.r + i, this.c + j)[this.c + j - 1] = v; })); return this; }
+  setValue(v) { this.check(this.c, this.r, v); this.sh.cell(this.r, this.c)[this.c - 1] = v; return this; }
+  getCell(i, j) { return new Range(this.sh, this.r + i - 1, this.c + j - 1, 1, 1); }
+  getDataValidation() { const l = this.sh.validation[this.c]; return l ? { getCriteriaType: () => 'VALUE_IN_LIST', getCriteriaValues: () => [l.slice(), true] } : null; }
+  setDataValidation(rule) { this.sh.validation[this.c] = rule.list; return this; }
   clearContent() { return this.setValue(''); }
   setNumberFormat() { return this; }
   setFontWeight() { return this; }
@@ -64,7 +68,9 @@ const mkEvent = (title, s, e, o) => { const id = 'ev' + (++evSeq) + '@google.com
 const calendar = { getId: () => 'cal1', createEvent: mkEvent, getEventById: (id) => events[id] ? { deleteEvent: () => { delete events[id]; } } : null };
 const trigBuilder = (fn) => { const b = { timeBased: () => b, everyMinutes: () => b, atHour: () => b, everyDays: () => b, inTimezone: () => b, create: () => { triggers.push(fn); } }; return b; };
 const sandbox = {
-  SpreadsheetApp: { getActive: () => ss, getUi: () => { throw new Error('no ui'); }, flush() { flushes++; } },
+  SpreadsheetApp: { getActive: () => ss, getUi: () => { throw new Error('no ui'); }, flush() { flushes++; },
+    DataValidationCriteria: { VALUE_IN_LIST: 'VALUE_IN_LIST' },
+    newDataValidation: () => { const b = { list: null, requireValueInList(l) { b.list = l; return b; }, setAllowInvalid() { return b; }, build() { return { list: b.list }; } }; return b; } },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; } }) },
   CacheService: { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: (k) => { delete cache[k]; },
     getAll: (ks) => Object.fromEntries(ks.filter((k) => k in cache).map((k) => [k, cache[k]])), putAll: (m) => { Object.assign(cache, m); }, removeAll: (ks) => ks.forEach((k) => delete cache[k]) }) },
@@ -688,6 +694,23 @@ it('Review artikel tahan data tidak konsisten: status Review tapi tahap 2, Task 
   sh.data[ri][h.indexOf('Stage')] = 4; sh.data[ri][h.indexOf('Status')] = 'On-Progress';
   r = post({ action: 'updateStatus', token: admin, taskId: t.id, status: 'Review', owner: 'ari' });
   assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 5); assert.strictEqual(r.data.task.status, 'Review');
+});
+
+it('Dropdown Status di sheet tanpa "Review" (validasi ketat): dilengkapi otomatis, pengajuan brief tetap tersimpan', () => {
+  const t = post({ action: 'saveTask', token: admin, task: { owner: 'ari', type: 'Artikel', task: 'Artikel validasi', startDate: '2026-11-02', endDate: '2026-11-04' } }).data.task;
+  const sh = ss.getSheetByName('Ari'), sc = sh.data[0].indexOf('Status') + 1;
+  sh.validation[sc] = ['Done', 'On-Progress', 'On-Hold', 'Backlog'];
+  assert.ok(post({ action: 'advanceStage', token: ari, taskId: t.id, step: 'start' }).ok);
+  assert.ok(post({ action: 'saveBrief', token: ari, brief: { taskId: t.id, data: { v: 2, kwMain: 'kw', h1: 'Judul', competitors: [{ url: 'https://a.com' }, { url: 'https://b.com' }], sections: [{ h2: 'A', points: '', sources: [''], h3: [] }] } } }).ok);
+  const r = post({ action: 'advanceStage', token: ari, taskId: t.id, step: 'submitBrief' });
+  assert.ok(r.ok, r.error); assert.strictEqual(r.data.task.stage, 3); assert.strictEqual(r.data.task.status, 'Review');
+  assert.ok(sh.validation[sc].includes('Review') && sh.validation[sc].includes('On-Hold'), 'daftar dropdown dilengkapi, nilai lama tetap');
+  assert.strictEqual(post({ action: 'briefs', token: ari }).data.briefs.find((b) => b.taskId === t.id).status, 'Diajukan');
+  // status lama "On-Hold" dibaca sebagai Hold
+  const row = sh.data.findIndex((x) => x[sh.data[0].indexOf('Task ID')] === t.id);
+  sh.data[row][sc - 1] = 'On-Hold'; sandbox.dataCacheClear_();
+  assert.strictEqual(post({ action: 'myTasks', token: ari }).data.tasks.find((x) => x.id === t.id).status, 'Hold');
+  delete sh.validation[sc];
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
