@@ -761,6 +761,61 @@ it('Request: buat → klarifikasi (dijeda) → terima → ajukan → pembuat set
   assert.strictEqual(post({ action: 'saveRequest', token: ari, brief: { id: b.id, data: full.data } }).ok, false);
 });
 
+it('Jadwal kerja: pilih Senin/Kamis, kuota min 2, pengecualian, pengajuan ke admin, utang 3 hari, libur', () => {
+  const cur = post({ action: 'schedule', token: ari }).data.currentWeek;
+  const addW = (w, n) => { const d = new Date(w + 'T00:00:00'); d.setDate(d.getDate() + 7 * n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const W2 = addW(cur, 2), W3 = addW(cur, 3);
+  let w = post({ action: 'login', username: 'wisnu', password: 'wisnu12345' }).data.token;
+  // reguler: default Selasa saja (belum memilih)
+  let r = post({ action: 'schedule', token: ari, week: W2 });
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(Array.from(r.data.weeks[0].plans.ari.days), ['tue']); assert.strictEqual(r.data.weeks[0].plans.ari.chosen, false);
+  assert.ok(post({ action: 'schedChoose', token: ari, week: W2, day: 'mon' }).ok);
+  r = post({ action: 'schedChoose', token: w, week: W2, day: 'mon' }); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.weeks[0].count.mon, 2); assert.ok(r.data.weeks[0].count.tue >= 2);
+  // pindah ke Kamis membuat Senin tinggal 1 → ditolak
+  r = post({ action: 'schedChoose', token: ari, week: W2, day: 'thu' });
+  assert.strictEqual(r.ok, false); assert.ok(/tinggal 2 orang/.test(r.error), r.error);
+  // pilihan terbawa ke minggu berikutnya
+  assert.deepStrictEqual(Array.from(post({ action: 'schedule', token: ari, week: W3 }).data.weeks[0].plans.ari.days), ['mon', 'tue']);
+  // pengajuan tidak bisa WFO Senin → disetujui admin → minggu depan wajib 3 hari
+  mails.length = 0;
+  r = post({ action: 'schedRequest', token: ari, req: { week: W2, kind: 'skip', from: 'mon', reason: 'Ke dokter' } });
+  assert.ok(r.ok, r.error);
+  assert.ok(post({ action: 'schedRequest', token: ari, req: { week: W2, kind: 'skip', from: 'mon', reason: 'lagi' } }).ok === false, 'tidak dobel');
+  const q = r.data.requests.find((x) => x.status === 'Menunggu' && x.username === 'ari');
+  assert.strictEqual(post({ action: 'schedDecide', token: ari, id: q.id, decision: 'approve' }).ok, false, 'anggota tidak bisa memutuskan');
+  r = post({ action: 'schedDecide', token: admin, id: q.id, decision: 'approve', note: 'Semoga cepat sembuh' });
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(Array.from(r.data.weeks[0].plans.ari.days), ['tue']);
+  const n = r.data.weeks[1].plans.ari; assert.strictEqual(n.required, 3); assert.strictEqual(n.debt, true); assert.deepStrictEqual(Array.from(n.days), ['mon', 'tue', 'thu']);
+  assert.ok(mails.some((m) => m.to === 'ari@linovhr.com' && /disetujui/.test(m.subject)));
+  assert.strictEqual(post({ action: 'schedDecide', token: admin, id: q.id, decision: 'approve' }).ok, false, 'sudah diputuskan');
+  // minggu wajib 3: tidak perlu memilih
+  assert.strictEqual(post({ action: 'schedChoose', token: ari, week: W3, day: 'mon' }).ok, false);
+  // pindah hari: wisnu Selasa → Kamis
+  r = post({ action: 'schedRequest', token: w, req: { week: W2, kind: 'swap', from: 'tue', to: 'thu', reason: 'Visit klien' } }); assert.ok(r.ok, r.error);
+  const q2 = r.data.requests.find((x) => x.username === 'wisnu' && x.status === 'Menunggu');
+  r = post({ action: 'schedDecide', token: admin, id: q2.id, decision: 'approve' });
+  assert.deepStrictEqual(Array.from(r.data.weeks[0].plans.wisnu.days), ['mon', 'thu']);
+  assert.strictEqual(r.data.weeks[1].plans.wisnu.required, 2, 'pindah hari tidak menimbulkan utang');
+  // pengajuan untuk minggu yang sudah lewat ditolak
+  assert.strictEqual(post({ action: 'schedRequest', token: ari, req: { week: addW(cur, -1), kind: 'skip', from: 'tue', reason: 'x' } }).ok, false);
+  // pengecualian: bebas, tidak dihitung kuota
+  assert.ok(post({ action: 'saveUser', token: admin, user: { username: 'wisnu', name: 'Wisnu', role: 'member', wfoExempt: true } }).ok);
+  r = post({ action: 'schedChoose', token: w, week: W3, days: ['thu'] }); assert.ok(r.ok, r.error);
+  const wp = r.data.weeks[0].plans.wisnu; assert.strictEqual(wp.exempt, true); assert.strictEqual(wp.required, 0);
+  assert.strictEqual(r.data.weeks[0].count.thu, 1, 'hanya ari (reguler) yang dihitung');
+  assert.strictEqual(post({ action: 'schedRequest', token: w, req: { week: W3, kind: 'skip', from: 'thu', reason: 'x' } }).ok, false);
+  // libur: Selasa W3 libur → tidak dihitung, tetap tercatat di jadwal
+  assert.strictEqual(post({ action: 'schedHoliday', token: ari, date: addW(W3, 0).replace(/\d{2}$/, (d) => String(+d + 1).padStart(2, '0')), name: 'x' }).ok, false, 'hanya admin');
+  const tueW3 = (() => { const d = new Date(W3 + 'T00:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  r = post({ action: 'schedHoliday', token: admin, date: tueW3, name: 'Libur nasional' }); assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(Array.from(r.data.weeks[0].plans.ari.holidays), ['tue']); assert.strictEqual(r.data.weeks[0].count.tue, 0);
+  assert.ok(post({ action: 'schedHoliday', token: admin, date: tueW3, remove: true }).ok);
+  assert.ok(!Object.keys(post({ action: 'schedule', token: ari, week: W3 }).data.holidays).length);
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

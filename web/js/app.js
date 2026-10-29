@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.21.3';
+const CSS_VERSION = '2.22.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -43,6 +43,7 @@ const ICONS = {
   projects: svg('<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18M9 10v10"/>'),
   users: svg('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>'),
   team: svg('<circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M2.5 19a5.5 5.5 0 0 1 11 0M10.5 19a5.5 5.5 0 0 1 11 0"/>'),
+  schedule: svg('<rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 14h3M13.5 14h3M7.5 17.5h3"/>'),
   org: svg('<rect x="9" y="2.5" width="6" height="5" rx="1.5"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.5"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.5"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>'),
   briefs: svg('<path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 11h8M8 15h5"/>'),
   review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
@@ -248,6 +249,7 @@ function renderNav() {
   items.push(['dashboard', 'Dashboard', 'Laporan']);
   items.push(['team', 'Tim', 'Tim']);
   items.push(['org', 'Struktur', 'Struktur']);
+  items.push(['schedule', 'Jadwal', 'Jadwal', admin && typeof schPending === 'function' ? schPending().length : 0, 'info']);
   items.push(['briefs', 'Brief', 'Brief', (S.socNew ? S.socNew.size : 0) + (typeof reqTodoCount === 'function' ? reqTodoCount() : 0), 'good']);
   if (admin) {
     const reviews = S.all ? S.all.tasks.filter((t) => t.status === 'Review' && !L.isRequest(t)).length : 0;
@@ -268,7 +270,7 @@ function saveCache() {
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
-function resetSession() { S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
+function resetSession() { S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -294,6 +296,7 @@ async function loadData(quiet) {
     if (br) S.briefs = br;
     else if (!S.user.sheetName && S.user.role !== 'admin') { try { S.briefs = (await api.call('briefs')).briefs || []; } catch (e) { /* abaikan */ } }
     if (typeof socialNotify === 'function') socialNotify();
+    if (S.user.role === 'admin' && typeof loadSched === 'function') loadSched(S.sched && S.sched.week, true).then((ok) => { if (ok) { renderNav(); if (S.view === 'review') softRender(); } });
     S.lastSync = new Date();
     setSyncInfo('Diperbarui ' + pad(S.lastSync.getHours()) + ':' + pad(S.lastSync.getMinutes()));
     saveCache();
@@ -334,6 +337,7 @@ function go(view) {
     projects: ['Project', 'Daftar project dari tab Main Project'],
     users: ['Pengguna', 'Akun login anggota tim'],
     team: ['Tim', 'Task yang sedang dikerjakan semua anggota (hanya lihat)'],
+    schedule: ['Jadwal kerja', 'WFO & WFH tim: Selasa wajib, pilih Senin atau Kamis'],
     org: ['Struktur', 'Siapa mengerjakan apa: atasan, posisi, divisi, dan keahlian'],
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
     briefs: ['Brief', 'Brief artikel & konten sosmed'],
@@ -344,7 +348,7 @@ function go(view) {
   $('#view-sub').textContent = titles[view][1];
   // halaman Review & Brief selalu disegarkan di belakang layar agar pengajuan terbaru langsung terlihat
   if ((view === 'review' || view === 'briefs') && (!S.lastSync || Date.now() - S.lastSync > 15000) && !S.pending.size) refreshInBackground(0);
-  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, org: viewOrg, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
 }
 
 function projectName(code) {
@@ -1246,12 +1250,14 @@ function dupBanner() {
   return `<div class="banner warn"><div><b>${d.length} Task ID ganda</b> — ada baris task yang disalin di spreadsheet, sehingga review/status bisa mengenai baris yang salah. Hapus baris salinannya di spreadsheet (jalankan menu <b>Setup</b> untuk melihat lokasinya).<br><span class="small">${esc([...new Set(names)].slice(0, 6).join(' · '))}</span></div></div>`;
 }
 function viewReview() {
+  const sp = typeof schPending === 'function' ? schPending().length : 0;
+  const schBanner = sp ? `<div class="banner"><div><b>${sp} pengajuan jadwal</b> (pindah hari / tidak bisa WFO) menunggu keputusan Anda.</div><button class="btn sm primary" data-go="schedule">Buka Jadwal</button></div>` : '';
   const list = S.all.tasks.filter((t) => t.status === 'Review' && !L.isRequest(t)).sort((a, b) => new Date(a.reviewAt || 0) - new Date(b.reviewAt || 0));
   if (!list.length) {
-    $('#view').innerHTML = dupBanner() + '<div class="card empty"><b>Tidak ada task yang menunggu review</b>Pengajuan baru dari anggota akan muncul di sini, dan Anda akan diberi tahu lewat notifikasi & email.</div>';
+    $('#view').innerHTML = dupBanner() + schBanner + '<div class="card empty"><b>Tidak ada task yang menunggu review</b>Pengajuan baru dari anggota akan muncul di sini, dan Anda akan diberi tahu lewat notifikasi & email.</div>';
     return;
   }
-  $('#view').innerHTML = `${dupBanner()}<div class="card tlist">${list.map((t) => {
+  $('#view').innerHTML = `${dupBanner()}${schBanner}<div class="card tlist">${list.map((t) => {
     const e = L.evaluate(t), id = esc(t.id), pname = projectName(t.code), art = L.isArticle(t);
     const k = art ? L.articleKpi(t) : null;
     const late = art ? k.late : e.reviewAt && e.plannedEnd && e.reviewAt > e.plannedEnd;
@@ -1734,6 +1740,7 @@ function userModal(u) {
         <label class="field"><span>Bergabung (bulan)</span><input type="month" name="joined" value="${esc(u.joined || '')}"></label>
         <label class="field"><span>Keahlian / fokus kerja</span><input name="skills" maxlength="120" value="${esc(u.skills || '')}" placeholder="mis. Riset keyword, technical SEO"></label>
       </div>
+      <label class="check"><input type="checkbox" name="wfoExempt" ${u.wfoExempt ? 'checked' : ''}> Pengecualian jadwal kerja — tidak wajib WFO Selasa maupun 2 hari seminggu (Fleksibel)</label>
       <label class="check"><input type="checkbox" name="orgOnly" ${u.orgOnly ? 'checked' : ''}> Tanpa akun — hanya tampil di menu Struktur (mis. owner/direksi; tidak bisa login dan tidak punya task)</label>
       <div id="uf-acc" class="${u.orgOnly ? 'hidden' : ''}">
       <label class="field"><span>Email (untuk Google Calendar &amp; pengingat)</span><input type="email" name="email" value="${esc(u.email || '')}" placeholder="nama@perusahaan.com"></label>
@@ -1752,7 +1759,7 @@ function userModal(u) {
         if (!f.reportValidity()) return;
         const data = { name: f.name.value.trim(), username: f.username.value.trim().toLowerCase(), role: f.role.value,
           hasTasks: f.hasTasks.checked && !f.orgOnly.checked, active: edit ? f.active.checked : true, email: f.email.value.trim(), position: f.position.value.trim(),
-          reportsTo: f.reportsTo.value, division: f.division.value.trim(), joined: f.joined.value, skills: f.skills.value.trim(), orgOnly: f.orgOnly.checked };
+          reportsTo: f.reportsTo.value, division: f.division.value.trim(), joined: f.joined.value, skills: f.skills.value.trim(), orgOnly: f.orgOnly.checked, wfoExempt: f.wfoExempt.checked };
         try {
           const r = await busy($('#save', m), () => api.call('saveUser', { user: data }));
           close();
@@ -1928,3 +1935,5 @@ api.on('install:available', async () => { S.cfg = await api.config(); if (S.user
 })();
 // ganti tampilan tabel ↔ kartu saat ukuran layar melewati batas HP
 matchMedia('(max-width: 760px)').addEventListener('change', () => { if (S.user && ['tasks', 'dashboard'].includes(S.view)) go(S.view); });
+// tombol [data-go] di banner mana pun (yang belum diikat bindBanners)
+document.addEventListener('click', (e) => { const g = e.target.closest('[data-go]'); if (g && !g.onclick && S.user) go(g.dataset.go); });

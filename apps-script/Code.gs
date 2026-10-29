@@ -13,6 +13,7 @@ var CFG = {
   MAIN_SHEET: 'Main Project',
   LOG_SHEET: 'Activity Log',
   BRIEF_SHEET: 'Briefs',
+  SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur',
   BRIEF_FOLDER: 'Brief Artikel',   // folder Google Drive untuk ekspor brief ke Google Doc
   TOKEN_DAYS: 14,
   HASH_ROUNDS: 300,
@@ -33,7 +34,7 @@ var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position',
-  'Reports To', 'Division', 'Skills', 'Joined', 'Org Only'];
+  'Reports To', 'Division', 'Skills', 'Joined', 'Org Only', 'WFO Exempt'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
 var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Status', 'Keyword', 'Title',
@@ -88,7 +89,7 @@ function setup() {
   readUsers_().forEach(function (u) { existing[u.username] = u; });
   var created = [];
 
-  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET];
+  var system = [CFG.USERS_SHEET, CFG.MAIN_SHEET, CFG.LOG_SHEET, CFG.BRIEF_SHEET, CFG.SCHED_SHEET, CFG.SREQ_SHEET, CFG.HOLIDAY_SHEET];
   var seenIds = {}, fixedVal = [];
   ss.getSheets().forEach(function (sh) {
     var name = sh.getName();
@@ -157,7 +158,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 18 });
+  return json_({ ok: true, app: 'project-tracker', version: 19 });
 }
 
 function doPost(e) {
@@ -206,6 +207,9 @@ function route_(b) {
     case 'advanceStage': return advanceStage_(me, b.taskId, b.step, b.url);
     case 'setMyEmail': return setMyEmail_(me, b.email);
     case 'setMySkills': return setMySkills_(me, b.skills);
+    case 'schedule': return schedule_(me, b.week);
+    case 'schedChoose': return schedChoose_(me, b.week, b.day, b.days);
+    case 'schedRequest': return schedRequest_(me, b.req);
     case 'setResults': return setResults_(me, b.taskId, b.results, b.note);
     case 'teamTasks': return teamTasks_();
   }
@@ -221,6 +225,9 @@ function route_(b) {
     case 'saveUser': return saveUser_(me, b.user);
     case 'resetPassword': return { password: resetPassword_(b.username) };
     case 'reviewTask': return reviewTask_(me, b.taskId, b.decision, b.reason, b.owner);
+    case 'schedSet': return schedSet_(me, b.username, b.week, b.days);
+    case 'schedDecide': return schedDecide_(me, b.id, b.decision, b.note);
+    case 'schedHoliday': return schedHoliday_(me, b.date, b.name, b.remove);
     case 'reviewQueue': return { tasks: cachedTasks_().filter(function (t) { return t.status === 'Review' && t.type !== 'Request'; }) };
   }
   throw new Error('Aksi tidak dikenal: ' + a);
@@ -333,7 +340,8 @@ function readUsers_() {
       division: col['division'] === undefined ? '' : String(r[col['division']] || '').trim(),
       skills: col['skills'] === undefined ? '' : String(r[col['skills']] || '').trim().replace(/^'(?=[=+\-@])/, ''),
       joined: col['joined'] === undefined ? '' : normMonth_(r[col['joined']]),
-      orgOnly: col['org only'] === undefined ? false : bool_(r[col['org only']])
+      orgOnly: col['org only'] === undefined ? false : bool_(r[col['org only']]),
+      wfoExempt: col['wfo exempt'] === undefined ? false : bool_(r[col['wfo exempt']])
     });
   });
   MEMO_.users = out;
@@ -348,7 +356,7 @@ function findUser_(username) {
 function publicUser_(u) {
   return { username: u.username, name: u.name, role: u.role, sheetName: u.sheetName,
     mustChange: u.mustChange, active: u.active, email: u.email || '', position: u.position || '',
-    reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly };
+    reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, wfoExempt: !!u.wfoExempt };
 }
 /** Data struktur tim untuk semua anggota (tanpa email/akun). */
 function orgUser_(u) {
@@ -438,6 +446,7 @@ function saveUser_(me, data) {
       if (data.email !== undefined) sh.getRange(existing.row, col['email'] + 1).setValue(cleanEmail_(data.email));
       if (data.position !== undefined) sh.getRange(existing.row, col['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
       var of = orgFields_(username, data);
+      if (data.wfoExempt !== undefined) of['wfo exempt'] = !!data.wfoExempt;
       if (data.orgOnly !== undefined) {
         if (data.orgOnly && existing.username === me.username) throw new Error('Akun Anda sendiri tidak bisa dijadikan "tanpa akun"');
         of['org only'] = !!data.orgOnly;
@@ -459,6 +468,7 @@ function saveUser_(me, data) {
     appendUser_(username, data.name || username, orgOnly ? 'member' : role, sheetName, pw);
     var nu = findUser_(username), ucol = colMap_(sh);
     if (orgOnly) ofNew['org only'] = true;
+    if (data.wfoExempt) ofNew['wfo exempt'] = true;
     if (Object.keys(ofNew).length) writeObj_(sh, nu.row, ofNew);
     if (data.email) sh.getRange(nu.row, ucol['email'] + 1).setValue(cleanEmail_(data.email));
     if (data.position) sh.getRange(nu.row, ucol['position'] + 1).setValue(String(data.position).trim().slice(0, 80));
@@ -633,7 +643,7 @@ function personSheets_() {
 }
 
 // ---------- cache data bacaan (dibuang otomatis setiap ada perubahan) ----------
-var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue'];
+var READ_ACTIONS = ['ping', 'login', 'me', 'myTasks', 'briefs', 'getBrief', 'teamTasks', 'getAll', 'reviewQueue', 'schedule'];
 var DATA_TTL = 90;   // detik; perubahan langsung di spreadsheet terlihat paling lambat 1,5 menit
 function dataCache_() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
 function dataVer_(c) { return (c && c.get('d_ver')) || '0'; }
@@ -2368,4 +2378,265 @@ function requestAction_(me, id, act, payload) {
   } finally { unlock_(lock); }
   if (mail) requestMail_(mail[0], me, out.brief, out.task, mail[1], mail[2]);
   return out;
+}
+
+
+// ===================== Jadwal kerja (WFO / WFH) =====================
+// Reguler: Selasa WFO wajib + pilih Senin atau Kamis (2 hari). Rabu & Jumat WFH.
+// Bila jadwal final sebuah minggu < 2 hari WFO → minggu depannya wajib 3 hari (Sen, Sel, Kam), tidak menumpuk.
+// Pengecualian (WFO Exempt): tidak wajib apa pun; boleh menandai hari ke kantor (tidak dihitung kuota).
+// Minimal 2 orang reguler di kantor setiap hari WFO. Pilihan minggu depan terkunci Jumat 17:00.
+// Libur nasional: hari WFO yang jatuh di hari libur dianggap terpenuhi (tidak menimbulkan utang).
+var SCHED_HEADERS = ['Week', 'Username', 'Days', 'Source', 'Updated At', 'Updated By'];
+var SREQ_HEADERS = ['ID', 'Username', 'Week', 'Kind', 'From Day', 'To Day', 'Reason', 'Status', 'Created At', 'Decided By', 'Decided At', 'Note'];
+var HOLIDAY_HEADERS = ['Date', 'Name'];
+var DAY_CODES = ['mon', 'tue', 'wed', 'thu', 'fri'];
+var DAY_NAMES = { mon: 'Senin', tue: 'Selasa', wed: 'Rabu', thu: 'Kamis', fri: 'Jumat' };
+var WFO_DAYS = ['mon', 'tue', 'thu'];
+var SCHED_MIN_PEOPLE = 2;
+
+function schedSheet_(name, headers) { var sh = getOrCreateSheet_(name, headers); ensureHeaders_(sh, headers); return sh; }
+function isoDate_(d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }
+function parseIso_(s) { return Utilities.parseDate(String(s), tz_(), 'yyyy-MM-dd'); }
+/** Senin (yyyy-MM-dd) dari minggu yang memuat tanggal d. */
+function weekOf_(d) {
+  var dow = Number(Utilities.formatDate(d, tz_(), 'u'));   // 1 = Senin … 7 = Minggu
+  return isoDate_(new Date(parseIso_(isoDate_(d)).getTime() - (dow - 1) * 864e5));
+}
+function addWeeks_(week, n) { return isoDate_(new Date(parseIso_(week).getTime() + n * 7 * 864e5 + 3 * 36e5)); }
+function dayDate_(week, code) { return new Date(parseIso_(week).getTime() + DAY_CODES.indexOf(code) * 864e5); }
+/** Batas memilih untuk minggu `week`: Jumat 17:00 minggu sebelumnya. */
+function lockAt_(week) { return new Date(parseIso_(week).getTime() - 3 * 864e5 + 17 * 36e5); }
+function normWeek_(w) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(w || ''))) return weekOf_(new Date());
+  return weekOf_(parseIso_(w));
+}
+function cleanDays_(list, allowed) {
+  var set = {}; (Array.isArray(list) ? list : String(list || '').split(',')).forEach(function (d) { d = String(d).trim().toLowerCase(); if ((allowed || WFO_DAYS).indexOf(d) >= 0) set[d] = 1; });
+  return DAY_CODES.filter(function (d) { return set[d]; });
+}
+
+function readSchedRows_() {
+  var sh = sheet_(CFG.SCHED_SHEET), out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  var col = colMap_(sh);
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (r, i) {
+    var w = r[col['week']], u = String(r[col['username']] || '').trim().toLowerCase();
+    if (!w || !u) return;
+    w = isDate_(w) ? isoDate_(w) : String(w).replace(/^'/, '').trim();
+    out[w + '|' + u] = { row: i + 2, week: w, username: u, days: cleanDays_(r[col['days']]), source: String(r[col['source']] || 'choice') };
+  });
+  return out;
+}
+function readHolidays_() {
+  var sh = sheet_(CFG.HOLIDAY_SHEET), out = {};
+  if (!sh || sh.getLastRow() < 2) return out;
+  var col = colMap_(sh);
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (r) {
+    var d = r[col['date']]; if (!d) return;
+    d = isDate_(d) ? isoDate_(d) : String(d).replace(/^'/, '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) out[d] = String(r[col['name']] || 'Libur');
+  });
+  return out;
+}
+function schedPeople_() {
+  return readUsers_().filter(function (u) { return u.active && !u.orgOnly && u.sheetName; });
+}
+function holidaySet_(week, hol) {
+  var set = {}; DAY_CODES.forEach(function (c) { if (hol[isoDate_(dayDate_(week, c))]) set[c] = 1; }); return set;
+}
+/** Hari terakhir yang dipilih (Senin/Kamis) sebelum minggu `week`. */
+function lastChoice_(rows, u, week) {
+  for (var i = 1; i <= 12; i++) {
+    var r = rows[addWeeks_(week, -i) + '|' + u];
+    if (r) { if (r.days.indexOf('mon') >= 0 && r.days.indexOf('thu') < 0) return 'mon'; if (r.days.indexOf('thu') >= 0 && r.days.indexOf('mon') < 0) return 'thu'; }
+  }
+  return '';
+}
+/** Rencana satu orang untuk satu minggu. */
+function planFor_(u, week, rows, hol) {
+  var st = rows[week + '|' + u.username], hs = holidaySet_(week, hol);
+  if (u.wfoExempt) return { days: st ? st.days : [], required: 0, exempt: true, chosen: !!st, source: st ? st.source : '', debt: false, holidays: Object.keys(hs) };
+  var prev = rows[addWeeks_(week, -1) + '|' + u.username];
+  var debt = !!(prev && prev.days.length < 2);   // hari libur tetap tercatat di jadwal → dianggap terpenuhi
+  var required = debt ? 3 : 2, days, chosen = true, source = st ? st.source : '';
+  if (st) {
+    days = st.days.slice();
+    if (debt && st.source === 'choice') days = WFO_DAYS.slice();   // utang muncul setelah memilih → otomatis 3 hari
+  } else if (debt) { days = WFO_DAYS.slice(); source = 'auto'; }
+  else {
+    var c = lastChoice_(rows, u.username, week);
+    days = c ? ['tue', c].sort(function (a, b) { return DAY_CODES.indexOf(a) - DAY_CODES.indexOf(b); }) : ['tue'];
+    chosen = !!c; source = c ? 'auto' : '';
+  }
+  return { days: days, required: required, exempt: false, chosen: chosen, source: source, debt: debt, holidays: Object.keys(hs) };
+}
+function weekPlans_(week, rows, hol, people) {
+  var plans = {}, count = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0 };
+  people.forEach(function (u) {
+    var p = planFor_(u, week, rows, hol); plans[u.username] = p;
+    if (!p.exempt) p.days.forEach(function (d) { if (!p.holidays.length || p.holidays.indexOf(d) < 0) count[d]++; });
+  });
+  return { plans: plans, count: count };
+}
+function readSchedReqs_() {
+  var sh = sheet_(CFG.SREQ_SHEET), out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  var col = colMap_(sh);
+  sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (r, i) {
+    var id = String(r[col['id']] || ''); if (!id) return;
+    var w = r[col['week']]; w = isDate_(w) ? isoDate_(w) : String(w).replace(/^'/, '').trim();
+    out.push({ id: id, row: i + 2, username: String(r[col['username']] || ''), week: w, kind: String(r[col['kind']] || ''),
+      from: String(r[col['from day']] || ''), to: String(r[col['to day']] || ''), reason: String(r[col['reason']] || '').replace(/^'(?=[=+\-@])/, ''),
+      status: String(r[col['status']] || 'Menunggu'), createdAt: normStamp_(r[col['created at']]), decidedBy: String(r[col['decided by']] || ''),
+      decidedAt: normStamp_(r[col['decided at']]), note: String(r[col['note']] || '').replace(/^'(?=[=+\-@])/, '') });
+  });
+  return out;
+}
+
+function schedule_(me, week) {
+  var cur = weekOf_(new Date()), w0 = normWeek_(week || cur), rows = readSchedRows_(), hol = readHolidays_(), people = schedPeople_();
+  var weeks = [w0, addWeeks_(w0, 1)].map(function (w) {
+    var wp = weekPlans_(w, rows, hol, people);
+    return { week: w, lockAt: lockAt_(w).toISOString(), locked: new Date() >= lockAt_(w),
+      days: DAY_CODES.map(function (c) { var dt = isoDate_(dayDate_(w, c)); return { code: c, date: dt, holiday: hol[dt] || '' }; }),
+      plans: wp.plans, count: wp.count };
+  });
+  var reqs = readSchedReqs_().filter(function (r) { return me.role === 'admin' || r.username === me.username || r.status === 'Menunggu'; })
+    .filter(function (r) { return r.status === 'Menunggu' || r.week >= addWeeks_(cur, -4); });
+  return { today: isoDate_(new Date()), currentWeek: cur, weeks: weeks, requests: reqs, holidays: hol,
+    people: people.map(function (u) { return { username: u.username, name: u.name, position: u.position || '', exempt: !!u.wfoExempt }; }) };
+}
+
+function writeSchedRow_(rows, week, username, days, source, me) {
+  var sh = schedSheet_(CFG.SCHED_SHEET, SCHED_HEADERS), key = week + '|' + username, now = new Date();
+  var obj = { 'week': "'" + week, 'username': username, 'days': days.join(','), 'source': source, 'updated at': now, 'updated by': me.username };
+  if (rows[key]) writeObj_(sh, rows[key].row, obj);
+  else { var row = appendObj_(sh, obj); rows[key] = { row: row }; }
+  rows[key] = { row: rows[key].row, week: week, username: username, days: days, source: source };
+}
+
+/** Anggota memilih hari WFO kedua (reguler: day = mon|thu) atau menandai hari ke kantor (pengecualian: days). */
+function schedChoose_(me, week, day, days) {
+  var lock = lock_(20000);
+  try {
+    week = normWeek_(week);
+    var rows = readSchedRows_(), hol = readHolidays_(), people = schedPeople_(), u = findUser_(me.username);
+    if (!u || !u.sheetName) throw new Error('Akun Anda tidak termasuk jadwal kerja.');
+    var everChosen = Object.keys(rows).some(function (k) { return k.split('|')[1] === u.username; });
+    if (new Date() >= lockAt_(week) && (everChosen || week < weekOf_(new Date()))) throw new Error('Jadwal minggu ini sudah terkunci (batas Jumat 17:00). Ajukan pindah hari ke admin bila perlu.');
+    if (u.wfoExempt) {
+      var dd = cleanDays_(days);
+      writeSchedRow_(rows, week, u.username, dd, 'choice', me);
+      log_(me, 'sched-flex', '', week + ' ' + dd.join(','));
+      return schedule_(me, week);
+    }
+    if (day !== 'mon' && day !== 'thu') throw new Error('Pilih Senin atau Kamis.');
+    var wp = weekPlans_(week, rows, hol, people), p = wp.plans[u.username];
+    if (p.required >= 3) throw new Error('Minggu ini Anda wajib WFO 3 hari (Senin, Selasa, Kamis), jadi tidak perlu memilih.');
+    var other = day === 'mon' ? 'thu' : 'mon';
+    if (p.days.indexOf(other) >= 0 && p.chosen && wp.count[other] - 1 < SCHED_MIN_PEOPLE && wp.count[other] >= SCHED_MIN_PEOPLE) {
+      throw new Error(DAY_NAMES[other] + ' tinggal ' + wp.count[other] + ' orang. Minimal ' + SCHED_MIN_PEOPLE + ' orang di kantor, jadi Anda belum bisa pindah sebelum ada yang pindah ke ' + DAY_NAMES[other] + '.');
+    }
+    writeSchedRow_(rows, week, u.username, ['tue', day].sort(function (a, b) { return DAY_CODES.indexOf(a) - DAY_CODES.indexOf(b); }), 'choice', me);
+    log_(me, 'sched-choose', '', week + ' ' + day);
+    return schedule_(me, week);
+  } finally { unlock_(lock); }
+}
+
+/** Admin mengatur jadwal seseorang langsung (tanpa batas waktu & kuota — peringatan ditampilkan di aplikasi). */
+function schedSet_(me, username, week, days) {
+  var lock = lock_(20000);
+  try {
+    week = normWeek_(week);
+    var u = findUser_(String(username || '').toLowerCase());
+    if (!u || !u.sheetName) throw new Error('Pengguna tidak ditemukan');
+    var rows = readSchedRows_();
+    writeSchedRow_(rows, week, u.username, cleanDays_(days), 'admin', me);
+    log_(me, 'sched-set', '', u.username + ' ' + week + ' ' + cleanDays_(days).join(','));
+    return schedule_(me, week);
+  } finally { unlock_(lock); }
+}
+
+/** Pengajuan ke admin. kind: swap (pindah hari WFO) | skip (tidak bisa WFO di hari itu). */
+function schedRequest_(me, q) {
+  q = q || {};
+  var lock = lock_(20000), out;
+  try {
+    var week = normWeek_(q.week), u = findUser_(me.username);
+    if (!u || !u.sheetName) throw new Error('Akun Anda tidak termasuk jadwal kerja.');
+    if (u.wfoExempt) throw new Error('Anda termasuk pengecualian, jadi tidak perlu mengajukan perubahan jadwal.');
+    var kind = q.kind === 'skip' ? 'skip' : 'swap', from = String(q.from || ''), to = kind === 'swap' ? String(q.to || '') : '';
+    var reason = String(q.reason || '').trim().slice(0, 500);
+    if (!reason) throw new Error('Tuliskan alasannya.');
+    var rows = readSchedRows_(), hol = readHolidays_(), p = planFor_(u, week, rows, hol);
+    if (p.days.indexOf(from) < 0) throw new Error('Hari ' + (DAY_NAMES[from] || from) + ' bukan hari WFO Anda minggu itu.');
+    if (kind === 'swap' && (WFO_DAYS.indexOf(to) < 0 || p.days.indexOf(to) >= 0)) throw new Error('Pilih hari pengganti (Senin, Selasa, atau Kamis) yang belum menjadi hari WFO Anda.');
+    var first = kind === 'swap' && DAY_CODES.indexOf(to) < DAY_CODES.indexOf(from) ? to : from;
+    if (new Date() >= new Date(dayDate_(week, first).getTime() - 7 * 36e5)) throw new Error('Pengajuan paling lambat H-1 pukul 17:00.');
+    if (readSchedReqs_().some(function (r) { return r.username === u.username && r.week === week && r.from === from && r.status === 'Menunggu'; })) throw new Error('Sudah ada pengajuan untuk hari itu yang menunggu keputusan admin.');
+    var sh = schedSheet_(CFG.SREQ_SHEET, SREQ_HEADERS), id = 'JD' + newId_().replace(/^T/, '');
+    appendObj_(sh, { 'id': id, 'username': u.username, 'week': "'" + week, 'kind': kind, 'from day': from, 'to day': to, 'reason': safeCell_(reason), 'status': 'Menunggu', 'created at': new Date() });
+    log_(me, 'sched-request', '', id + ' ' + kind + ' ' + week + ' ' + from + (to ? '→' + to : ''));
+    out = schedule_(me, week);
+  } finally { unlock_(lock); }
+  try {
+    readUsers_().filter(function (x) { return x.role === 'admin' && x.active && x.email; }).forEach(function (a) {
+      MailApp.sendEmail({ to: a.email, name: 'Project Tracker', subject: '🗓 Pengajuan jadwal: ' + u.name,
+        htmlBody: emailShell_('Halo ' + esc_(a.name) + ',', esc_(u.name) + ' mengajukan <b>' + (kind === 'swap' ? 'pindah hari WFO' : 'tidak bisa WFO') + '</b> untuk ' + esc_(DAY_NAMES[from]) + ' ' + esc_(isoDate_(dayDate_(week, from))) +
+          (kind === 'swap' ? ' → ' + esc_(DAY_NAMES[to]) : '') + '.<br><i>' + esc_(reason) + '</i><br>Putuskan di menu <b>Jadwal</b>.') });
+    });
+  } catch (e) { Logger.log('Email pengajuan jadwal: ' + e); }
+  return out;
+}
+
+function schedDecide_(me, id, decision, note) {
+  if (decision !== 'approve' && decision !== 'reject') throw new Error('Keputusan tidak valid');
+  var lock = lock_(20000), q, out;
+  try {
+    q = readSchedReqs_().filter(function (r) { return r.id === id; })[0];
+    if (!q) throw new Error('Pengajuan tidak ditemukan. Muat ulang data.');
+    if (q.status !== 'Menunggu') throw new Error('Pengajuan ini sudah diputuskan. Data dimuat ulang.');
+    var u = findUser_(q.username);
+    if (decision === 'approve' && u) {
+      var rows = readSchedRows_(), p = planFor_(u, q.week, rows, readHolidays_());
+      var days = p.days.filter(function (d) { return d !== q.from; });
+      if (q.kind === 'swap' && days.indexOf(q.to) < 0) days.push(q.to);
+      writeSchedRow_(rows, q.week, u.username, cleanDays_(days), 'request', me);
+    }
+    var sh = schedSheet_(CFG.SREQ_SHEET, SREQ_HEADERS);
+    writeObj_(sh, q.row, { 'status': decision === 'approve' ? 'Disetujui' : 'Ditolak', 'decided by': me.username, 'decided at': new Date(), 'note': safeCell_(String(note || '').trim().slice(0, 500)) });
+    log_(me, 'sched-' + decision, '', id);
+    out = schedule_(me, q.week);
+  } finally { unlock_(lock); }
+  if (u && u.email && u.active) {
+    try {
+      MailApp.sendEmail({ to: u.email, name: 'Project Tracker', subject: (decision === 'approve' ? '✅ Pengajuan jadwal disetujui' : '↩️ Pengajuan jadwal ditolak'),
+        htmlBody: emailShell_('Halo ' + esc_(u.name) + ',', 'Pengajuan ' + (q.kind === 'swap' ? 'pindah hari WFO ' + esc_(DAY_NAMES[q.from]) + ' → ' + esc_(DAY_NAMES[q.to]) : 'tidak bisa WFO ' + esc_(DAY_NAMES[q.from])) +
+          ' (minggu ' + esc_(q.week) + ') <b>' + (decision === 'approve' ? 'disetujui' : 'ditolak') + '</b> oleh ' + esc_(me.name) + '.' + (note ? '<br><i>' + esc_(note) + '</i>' : '') +
+          (decision === 'approve' && q.kind === 'skip' ? '<br>Karena minggu itu WFO Anda kurang dari 2 hari, minggu berikutnya wajib WFO 3 hari.' : '')) });
+    } catch (e) { Logger.log('Email keputusan jadwal: ' + e); }
+  }
+  return out;
+}
+
+function schedHoliday_(me, date, name, remove) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('Tanggal tidak valid');
+  var lock = lock_(20000);
+  try {
+    var sh = schedSheet_(CFG.HOLIDAY_SHEET, HOLIDAY_HEADERS), col = colMap_(sh), found = 0;
+    if (sh.getLastRow() >= 2) {
+      var vals = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+      for (var i = vals.length - 1; i >= 0; i--) {
+        var d = vals[i][col['date']]; d = isDate_(d) ? isoDate_(d) : String(d).replace(/^'/, '').trim();
+        if (d === date) { if (remove) sh.deleteRow(i + 2); found = i + 2; }
+      }
+    }
+    if (!remove) {
+      var obj = { 'date': "'" + date, 'name': safeCell_(String(name || 'Libur nasional').trim().slice(0, 80)) };
+      if (found) writeObj_(sh, found, obj); else appendObj_(sh, obj);
+    }
+    log_(me, remove ? 'holiday-remove' : 'holiday-add', '', date);
+    return schedule_(me, weekOf_(parseIso_(date)));
+  } finally { unlock_(lock); }
 }

@@ -191,7 +191,47 @@ function build() {
       attachments: [{ label: 'Desain Figma', url: 'https://www.figma.com/file/demo-reimb-lp' }, { label: 'Referensi kompetitor', url: 'https://www.talenta.co/fitur/reimbursement/' }],
       thread: [{ by: 'fahmi', name: 'Fahmi', t: stamp(-1, 11, 30), text: 'Apakah perlu versi bahasa Inggris juga? FAQ boleh ambil dari artikel reimbursement?' }],
       assign: { owner: 'fahmi', endDate: rqT.endDate, endTime: '17:00', priority: 'High', code: '' } } });
-  return { projects, tasks, users, briefs };
+  // jadwal kerja contoh
+  users.forEach((u) => { u.wfoExempt = u.username === 'wisnu'; });
+  const wk0 = schWeekOf(new Date()), sched = {}, put = (w, u, days, source) => { sched[w + '|' + u] = { days, source: source || 'choice' }; };
+  const prevW = schAddWk(wk0, -1);
+  [['ari', 'mon'], ['ammar', 'thu'], ['fahmi', 'mon'], ['winona', 'thu'], ['dany', 'thu'], ['arya', 'mon'], ['nadia', 'mon']].forEach(([u, d]) => put(prevW, u, ['tue', d]));
+  put(prevW, 'ammar', ['tue'], 'request');   // minggu lalu hanya 1 hari → minggu ini wajib 3
+  put(wk0, 'wisnu', ['thu']);
+  const sreqs = [{ id: 'JDDEMO1', username: 'fahmi', week: schAddWk(wk0, 1), kind: 'swap', from: 'tue', to: 'thu', reason: 'Visit klien di luar kota', status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', decidedAt: '', note: '' }];
+  return { projects, tasks, users, briefs, sched, sreqs, holidays: {} };
+}
+// ---------- jadwal kerja (meniru server) ----------
+const SCH_D = ['mon', 'tue', 'wed', 'thu', 'fri'], SCH_W = ['mon', 'tue', 'thu'], SCH_N = { mon: 'Senin', tue: 'Selasa', wed: 'Rabu', thu: 'Kamis', fri: 'Jumat' };
+function schWeekOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); }
+function schAddWk(w, n) { const x = new Date(w + 'T00:00:00'); x.setDate(x.getDate() + 7 * n); return iso(x); }
+function schDay(w, c) { const x = new Date(w + 'T00:00:00'); x.setDate(x.getDate() + SCH_D.indexOf(c)); return x; }
+function schLock(w) { const x = new Date(w + 'T00:00:00'); x.setDate(x.getDate() - 3); x.setHours(17, 0, 0, 0); return x; }
+function schPlan(s, u, w) {
+  const st = s.sched[w + '|' + u.username], hol = SCH_D.filter((c) => s.holidays[iso(schDay(w, c))]);
+  if (u.wfoExempt) return { days: st ? st.days.slice() : [], required: 0, exempt: true, chosen: !!st, source: st ? st.source : '', debt: false, holidays: hol };
+  const prev = s.sched[schAddWk(w, -1) + '|' + u.username], debt = !!(prev && prev.days.length < 2);
+  let days, chosen = true, source = st ? st.source : '';
+  if (st) { days = st.days.slice(); if (debt && st.source === 'choice') days = SCH_W.slice(); }
+  else if (debt) { days = SCH_W.slice(); source = 'auto'; }
+  else {
+    let c = '';
+    for (let i = 1; i <= 12 && !c; i++) { const r = s.sched[schAddWk(w, -i) + '|' + u.username]; if (r) c = r.days.includes('mon') && !r.days.includes('thu') ? 'mon' : r.days.includes('thu') && !r.days.includes('mon') ? 'thu' : ''; }
+    days = c ? ['tue', c].sort((a, b) => SCH_D.indexOf(a) - SCH_D.indexOf(b)) : ['tue']; chosen = !!c; source = c ? 'auto' : '';
+  }
+  return { days, required: debt ? 3 : 2, exempt: false, chosen, source, debt, holidays: hol };
+}
+function schPeople(s) { return s.users.filter((u) => u.active && !u.orgOnly && u.sheetName); }
+function schWeekData(s, w) {
+  const plans = {}, count = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0 };
+  schPeople(s).forEach((u) => { const p = schPlan(s, u, w); plans[u.username] = p; if (!p.exempt) p.days.forEach((d) => { if (!p.holidays.includes(d)) count[d]++; }); });
+  return { week: w, lockAt: schLock(w).toISOString(), locked: new Date() >= schLock(w), days: SCH_D.map((c) => ({ code: c, date: iso(schDay(w, c)), holiday: s.holidays[iso(schDay(w, c))] || '' })), plans, count };
+}
+function schData(s, me, w) {
+  const cur = schWeekOf(new Date()); w = w ? schWeekOf(new Date(w + 'T00:00:00')) : cur;
+  return { today: iso(new Date()), currentWeek: cur, weeks: [schWeekData(s, w), schWeekData(s, schAddWk(w, 1))], holidays: Object.assign({}, s.holidays),
+    requests: s.sreqs.filter((r) => me.role === 'admin' || r.username === me.username || r.status === 'Menunggu'),
+    people: schPeople(s).map((u) => ({ username: u.username, name: u.name, position: u.position || '', exempt: !!u.wfoExempt })) };
 }
 const REQ_TS = { Konfirmasi: 'Backlog', Klarifikasi: 'Backlog', Dikerjakan: 'On-Progress', Dikembalikan: 'On-Progress', Diajukan: 'Review', Selesai: 'Done' };
 function reqLog(t, e) { t.stageLog = (t.stageLog || []).concat({ e, t: new Date().toISOString() }); }
@@ -358,6 +398,29 @@ function handle(action, b, session) {
       return { brief: cur };
     }
     case 'saveSocialBrief': return saveSocial(s, me, b.brief || {});
+    case 'schedule': return schData(s, me, b.week);
+    case 'schedChoose': {
+      const w = schWeekOf(new Date(b.week + 'T00:00:00'));
+      const ever = Object.keys(s.sched).some((k) => k.endsWith('|' + me.username));
+      if (new Date() >= schLock(w) && (ever || w < schWeekOf(new Date()))) throw new Error('Jadwal minggu ini sudah terkunci (batas Jumat 17:00). Ajukan pindah hari ke admin bila perlu.');
+      if (me.wfoExempt) { s.sched[w + '|' + me.username] = { days: SCH_W.filter((d) => (b.days || []).includes(d)), source: 'choice' }; return schData(s, me, w); }
+      if (b.day !== 'mon' && b.day !== 'thu') throw new Error('Pilih Senin atau Kamis.');
+      const wd = schWeekData(s, w), p = wd.plans[me.username], other = b.day === 'mon' ? 'thu' : 'mon';
+      if (p.required >= 3) throw new Error('Minggu ini Anda wajib WFO 3 hari, jadi tidak perlu memilih.');
+      if (p.days.includes(other) && p.chosen && wd.count[other] - 1 < 2 && wd.count[other] >= 2) throw new Error(SCH_N[other] + ' tinggal ' + wd.count[other] + ' orang. Minimal 2 orang di kantor, jadi Anda belum bisa pindah sebelum ada yang pindah ke ' + SCH_N[other] + '.');
+      s.sched[w + '|' + me.username] = { days: ['tue', b.day].sort((x, y) => SCH_D.indexOf(x) - SCH_D.indexOf(y)), source: 'choice' };
+      return schData(s, me, w);
+    }
+    case 'schedRequest': {
+      const q = b.req || {}, w = schWeekOf(new Date(q.week + 'T00:00:00'));
+      if (me.wfoExempt) throw new Error('Anda termasuk pengecualian, jadi tidak perlu mengajukan perubahan jadwal.');
+      if (!String(q.reason || '').trim()) throw new Error('Tuliskan alasannya.');
+      const p = schPlan(s, me, w);
+      if (!p.days.includes(q.from)) throw new Error('Hari itu bukan hari WFO Anda.');
+      if (s.sreqs.some((r) => r.username === me.username && r.week === w && r.from === q.from && r.status === 'Menunggu')) throw new Error('Sudah ada pengajuan untuk hari itu yang menunggu keputusan admin.');
+      s.sreqs.push({ id: 'JDDEMO' + Date.now(), username: me.username, week: w, kind: q.kind === 'skip' ? 'skip' : 'swap', from: q.from, to: q.kind === 'skip' ? '' : q.to, reason: q.reason, status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', decidedAt: '', note: '' });
+      return schData(s, me, w);
+    }
     case 'saveRequest': return saveReq(s, me, b.brief || {});
     case 'requestAction': return reqAction(s, me, b.briefId, b.act, b.payload);
     case 'deleteBrief': {
@@ -456,6 +519,15 @@ function handle(action, b, session) {
       return { id: saved.id, task: saved, projects: syncProj(s, [saved.code, oldCode]) };
     }
     case 'deleteTask': { const old = s.tasks.find((x) => x.id === b.taskId); s.tasks = s.tasks.filter((x) => x.id !== b.taskId); return { ok: true, projects: syncProj(s, [old && old.code]) }; }
+    case 'schedSet': { const w = schWeekOf(new Date(b.week + 'T00:00:00')); s.sched[w + '|' + b.username] = { days: SCH_W.filter((d) => (b.days || []).includes(d)), source: 'admin' }; return schData(s, me, w); }
+    case 'schedDecide': {
+      const q = s.sreqs.find((x) => x.id === b.id); if (!q) throw new Error('Pengajuan tidak ditemukan.');
+      if (q.status !== 'Menunggu') throw new Error('Pengajuan ini sudah diputuskan. Data dimuat ulang.');
+      if (b.decision === 'approve') { const u = s.users.find((x) => x.username === q.username), p = schPlan(s, u, q.week); let d = p.days.filter((x) => x !== q.from); if (q.kind === 'swap' && !d.includes(q.to)) d.push(q.to); s.sched[q.week + '|' + u.username] = { days: SCH_W.filter((x) => d.includes(x)), source: 'request' }; }
+      Object.assign(q, { status: b.decision === 'approve' ? 'Disetujui' : 'Ditolak', decidedBy: me.username, decidedAt: new Date().toISOString(), note: b.note || '' });
+      return schData(s, me, q.week);
+    }
+    case 'schedHoliday': { if (b.remove) delete s.holidays[b.date]; else s.holidays[b.date] = b.name || 'Libur nasional'; return schData(s, me, schWeekOf(new Date(b.date + 'T00:00:00'))); }
     case 'reviewQueue': return { tasks: s.tasks.filter((x) => x.status === 'Review') };
     case 'reviewTask': {
       const t = s.tasks.find((x) => x.id === b.taskId);
