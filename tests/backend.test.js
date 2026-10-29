@@ -58,12 +58,13 @@ const pad = (n) => String(n).padStart(2, '0');
 const props = {}; const cache = {};
 const logs = [];
 const docs = {}; let docSeq = 0;
+let flushes = 0;
 const events = {}; let evSeq = 0; const mails = []; const triggers = [];
 const mkEvent = (title, s, e, o) => { const id = 'ev' + (++evSeq) + '@google.com'; events[id] = { title, start: s, end: e, guests: o.guests, desc: o.description }; return { getId: () => id, removeAllReminders() {}, deleteEvent: () => { delete events[id]; } }; };
 const calendar = { getId: () => 'cal1', createEvent: mkEvent, getEventById: (id) => events[id] ? { deleteEvent: () => { delete events[id]; } } : null };
 const trigBuilder = (fn) => { const b = { timeBased: () => b, everyMinutes: () => b, atHour: () => b, everyDays: () => b, inTimezone: () => b, create: () => { triggers.push(fn); } }; return b; };
 const sandbox = {
-  SpreadsheetApp: { getActive: () => ss, getUi: () => { throw new Error('no ui'); } },
+  SpreadsheetApp: { getActive: () => ss, getUi: () => { throw new Error('no ui'); }, flush() { flushes++; } },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; } }) },
   CacheService: { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: (k) => { delete cache[k]; },
     getAll: (ks) => Object.fromEntries(ks.filter((k) => k in cache).map((k) => [k, cache[k]])), putAll: (m) => { Object.assign(cache, m); }, removeAll: (ks) => ks.forEach((k) => delete cache[k]) }) },
@@ -647,6 +648,20 @@ it('Struktur tim: atasan, divisi, keahlian; anggota tanpa akun; cegah struktur b
   assert.strictEqual(a.reportsTo, 'wisnu'); assert.strictEqual(a.division, 'SEO dan konten'); assert.ok(o && o.orgOnly);
   assert.ok(org.every((u) => u.email === undefined));
   assert.strictEqual(post({ action: 'saveUser', token: ari, user: { username: 'ari', reportsTo: '' } }).ok, false, 'anggota tidak bisa ubah struktur');
+});
+
+it('Kunci: perubahan di-flush sebelum kunci dilepas; server sibuk → pesan jelas; pengingat tidak memegang kunci', () => {
+  const f0 = flushes;
+  const t0 = post({ action: 'myTasks', token: ari }).data.tasks.find((x) => x.status !== 'Done' && x.type !== 'Artikel');
+  assert.ok(post({ action: 'updateStatus', token: ari, taskId: t0.id, status: 'On-Progress' }).ok);
+  assert.ok(flushes > f0, 'flush dipanggil');
+  const orig = sandbox.LockService.getScriptLock;
+  sandbox.LockService.getScriptLock = () => ({ tryLock() { return false; }, waitLock() { throw new Error('Lock timeout'); }, releaseLock() {} });
+  const r = post({ action: 'updateStatus', token: ari, taskId: t0.id, status: 'Review' });
+  assert.strictEqual(r.ok, false); assert.ok(/sedang sibuk/.test(r.error), r.error);
+  sandbox.runReminders();   // tetap berjalan walau kunci dipegang permintaan lain
+  sandbox.LockService.getScriptLock = orig;
+  assert.strictEqual(props.REM_RUNNING, undefined, 'penanda dibersihkan');
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

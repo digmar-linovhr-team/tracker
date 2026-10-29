@@ -4,7 +4,7 @@
   'use strict';
   var CFG = window.PT_CONFIG || {};
   var L = window.PTLogic;
-  var VERSION = '2.19.1';
+  var VERSION = '2.20.0';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
 
@@ -26,7 +26,18 @@
   function appUrl() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 
   // ---------- API ----------
+  /** Server sibuk (kunci dipegang permintaan lain) → belum ada yang tersimpan, jadi aman dicoba ulang otomatis. */
+  var BUSY_RE = /sedang sibuk|lock timeout|could not obtain lock|tidak dapat memperoleh kunci|too many|timed out/i;
   async function api(action, payload) {
+    for (var attempt = 0; ; attempt++) {
+      try { return await apiOnce(action, payload); }
+      catch (e) {
+        if (attempt >= 2 || !BUSY_RE.test(String(e && e.message))) throw e;
+        await new Promise(function (r) { setTimeout(r, 1500 + attempt * 2500); });
+      }
+    }
+  }
+  async function apiOnce(action, payload) {
     payload = payload || {};
     var token = get('token', '');
     if (get('demo', false)) {

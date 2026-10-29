@@ -264,6 +264,29 @@ function viewBrief() {
   $('#view-sub').textContent = (d.contentType || '') + (task ? ' · ' + task.ownerName : '');
   const [st, stc] = briefStatus(b);
   const ctaOpts = [...new Set((S.briefs || []).map((x) => x.data && x.data.ctaPage).filter(Boolean))];
+  const top = (actions) => `<div class="bed-top">
+      <button class="btn ghost sm" id="bback">← Brief</button>
+      <div class="bed-task">${task ? `${task.code ? `<span class="code-tag">${esc(task.code)}</span> ` : ''}<b>${prettyTitle(task.task)}</b> <span class="muted">· ${esc(task.ownerName)}${L.schedule(task).end ? ' · deadline ' + esc(fmtD(L.schedule(task).end)) : ''}</span>` : '<span class="muted">Task sudah dihapus</span>'}</div>
+      <span class="bstat ${stc}">${esc(st)}</span>
+      <span class="muted small" id="bsave">${saveText()}</span>
+      <div class="bed-actions" id="bactions">${actions}</div>
+    </div>
+    ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}`;
+  if (briefDocMode(b)) {
+    const stg = task && L.isArticle(task) ? L.stageOf(task) : 0;
+    const admin = S.user.role === 'admin';
+    $('#view').innerHTML = top(`${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
+        ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
+        ${edit ? '<button class="btn sm" id="bforce">Ubah brief</button>' : ''}
+        ${briefStepButtons(b)}`)
+      + (stg === 3 ? `<div class="banner"><div>${admin ? `Brief diajukan oleh <b>${esc(task.ownerName)}</b>. Periksa lalu <b>Setujui brief</b> atau <b>Kembalikan</b> dengan catatan.` : 'Brief sudah diajukan dan sedang direview admin.'}</div></div>` : '')
+      + articleDocHtml(b, task);
+    $('#bback').onclick = () => { S.bf.kind = 'artikel'; go('briefs'); };
+    if ($('#breload')) $('#breload').onclick = async () => { E.dirty = false; E.error = ''; await loadData(true); S.bEdit = null; openBrief(E.id); };
+    if ($('#bforce')) $('#bforce').onclick = () => { E.forceEdit = true; viewBrief(); };
+    bindBriefActions();
+    return;
+  }
 
   $('#view').innerHTML = `
     <div class="bed-top">
@@ -339,6 +362,7 @@ function actionsHtml(b, edit, st) {
   return `${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
         ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
         ${edit && eligibleTasks().length ? '<button class="btn sm" id="bdup">Duplikat</button>' : ''}
+        ${S.bEdit && S.bEdit.forceEdit ? '<button class="btn sm" id="bdocview">Tampilan dokumen</button>' : ''}
         ${briefStepButtons(b)}
         ${edit ? '<button class="btn sm ghost danger" id="bdel" title="Hapus brief">Hapus</button>' : ''}`;
 }
@@ -512,6 +536,7 @@ function bindBriefActions() {
     onMount: (m, close) => { $('#brv-send', m).onclick = () => { const r = $('#brv-reason', m).value.trim(); close(); decideReview(t.id, 'return', r); }; }
   });
   if ($('#bdup')) $('#bdup').onclick = () => { briefFlush(); newBriefModal(null, E.b); };
+  if ($('#bdocview')) $('#bdocview').onclick = () => { briefFlush(); E.forceEdit = false; viewBrief(); };
   if ($('#bdoc')) $('#bdoc').onclick = async () => {
     const btn = $('#bdoc');
     if (E.dirty) await briefSave();

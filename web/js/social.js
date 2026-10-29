@@ -161,6 +161,23 @@ function viewSocial() {
   const [st, stc] = socStatus(b);
   $('#view-title').textContent = d.title || 'Brief sosmed';
   $('#view-sub').textContent = 'Brief sosmed · ' + d.format;
+  if (socialDocMode(b)) {
+    $('#view').innerHTML = `
+    <div class="bed-top">
+      <button class="btn ghost sm" id="bback">← Brief</button>
+      <div class="bed-task"><span class="soc-ico">${SOC_ICON}</span><b>${esc(d.title || 'Brief sosmed')}</b> <span class="muted">· dibuat ${esc(nameOf(b.createdBy))}</span></div>
+      <span class="bstat ${stc}" id="bstatus">${esc(st)}</span>
+      <div class="bed-actions" id="bactions"></div>
+    </div>
+    ${st === 'Direview' && S.user.role === 'admin' ? '<div class="banner"><div>Konten ini sedang menunggu review Anda. Setujui atau kembalikan dari menu <b>Review</b>.</div><button class="btn sm" id="soc-goreview">Buka Review</button></div>' : ''}
+    ${socialDocHtml(b)}`;
+    renderSocActions();
+    if (edit) { $('#bactions').insertAdjacentHTML('afterbegin', '<button class="btn sm" id="bforce">Ubah brief</button>'); $('#bforce').onclick = () => { E.forceEdit = true; viewSocial(); }; }
+    if ($('#soc-goreview')) $('#soc-goreview').onclick = () => go('review');
+    renderSocAssign();
+    $('#bback').onclick = () => { S.bf.kind = 'sosmed'; go('briefs'); };
+    return;
+  }
   $('#view').innerHTML = `
     <div class="bed-top">
       <button class="btn ghost sm" id="bback">← Brief</button>
@@ -275,7 +292,7 @@ function renderSocAssign() {
   if (b.taskId && !E.reassign) {
     box.innerHTML = `<div id="bsoc-task">${socTaskInfo(b)}</div>
       <p class="muted small" style="margin:10px 0 0">${socStatus(b)[0] === 'Selesai' ? 'Konten sudah disetujui admin.' : 'Penanggung jawab mengerjakan lewat Task Saya: Mulai → Ajukan review → admin menyetujui → Done. ' + (b.createdBy === S.user.username ? 'Anda' : esc(nameOf(b.createdBy))) + ' akan diberi tahu saat konten disetujui.'}</p>
-      ${can && !String(b.taskId).startsWith('tmp-') && socStatus(b)[0] !== 'Selesai' ? '<button type="button" class="btn sm" id="soc-reassign" style="margin-top:10px">Ubah penugasan</button>' : ''}`;
+      ${can && !String(b.taskId).startsWith('tmp-') && socStatus(b)[0] !== 'Selesai' && !socialDocMode(b) ? '<button type="button" class="btn sm" id="soc-reassign" style="margin-top:10px">Ubah penugasan</button>' : ''}`;
     if ($('#soc-reassign')) $('#soc-reassign').onclick = () => {
       const t = briefTask(b);
       if (t) Object.assign(a, { owner: t.owner, endDate: t.endDate || a.endDate, endTime: t.endTime || a.endTime || '18:00', priority: t.priority || a.priority, code: t.code || '' });

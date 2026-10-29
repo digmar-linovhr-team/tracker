@@ -148,7 +148,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 14 });
+  return json_({ ok: true, app: 'project-tracker', version: 15 });
 }
 
 function doPost(e) {
@@ -165,7 +165,10 @@ function doPost(e) {
     var msg = String(err && err.message || err);
     return json_({ ok: false, error: msg, code: msg === 'UNAUTHORIZED' ? 'UNAUTHORIZED' : undefined });
   } finally {
-    if (READ_ACTIONS.indexOf(body.action) < 0) dataCacheClear_();   // ada perubahan → data bacaan dimuat ulang
+    if (READ_ACTIONS.indexOf(body.action) < 0) {
+      try { SpreadsheetApp.flush(); } catch (e) { /* abaikan */ }
+      dataCacheClear_();   // ada perubahan → data bacaan dimuat ulang
+    }
   }
 }
 
@@ -234,14 +237,14 @@ function changePassword_(me, oldPw, newPw) {
   if (hash_(String(oldPw || ''), me.salt) !== me.hash) throw new Error('Password lama salah');
   newPw = String(newPw || '');
   if (newPw.length < 8) throw new Error('Password baru minimal 8 karakter');
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var sh = sheet_(CFG.USERS_SHEET), col = colMap_(sh), salt = Utilities.getUuid();
     sh.getRange(me.row, col['salt'] + 1).setValue(salt);
     sh.getRange(me.row, col['password hash'] + 1).setValue(hash_(newPw, salt));
     sh.getRange(me.row, col['must change'] + 1).setValue(false);
     invalidateUsers_();
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
   me.mustChange = false;
   return { user: publicUser_(me) };
 }
@@ -371,14 +374,14 @@ function orgFields_(username, data) {
   return o;
 }
 function setMySkills_(me, skills) {
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var sh = sheet_(CFG.USERS_SHEET);
     ensureHeaders_(sh, USER_HEADERS);
     writeObj_(sh, me.row, { 'skills': cleanSkills_(skills) });
     invalidateUsers_();
     return { user: publicUser_(findUser_(me.username)) };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function appendUser_(username, name, role, sheetName, password) {
@@ -409,7 +412,7 @@ function saveUser_(me, data) {
   var username = slug_(data.username || data.name || '');
   if (!username) throw new Error('Username wajib diisi');
   var role = data.role === 'admin' ? 'admin' : 'member';
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     ensureHeaders_(sheet_(CFG.USERS_SHEET), USER_HEADERS);
     var existing = findUser_(username);
@@ -451,7 +454,7 @@ function saveUser_(me, data) {
     invalidateUsers_();
     log_(me, 'create-user', '', username);
     return orgOnly ? { user: publicUser_(findUser_(username)) } : { user: publicUser_(findUser_(username)), password: pw };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function ensurePersonSheet_(name) {
@@ -489,7 +492,7 @@ function readProjects_() {
 function saveProject_(me, p) {
   p = p || {};
   if (!String(p.project || '').trim()) throw new Error('Nama project wajib diisi');
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var sh = sheet_(CFG.MAIN_SHEET), col = colMap_(sh);
     var obj = {
@@ -511,7 +514,7 @@ function saveProject_(me, p) {
     formatDateCells_(sh, row, [col['start'], col['end']]);
     log_(me, p.row ? 'update-project' : 'create-project', '', (p.code || '') + ' ' + p.project);
     return { ok: true };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 // ---------- Status project mengikuti task ----------
@@ -563,7 +566,7 @@ function processProjectSync() {
     var codes = JSON.parse(props.getProperty('PROJ_SYNC') || '[]');
     props.deleteProperty('PROJ_SYNC');
     if (codes.length && syncProjectStatus_(codes).length) dataCacheClear_();
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function ensureSyncTrigger_() {
@@ -595,7 +598,7 @@ function syncProjectStatus_(codes) {
 }
 
 function deleteProject_(me, row, code) {
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var sh = sheet_(CFG.MAIN_SHEET), col = colMap_(sh);
     var cur = String(sh.getRange(Number(row), col['code'] + 1).getValue()).trim();
@@ -603,7 +606,7 @@ function deleteProject_(me, row, code) {
     sh.deleteRow(Number(row));
     log_(me, 'delete-project', '', code);
     return { ok: true };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 // ===================== Tasks =====================
@@ -756,7 +759,7 @@ function locateTask_(me, taskId) {
 
 function updateStatus_(me, taskId, status) {
   if (STATUSES.indexOf(status) < 0) throw new Error('Status tidak valid');
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
@@ -781,7 +784,7 @@ function updateStatus_(me, taskId, status) {
     var brief = task.type === 'Sosmed' ? mirrorSocialBrief_(taskId, status, me) : null;
     queueProjectSync_([task.code]);
     return brief ? { task: task, brief: brief } : { task: task };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function saveTask_(me, t) {
@@ -792,7 +795,7 @@ function saveTask_(me, t) {
   if (!owner.sheetName) throw new Error(owner.name + ' belum punya tab task. Aktifkan "punya task" di menu Pengguna.');
   if (t.status && STATUSES.indexOf(t.status) < 0) throw new Error('Status tidak valid');
 
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var ss = SpreadsheetApp.getActive();
     var target = ss.getSheetByName(owner.sheetName);
@@ -854,7 +857,7 @@ function saveTask_(me, t) {
     if (saved && saved.type === 'Sosmed' && t.id) mirrorSocialBrief_(id, saved.status, me);
     queueProjectSync_([obj.code, oldCode]);
     return { id: id, task: saved };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 // ---------- Result: link hasil kerja ----------
@@ -899,7 +902,7 @@ function cleanNote_(v) {
 function setResults_(me, taskId, results, note) {
   var value = serializeResults_(results || []);
   var noteVal = note === undefined || note === null ? undefined : cleanNote_(note);
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var loc = locateTask_(me, taskId), sh = loc.sheet, row = loc.row;
     ensureHeaders_(sh, TASK_HEADERS);
@@ -912,7 +915,7 @@ function setResults_(me, taskId, results, note) {
     Object.keys(ch).forEach(function (k) { r[col[k]] = ch[k]; });
     log_(me, 'results', taskId, (results || []).length + ' link');
     return { task: rowTask_(r, null, col, sh, loc.user, row) };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function resultsHtml_(t) {
@@ -993,7 +996,7 @@ function bulkSetType_(me, ids, type) {
   if (ids.length > 300) throw new Error('Maksimal 300 task sekali ubah');
   if (['Artikel', 'Non-artikel', 'Sosmed'].indexOf(type) < 0) throw new Error('Jenis task tidak valid');
   var article = type === 'Artikel';
-  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  var lock = lock_(30000);
   try {
     var out = [], failed = [];
     ids.forEach(function (id) {
@@ -1014,12 +1017,12 @@ function bulkSetType_(me, ids, type) {
     });
     log_(me, 'bulk-type', '', out.length + ' task → ' + type);
     return { tasks: out, failed: failed };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 /** Langkah anggota di task Artikel. step: start | submitBrief | submitArticle | publish | submitAiCheck */
 function advanceStage_(me, taskId, step, url) {
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var loc = locateTask_(me, taskId), sh = loc.sheet, row = loc.row;
     ensureHeaders_(sh, TASK_HEADERS);
@@ -1057,13 +1060,13 @@ function advanceStage_(me, taskId, step, url) {
     var task = setStage_(sh, row, r, col, loc.user, me, next, extra);
     log_(me, 'stage', taskId, stage + ' → ' + next);
     return { task: task };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 /** Admin: setujui (Done) atau kembalikan (On-Progress + alasan di Catatan) task yang direview. */
 function reviewTask_(me, taskId, decision, reason) {
   if (decision !== 'approve' && decision !== 'return') throw new Error('Keputusan review tidak valid');
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var loc = locateTask_(me, taskId), sh = loc.sheet, col = loc.col, row = loc.row;
     var r = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0];
@@ -1101,7 +1104,7 @@ function reviewTask_(me, taskId, decision, reason) {
     }
     queueProjectSync_([task.code]);
     return brief ? { task: task, brief: brief } : { task: task };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 /** Review admin untuk task Artikel di tahap 3 (brief), 5 (artikel), 8 (hasil cek AI). */
@@ -1162,7 +1165,7 @@ function findRowById_(sh, id) {
 }
 
 function deleteTask_(me, taskId) {
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var loc = locateTask_(me, taskId);
     var title = loc.sheet.getRange(loc.row, loc.col['task'] + 1).getValue();
@@ -1172,7 +1175,7 @@ function deleteTask_(me, taskId) {
     log_(me, 'delete-task', taskId, title);
     queueProjectSync_([code]);
     return { ok: true };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function assignMissingIds_(sh) {
@@ -1254,6 +1257,32 @@ function toDateCell_(iso) {
   var s = String(iso || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // biarkan teks seperti "TBD" / "Recurring"
   return Utilities.parseDate(s, tz_(), 'yyyy-MM-dd');
+}
+
+
+// ===================== Kunci & penulisan aman =====================
+/** Kunci antarpermintaan. Bila server sedang sibuk, pesan yang jelas (bukan "Lock timeout"). */
+function lock_(ms) {
+  var l = LockService.getScriptLock();
+  if (!l.tryLock(Math.max(ms || 0, 30000))) throw new Error('Server sedang sibuk menyimpan perubahan lain. Coba lagi beberapa detik lagi.');
+  return l;
+}
+/** Tulis ke spreadsheet dulu (flush) sebelum kunci dilepas, agar permintaan berikutnya membaca data terbaru. */
+function unlock_(l) {
+  try { SpreadsheetApp.flush(); } catch (e) { /* abaikan */ }
+  try { l.releaseLock(); } catch (e) { /* abaikan */ }
+}
+/** Baris masih berisi task yang sama? (baris bisa bergeser bila task dipindah/dihapus saat pengingat berjalan) */
+function sameRow_(sh, row, col, r) {
+  if (col['task id'] === undefined) return true;
+  var id = String(r[col['task id']] || '');
+  return !!id && String(sh.getRange(row, col['task id'] + 1).getValue()) === id;
+}
+function setReminded_(sh, row, r, col, sent) {
+  if (!sameRow_(sh, row, col, r)) return;
+  var v = sent.slice(-6).join(',');
+  sh.getRange(row, col['reminded'] + 1).setValue(v);
+  r[col['reminded']] = v;
 }
 
 // ===================== Helper sheet =====================
@@ -1426,7 +1455,7 @@ function cleanEmail_(e) {
 }
 
 function setMyEmail_(me, email) {
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var sh = sheet_(CFG.USERS_SHEET);
     ensureHeaders_(sh, USER_HEADERS);
@@ -1434,7 +1463,7 @@ function setMyEmail_(me, email) {
     invalidateUsers_();
     var u = findUser_(me.username);
     return { user: publicUser_(u) };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 /** Waktu mulai & deadline (Date) sesuai zona waktu spreadsheet; jam default 09:00 / 18:00. */
@@ -1501,9 +1530,8 @@ function syncValues_(sh, row, r, col, user, cal) {
       newIds[1] = ev2.getId();
     }
   }
-  sh.getRange(row, col['cal start id'] + 1).setValue(newIds[0]);
-  sh.getRange(row, col['cal due id'] + 1).setValue(newIds[1]);
-  sh.getRange(row, col['cal sync'] + 1).setValue(sig);
+  if (!sameRow_(sh, row, col, r)) { newIds.forEach(function (id) { deleteEvent_(cal, id); }); return; }   // baris bergeser → ulangi di putaran berikut
+  writeObj_(sh, row, { 'cal start id': newIds[0], 'cal due id': newIds[1], 'cal sync': sig });
 }
 
 function deleteEvent_(cal, id) {
@@ -1544,8 +1572,11 @@ function deleteRowEvents_(sh, row) {
 function runReminders() {
   resetMemo_();
   if (!calEnabled_()) return;
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) return;
+  // Tidak memegang kunci global selama sinkron Calendar (bisa lama) supaya simpan/acc anggota & admin tidak tertahan.
+  // Penulisan per baris dicek ulang Task ID-nya (sameRow_). Putaran yang tumpang-tindih dicegah dengan penanda waktu.
+  var props = PropertiesService.getScriptProperties(), running = Number(props.getProperty('REM_RUNNING') || 0);
+  if (running && Date.now() - running < 6 * 60000) return;
+  props.setProperty('REM_RUNNING', String(Date.now()));
   try {
     var cal = getCalendar_(), now = new Date(), newReviews = [];
     emptyCalTrash_(cal);
@@ -1567,9 +1598,14 @@ function runReminders() {
       });
     });
     if (newReviews.length) emailReviewsToAdmins_(newReviews);
-    PropertiesService.getScriptProperties().deleteProperty('PROJ_SYNC');
-    if (syncProjectStatus_(null).length) dataCacheClear_();   // semua project, termasuk perubahan yang diketik langsung di spreadsheet
-  } finally { lock.releaseLock(); }
+    var lock = LockService.getScriptLock();
+    if (lock.tryLock(10000)) {
+      try {
+        props.deleteProperty('PROJ_SYNC');
+        if (syncProjectStatus_(null).length) dataCacheClear_();   // semua project, termasuk perubahan yang diketik langsung di spreadsheet
+      } finally { unlock_(lock); }
+    }
+  } finally { props.deleteProperty('REM_RUNNING'); }
 }
 
 /** Catat task Review yang belum diberitahukan ke admin (sekali per pengajuan). */
@@ -1581,7 +1617,7 @@ function collectReview_(sh, row, r, col, user, out) {
   if (sent.indexOf(key) >= 0) return;
   out.push(rowTask_(r, null, col, sh, user, row));
   sent.push(key);
-  sh.getRange(row, col['reminded'] + 1).setValue(sent.slice(-6).join(','));
+  setReminded_(sh, row, r, col, sent);
 }
 
 function emailReviewsToAdmins_(tasks) {
@@ -1622,7 +1658,7 @@ function emailReminder_(sh, row, r, col, user, now) {
     htmlBody: emailShell_('Halo ' + esc_(user.name) + ',', intro + taskTableHtml_([t]))
   });
   sent.push(key);
-  sh.getRange(row, col['reminded'] + 1).setValue(sent.slice(-6).join(','));
+  setReminded_(sh, row, r, col, sent);
 }
 
 /** Trigger harian: ringkasan pagi untuk setiap orang + rekap tim untuk admin. */
@@ -1786,7 +1822,7 @@ function saveBrief_(me, b) {
   var status = 'Draft';   // status brief diatur oleh tahap task (Diajukan / Disetujui / Dikembalikan)
   var json = cleanBriefData_(b.data || {});
   var d = b.data || {};
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var loc = locateTask_(me, b.taskId);   // anggota hanya bisa memilih task miliknya
     var trow = loc.sheet.getRange(loc.row, 1, 1, loc.sheet.getLastColumn()).getValues()[0];
@@ -1823,20 +1859,20 @@ function saveBrief_(me, b) {
       if (isArticleRow_(trow, loc.col) && (Number(trow[loc.col['stage']]) || 1) === 1) setStage_(loc.sheet, loc.row, trow, colMap_(loc.sheet), loc.user, me, 2);
     }   // simpan otomatis tidak dicatat agar cepat
     return { brief: rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row) };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function deleteBrief_(me, id) {
   var pre = findBrief_(id).brief;
   if (pre.type === 'Sosmed') return deleteSocialBrief_(me, pre);
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var f = findBrief_(id);
     assertBriefEditor_(me, f.brief);
     f.sheet.deleteRow(f.row);
     log_(me, 'delete-brief', f.brief.taskId, id);
     return { ok: true };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 // ---------- ekspor ke Google Doc ----------
@@ -2018,7 +2054,7 @@ function saveSocialBrief_(me, b) {
     task.task = title;
   }
 
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   var brief;
   try {
     var sh = briefSheet_(), col = colMap_(sh), now = new Date();
@@ -2033,7 +2069,7 @@ function saveSocialBrief_(me, b) {
       row = appendObj_(sh, obj);
     }
     brief = rowBrief_(sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0], colMap_(sh), row);
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
   if (!cur) log_(me, 'create-brief', taskId, brief.id + ' sosmed ' + title);
   if (newOwner) { log_(me, 'assign-social', taskId, brief.id + ' → ' + newOwner.username); emailSocialAssign_(me, newOwner, brief, task); }
   return { brief: brief, task: task };
@@ -2047,13 +2083,13 @@ function deleteSocialBrief_(me, b) {
     if (untouched) { deleteTask_(asAdmin_(me), b.taskId); taskDeleted = true; }
     else if (me.role !== 'admin') throw new Error('Konten ini sudah mulai dikerjakan ' + ct.task.ownerName + '. Minta admin bila brief perlu dihapus.');
   }
-  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  var lock = lock_(20000);
   try {
     var f = findBrief_(b.id);
     f.sheet.deleteRow(f.row);
     log_(me, 'delete-brief', b.taskId, b.id + (taskDeleted ? ' + task' : ''));
     return { ok: true, taskDeleted: taskDeleted, taskId: taskDeleted ? b.taskId : '' };
-  } finally { lock.releaseLock(); }
+  } finally { unlock_(lock); }
 }
 
 function socialHtml_(b) {

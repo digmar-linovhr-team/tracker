@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.19.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.20.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -902,4 +902,50 @@ button.tick.review:hover { border-color: var(--good); color: var(--good); backgr
 @media (max-width: 900px) {
   .org-grid { grid-template-columns: minmax(0, 1fr); }
   .org-side { display: none; }
+}
+
+/* ---------- Brief: tampilan dokumen ---------- */
+.bdoc { max-width: 860px; padding: 30px 36px 34px; line-height: 1.65; }
+.bdoc-head { border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 6px; }
+.bdoc-kicker { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+.bdoc h1 { font-size: 24px; line-height: 1.3; margin: 6px 0 14px; font-weight: 700; }
+.bdoc-kv { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 13.5px; }
+.bdoc-kv dt { color: var(--muted); }
+.bdoc-kv dd { margin: 0; }
+.bdoc-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.bdoc-tags span { font-size: 12.5px; padding: 1px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.bdoc-sec { padding-top: 20px; }
+.bdoc-sec > h2 { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.bdoc-sec h3 { font-size: 12.5px; font-weight: 600; color: var(--text-2); margin: 0 0 4px; }
+.bdoc-p { margin: 2px 0 8px; font-size: 14px; color: var(--text); }
+.bdoc-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.bdoc a { color: var(--accent); text-decoration: none; word-break: break-word; }
+.bdoc a:hover { text-decoration: underline; }
+.bdoc-h { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.bdoc-h b { font-size: 15px; }
+.bdoc-h2 { padding: 10px 0 6px; border-top: 1px dashed var(--border); }
+.bdoc-h2:first-of-type { border-top: 0; }
+.bdoc-h3 { margin-left: 26px; padding-left: 12px; border-left: 2px solid var(--border); }
+.bdoc-h3 .bdoc-h b { font-size: 14px; font-weight: 600; }
+.bdoc-src { font-size: 12.5px; color: var(--muted); margin: 2px 0 6px; }
+.bdoc-comp { margin: 0; padding-left: 20px; }
+.bdoc-comp li { margin-bottom: 8px; font-size: 14px; }
+.bdoc-comp p { margin: 2px 0 0; color: var(--text-2); }
+.bdoc-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.bdoc-links ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+.bdoc-faq { margin-bottom: 10px; font-size: 14px; }
+.bdoc-faq p { margin: 2px 0 0; color: var(--text-2); }
+.bdoc-slides { display: flex; flex-direction: column; gap: 10px; }
+.bdoc-slide { border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px 12px; }
+.bdoc-2col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 8px; }
+.bdoc-2col p { margin: 0; font-size: 14px; }
+.bdoc-cap { margin: 0; padding: 10px 14px; border-left: 3px solid var(--brand); background: var(--surface-2); border-radius: 0; font-size: 14px; }
+.bdoc #soc-assign { font-size: 13.5px; }
+@media (max-width: 760px) {
+  .bdoc { padding: 20px 16px 22px; }
+  .bdoc h1 { font-size: 20px; }
+  .bdoc-kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .bdoc-kv dd { margin-bottom: 6px; }
+  .bdoc-2col { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .bdoc-h3 { margin-left: 10px; }
 }

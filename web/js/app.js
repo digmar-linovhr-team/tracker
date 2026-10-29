@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.19.1';
+const CSS_VERSION = '2.20.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -342,6 +342,8 @@ function go(view) {
   };
   $('#view-title').textContent = titles[view][0];
   $('#view-sub').textContent = titles[view][1];
+  // halaman Review & Brief selalu disegarkan di belakang layar agar pengajuan terbaru langsung terlihat
+  if ((view === 'review' || view === 'briefs') && (!S.lastSync || Date.now() - S.lastSync > 15000) && !S.pending.size) refreshInBackground(0);
   ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, org: viewOrg, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
 }
 
