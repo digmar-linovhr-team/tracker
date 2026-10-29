@@ -130,16 +130,16 @@ it('task non-artikel tetap memakai cara hitung lama', () => {
   assert.strictEqual(e.article, undefined); assert.strictEqual(e.outcome, 'late');
 });
 
-it('beban kerja: aktif tanpa Done/Hold/Recurring, terlambat & deadline 7 hari, penuh ≥ 6', () => {
+it('beban kerja: hanya task On-Progress, dipecah terlambat & deadline 7 hari, penuh ≥ 6', () => {
   const now = D(27, 10);
-  const mk = (o) => t(Object.assign({ owner: 'a', status: 'Backlog', startDate: '2026-10-27', endDate: '2026-11-20' }, o));
-  const list = [mk({ status: 'Done' }), mk({ status: 'Hold' }), mk({ status: 'Recurring' }), mk({ endDate: '2026-10-26' }), mk({ endDate: '2026-10-29' }), mk({ status: 'Review' }), mk({}),
-    mk({ owner: 'b' })];
+  const mk = (o) => t(Object.assign({ owner: 'a', status: 'On-Progress', startDate: '2026-10-27', endDate: '2026-11-20' }, o));
+  const list = [mk({ status: 'Done' }), mk({ status: 'Hold' }), mk({ status: 'Backlog' }), mk({ status: 'Review' }), mk({ status: 'Recurring' }),
+    mk({ endDate: '2026-10-26' }), mk({ endDate: '2026-10-29' }), mk({}), mk({ owner: 'b' })];
   const w = L.workload(list, now);
-  assert.strictEqual(w.a.active, 4); assert.strictEqual(w.a.overdue, 1); assert.strictEqual(w.a.dueWeek, 1); assert.strictEqual(w.a.review, 1);
+  assert.strictEqual(w.a.active, 3); assert.strictEqual(w.a.overdue, 1); assert.strictEqual(w.a.dueWeek, 1);
   assert.strictEqual(w.a.level, 'normal'); assert.strictEqual(w.b.level, 'light');
-  const many = Array.from({ length: 6 }, () => mk({ owner: 'c' }));
-  assert.strictEqual(L.workload(many, now).c.level, 'full');
+  assert.strictEqual(L.workload(Array.from({ length: 6 }, () => mk({ owner: 'c' })), now).c.level, 'full');
+  assert.strictEqual(L.workload(Array.from({ length: 6 }, () => mk({ owner: 'd', status: 'Backlog' })), now).d, undefined, 'Backlog tidak dihitung');
 });
 
 it('cuti/izin: deadline mundur sebanyak hari kerja cuti di rentang task', () => {

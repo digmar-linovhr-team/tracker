@@ -351,18 +351,17 @@
     return (neg ? '-' : '') + out;
   }
 
-  /** Beban kerja per orang: task aktif (bukan Done/Hold/Recurring), terlambat, dan deadline ≤ 7 hari ke depan. */
+  /** Beban kerja per orang: hanya task yang sedang dikerjakan (status On-Progress, termasuk tahap artikel yang sedang dikerjakan),
+   *  dipecah menjadi terlambat, deadline ≤ 7 hari ke depan, dan lainnya. */
   var WORKLOAD_FULL = 6, WORKLOAD_LIGHT = 1;
   function workload(tasks, now) {
     now = now || new Date();
     var out = {};
     (tasks || []).forEach(function (t) {
-      if (!t || !t.owner || isDone(t) || t.status === 'Hold' || t.status === 'Recurring') return;
-      var w = out[t.owner] || (out[t.owner] = { owner: t.owner, active: 0, overdue: 0, dueWeek: 0, review: 0 });
+      if (!t || !t.owner || t.status !== 'On-Progress') return;
+      var w = out[t.owner] || (out[t.owner] = { owner: t.owner, active: 0, overdue: 0, dueWeek: 0 });
       w.active++;
-      var b = bucket(t, now);
-      if (b === 'overdue') { w.overdue++; return; }
-      if (b === 'review') { w.review++; return; }
+      if (bucket(t, now) === 'overdue') { w.overdue++; return; }
       var e = schedule(t).end;
       if (e && e - now <= 7 * 24 * HOUR) w.dueWeek++;
     });

@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.23.0';
+const CSS_VERSION = '2.23.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -858,28 +858,28 @@ function periodRange(p) {
 }
 
 function workloadText(w) {
-  if (!w || !w.active) return 'Tidak ada task aktif';
-  const bits = [`${w.active} aktif`];
+  if (!w || !w.active) return 'Tidak ada task yang sedang dikerjakan';
+  const bits = [`${w.active} sedang dikerjakan`];
   if (w.overdue) bits.push(`${w.overdue} terlambat`);
   if (w.dueWeek) bits.push(`${w.dueWeek} deadline minggu ini`);
   return bits.join(' · ') + (w.level === 'full' ? ' · Penuh' : '');
 }
 function workloadCard(users, tasks) {
   const wl = L.workload(tasks);
-  const rows = users.map((u) => Object.assign({ name: u.name, position: u.position || '' }, wl[u.username] || { owner: u.username, active: 0, overdue: 0, dueWeek: 0, review: 0, level: 'light' }))
+  const rows = users.map((u) => Object.assign({ name: u.name, position: u.position || '' }, wl[u.username] || { owner: u.username, active: 0, overdue: 0, dueWeek: 0, level: 'light' }))
     .sort((a, b) => b.active - a.active || b.overdue - a.overdue || a.name.localeCompare(b.name));
   if (!rows.length) return '';
   const max = Math.max(L.WORKLOAD_FULL + 2, ...rows.map((r) => r.active));
   const seg = (n, cls, label) => n ? `<i class="${cls}" style="width:${(n / max) * 100}%" title="${n} ${label}"></i>` : '';
-  return `<div class="card wl-card"><div class="card-h"><h2>Beban kerja saat ini</h2><div class="legend wl-legend"><span><i class="wl-od"></i>Terlambat</span><span><i class="wl-wk"></i>Deadline ≤ 7 hari</span><span><i class="wl-rv"></i>Menunggu review</span><span><i class="wl-ot"></i>Lainnya</span></div></div>
+  return `<div class="card wl-card"><div class="card-h"><h2>Beban kerja saat ini</h2><div class="legend wl-legend"><span><i class="wl-od"></i>Terlambat</span><span><i class="wl-wk"></i>Deadline ≤ 7 hari</span><span><i class="wl-ot"></i>Lainnya</span></div></div>
     <div class="card-b wl-list">${rows.map((r) => `<div class="wl-row">
       <span class="avatar">${initials(r.name)}</span>
       <div class="wl-who"><b>${esc(r.name)}</b><small>${esc(r.position)}</small></div>
-      <div class="wl-bar" role="img" aria-label="${esc(r.name)}: ${esc(workloadText(r))}">${seg(r.overdue, 'wl-od', 'terlambat')}${seg(r.dueWeek, 'wl-wk', 'deadline ≤ 7 hari')}${seg(r.review, 'wl-rv', 'menunggu review')}${seg(r.active - r.overdue - r.dueWeek - r.review, 'wl-ot', 'lainnya')}<span class="wl-cap" style="left:${(L.WORKLOAD_FULL / max) * 100}%" title="Batas penuh (${L.WORKLOAD_FULL} task)"></span></div>
-      <div class="wl-n"><b>${r.active}</b> aktif</div>
+      <div class="wl-bar" role="img" aria-label="${esc(r.name)}: ${esc(workloadText(r))}">${seg(r.overdue, 'wl-od', 'terlambat')}${seg(r.dueWeek, 'wl-wk', 'deadline ≤ 7 hari')}${seg(r.active - r.overdue - r.dueWeek, 'wl-ot', 'lainnya')}<span class="wl-cap" style="left:${(L.WORKLOAD_FULL / max) * 100}%" title="Batas penuh (${L.WORKLOAD_FULL} task)"></span></div>
+      <div class="wl-n"><b>${r.active}</b> dikerjakan</div>
       <div class="wl-tag">${r.level === 'full' ? '<span class="chip bad">Penuh</span>' : r.level === 'light' ? '<span class="chip good">Longgar</span>' : ''}</div>
     </div>`).join('')}</div>
-    <p class="wl-foot muted small">Task aktif = belum Done, tidak Hold/Rutin. Penuh ≥ ${L.WORKLOAD_FULL} task, longgar ≤ ${L.WORKLOAD_LIGHT}.</p></div>`;
+    <p class="wl-foot muted small">Dihitung dari task berstatus <b>On-Progress</b> (sedang dikerjakan, termasuk tahap artikel yang sedang dikerjakan). Penuh ≥ ${L.WORKLOAD_FULL} task, longgar ≤ ${L.WORKLOAD_LIGHT}.</p></div>`;
 }
 
 function viewDashboard() {

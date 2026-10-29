@@ -2952,7 +2952,7 @@ function sendTeamReport_(kind, now) {
   var notes = [];
   if (per.length && per[0].onTimeRate !== null) notes.push('🏆 <b>Terbaik:</b> ' + esc_(per[0].name) + ' (' + pct(per[0].onTimeRate) + ' tepat waktu' + (per[0].over ? ', ★' + per[0].over : '') + ')');
   if (overdueNow.length) notes.push('⚠️ <b>Terlambat saat ini:</b> ' + overdueNow.map(function (x) { return esc_(x.u.name) + ' (' + x.n + ')'; }).join(', '));
-  if (full.length) notes.push('📦 <b>Beban penuh:</b> ' + full.map(function (u) { return esc_(u.name) + ' (' + wl[u.username].active + ' task aktif)'; }).join(', '));
+  if (full.length) notes.push('📦 <b>Beban penuh:</b> ' + full.map(function (u) { return esc_(u.name) + ' (' + wl[u.username].active + ' sedang dikerjakan)'; }).join(', '));
   if (leaves.length) notes.push('🌴 <b>Cuti/izin:</b> ' + leaves.map(function (l) { return esc_((active[l.username] || {}).name || l.username) + ' — ' + esc_(l.kind.toLowerCase()) + ' ' + esc_(l.from) + (l.to !== l.from ? ' s.d. ' + esc_(l.to) : ''); }).join('; '));
   if (notes.length) body += '<h3 style="margin:22px 0 6px;font-size:15px">Catatan</h3><p style="line-height:1.7;margin:0">' + notes.join('<br>') + '</p>';
   var subject = '📊 ' + rg.title + ' · ' + rg.label + ': ' + pct(sum.onTimeRate) + ' tepat waktu, ' + sum.done + ' task selesai';
@@ -3314,18 +3314,17 @@ function sendTeamReport_(kind, now) {
     return (neg ? '-' : '') + out;
   }
 
-  /** Beban kerja per orang: task aktif (bukan Done/Hold/Recurring), terlambat, dan deadline ≤ 7 hari ke depan. */
+  /** Beban kerja per orang: hanya task yang sedang dikerjakan (status On-Progress, termasuk tahap artikel yang sedang dikerjakan),
+   *  dipecah menjadi terlambat, deadline ≤ 7 hari ke depan, dan lainnya. */
   var WORKLOAD_FULL = 6, WORKLOAD_LIGHT = 1;
   function workload(tasks, now) {
     now = now || new Date();
     var out = {};
     (tasks || []).forEach(function (t) {
-      if (!t || !t.owner || isDone(t) || t.status === 'Hold' || t.status === 'Recurring') return;
-      var w = out[t.owner] || (out[t.owner] = { owner: t.owner, active: 0, overdue: 0, dueWeek: 0, review: 0 });
+      if (!t || !t.owner || t.status !== 'On-Progress') return;
+      var w = out[t.owner] || (out[t.owner] = { owner: t.owner, active: 0, overdue: 0, dueWeek: 0 });
       w.active++;
-      var b = bucket(t, now);
-      if (b === 'overdue') { w.overdue++; return; }
-      if (b === 'review') { w.review++; return; }
+      if (bucket(t, now) === 'overdue') { w.overdue++; return; }
       var e = schedule(t).end;
       if (e && e - now <= 7 * 24 * HOUR) w.dueWeek++;
     });
