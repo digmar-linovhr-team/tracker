@@ -284,13 +284,12 @@ function viewBrief() {
     const admin = S.user.role === 'admin';
     $('#view').innerHTML = top(`${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
         ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
-        ${edit ? '<button class="btn sm" id="bforce">Ubah brief</button>' : ''}
         ${briefStepButtons(b)}`)
       + (stg === 3 ? `<div class="banner"><div>${admin ? `Brief diajukan oleh <b>${esc(task.ownerName)}</b>. Periksa lalu <b>Setujui brief</b> atau <b>Kembalikan</b> dengan catatan.` : 'Brief sudah diajukan dan sedang direview admin.'}</div></div>` : '')
       + articleDocHtml(b, task);
     $('#bback').onclick = () => { S.bf.kind = 'artikel'; go('briefs'); };
     if ($('#breload')) $('#breload').onclick = async () => { E.dirty = false; E.error = ''; await loadData(true); S.bEdit = null; openBrief(E.id); };
-    if ($('#bforce')) $('#bforce').onclick = () => { E.forceEdit = true; viewBrief(); };
+    bindDocBar(() => rerenderBrief());
     bindBriefActions();
     return;
   }
@@ -305,6 +304,7 @@ function viewBrief() {
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}
     ${edit ? '' : '<div class="banner"><div>Hanya bisa dilihat. Brief ini hanya bisa diubah oleh pemilik task dan admin.</div></div>'}
+    ${edit ? `<div class="dv-wrap dv-wrap-ed">${docBar(true, false)}</div>` : ''}
     <div class="bed-main bed-one" id="bmain">
       ${secCard(1, 'Keyword', `
         ${fText('kwMain', 'Keyword utama', 'mis. reimbursement karyawan', ro)}
@@ -369,7 +369,6 @@ function actionsHtml(b, edit, st) {
   return `${b.docUrl ? `<a class="btn sm" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Buka Google Doc</a>` : ''}
         ${edit ? `<button class="btn sm" id="bdoc">${b.docUrl ? 'Perbarui Doc' : 'Buat Google Doc'}</button>` : ''}
         ${edit && eligibleTasks().length ? '<button class="btn sm" id="bdup">Duplikat</button>' : ''}
-        ${S.bEdit && S.bEdit.forceEdit ? '<button class="btn sm" id="bdocview">Tampilan dokumen</button>' : ''}
         ${briefStepButtons(b)}
         ${edit ? '<button class="btn sm ghost danger" id="bdel" title="Hapus brief">Hapus</button>' : ''}`;
 }
@@ -455,6 +454,7 @@ function rerenderBrief(focusSel) {
 }
 
 function bindBriefEditor(edit) {
+  bindDocBar(() => rerenderBrief());
   setTimeout(() => { if (typeof draftBanner === 'function') draftBanner(); }, 0);
   const E = S.bEdit, d = E.b.data, root = $('#bmain');   // elemen baru tiap render → listener tidak menumpuk
   $('#bback').onclick = () => { S.bf.kind = isSocial(E.b) ? 'sosmed' : 'artikel'; go('briefs'); };
@@ -546,7 +546,7 @@ function bindBriefActions() {
     onMount: (m, close) => { $('#brv-send', m).onclick = () => { const r = $('#brv-reason', m).value.trim(); close(); decideReview(t.id, 'return', r); }; }
   });
   if ($('#bdup')) $('#bdup').onclick = () => { briefFlush(); newBriefModal(null, E.b); };
-  if ($('#bdocview')) $('#bdocview').onclick = () => { briefFlush(); E.forceEdit = false; viewBrief(); };
+
   if ($('#bdoc')) $('#bdoc').onclick = async () => {
     const btn = $('#bdoc');
     if (E.dirty) await briefSave();
@@ -631,7 +631,8 @@ window.addEventListener('beforeunload', (e) => {
 
 // ---------- simpan manual + draft di browser ----------
 function saveGroup() {
-  const E = S.bEdit, edit = E && canEditBrief(E.b);
+  const E = S.bEdit, reading = E && !E.dirty && (isSocial(E.b) ? socialDocMode(E.b) : E.b.type !== 'Request' && briefDocMode(E.b));
+  const edit = E && canEditBrief(E.b) && !reading;
   return `<span class="bsave-g"><span class="muted small" id="bsave">${saveText()}</span>${edit ? `<button type="button" class="btn sm primary" id="bsavebtn" title="Simpan (Ctrl/⌘ + S)" ${E.dirty && !E.saving ? '' : 'disabled'}>${E.saving ? 'Menyimpan…' : 'Simpan'}</button>` : ''}</span>`;
 }
 function saveUi() {

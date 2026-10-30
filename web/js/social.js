@@ -170,7 +170,7 @@ function viewSocial() {
     ${st === 'Direview' && S.user.role === 'admin' ? '<div class="banner"><div>Konten ini sedang menunggu review Anda. Setujui atau kembalikan dari menu <b>Review</b>.</div><button class="btn sm" id="soc-goreview">Buka Review</button></div>' : ''}
     ${socialDocHtml(b)}`;
     renderSocActions();
-    if (edit) { $('#bactions').insertAdjacentHTML('afterbegin', '<button class="btn sm" id="bforce">Ubah brief</button>'); $('#bforce').onclick = () => { E.forceEdit = true; viewSocial(); }; }
+    bindDocBar(() => viewSocial());
     if ($('#soc-goreview')) $('#soc-goreview').onclick = () => go('review');
     renderSocAssign();
     $('#bback').onclick = () => { S.bf.kind = 'sosmed'; go('briefs'); };
@@ -186,6 +186,7 @@ function viewSocial() {
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}
     ${edit ? '' : `<div class="banner"><div>${st === 'Selesai' ? 'Konten ini sudah disetujui admin — brief hanya bisa dilihat.' : 'Hanya bisa dilihat. Brief ini bisa diubah oleh pembuatnya, penanggung jawab, dan admin.'}</div></div>`}
+    ${edit && !E.isNew ? `<div class="dv-wrap dv-wrap-ed">${docBar(true, false)}</div>` : ''}
     <div class="bed-main bed-one" id="bmain">
       ${secCard(1, 'Konten', `
         ${fText('title', 'Judul konten', 'mis. 5 Tanda Payroll Kamu Perlu Otomatis', ro)}
@@ -424,6 +425,7 @@ function socLive() {
 }
 
 function bindSocialEditor(edit) {
+  bindDocBar(() => viewSocial());
   setTimeout(() => { if (typeof draftBanner === 'function') draftBanner(); }, 0);
   const E = S.bEdit, d = E.b.data, root = $('#bmain');
   $('#bback').onclick = () => { S.bf.kind = 'sosmed'; go('briefs'); };
