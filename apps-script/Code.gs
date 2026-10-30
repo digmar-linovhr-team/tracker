@@ -3217,6 +3217,25 @@ function fbLogin_(username, password) {
   return { email: authEmail_(username), migrated: true };
 }
 
+
+/** Diagnosis akses Firebase: jalankan dari editor (fbDiagnose → Run) dan kirim isi Execution log bila ada masalah. */
+function fbDiagnose() {
+  var tok = ScriptApp.getOAuthToken(), get = function (url, opt) {
+    var r = UrlFetchApp.fetch(url, Object.assign({ muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + tok } }, opt || {}));
+    return r.getResponseCode() + ' ' + r.getContentText().replace(/\s+/g, ' ').slice(0, 400);
+  };
+  var info = {};
+  try { info = JSON.parse(UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + tok, { muteHttpExceptions: true }).getContentText()); } catch (e) { info = { error: String(e) }; }
+  Logger.log('1. Akun skrip: ' + (info.email || '(tidak terlihat — wajar bila scope email tidak diminta)'));
+  Logger.log('2. Scope token: ' + (info.scope || JSON.stringify(info)));
+  Logger.log('3. Izin di proyek ' + CFG.FB_PROJECT + ': ' + get('https://cloudresourcemanager.googleapis.com/v1/projects/' + CFG.FB_PROJECT + ':testIamPermissions',
+    { method: 'post', contentType: 'application/json', payload: JSON.stringify({ permissions: ['datastore.entities.create', 'datastore.entities.get', 'firebaseauth.users.create', 'cloudmessaging.messages.create'] }) }));
+  Logger.log('4. Baca Firestore tanpa header proyek: ' + get(fsUrl_('settings/diag')));
+  Logger.log('5. Baca Firestore dengan header proyek: ' + get(fsUrl_('settings/diag'), { headers: { Authorization: 'Bearer ' + tok, 'X-Goog-User-Project': CFG.FB_PROJECT } }));
+  try { fsSet_('settings/diag', { at: new Date(), ok: true }); Logger.log('6. Tulis Firestore: BERHASIL'); }
+  catch (e) { Logger.log('6. Tulis Firestore: GAGAL — ' + e.message); }
+}
+
 // ---------- Pemindahan data Sheets → Firestore ----------
 var MIG_STAMP = 'migrasi';
 function migUserDoc_(u) {
