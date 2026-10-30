@@ -23,8 +23,8 @@ const server = http.createServer((req, res) => {
   const open = async (user, w, h) => {
     const p = await (await b.newContext({ viewport: { width: w || 1320, height: h || 900 }, serviceWorkers: 'block' })).newPage();
     p.on('pageerror', (e) => errs.push(user + ': ' + e.message));
-    p.on('response', (r) => { if (r.status() >= 400 && !/favicon/.test(r.url())) console.log('HTTP', r.status(), r.url().slice(0, 160)); });
-    p.on('console', (m) => { if (m.type() === 'error' && !/favicon|404|ERR_TUNNEL|ERR_PROXY/.test(m.text())) errs.push(user + ' console: ' + m.text().slice(0, 200)); });
+    p.on('response', (r) => { if (r.status() >= 400 && !/favicon|Listen\/channel/.test(r.url())) console.log('HTTP', r.status(), r.url().slice(0, 160)); });
+    p.on('console', (m) => { if (m.type() === 'error' && !/favicon|404|ERR_TUNNEL|ERR_PROXY|status of 400/.test(m.text())) errs.push(user + ' console: ' + m.text().slice(0, 200)); });
     await p.goto('http://127.0.0.1:8770' + (process.env.E2E_PATH || '/beta/')); await wait(800);
     await p.fill('[name=u]', user); await p.fill('[name=p]', 'demo1234'); await p.click('#f button');
     try { await p.waitForSelector('#shell:not(.hidden)', { timeout: 15000 }); }

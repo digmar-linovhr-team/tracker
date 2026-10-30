@@ -119,11 +119,20 @@
         off();
         if (!u || !u.email) { readyP = null; reject(new Error('UNAUTHORIZED')); return; }
         me = u.email.split('@')[0];
-        db.collection('users').doc(me).get().then(function (d) {
-          if (!d.exists || d.data().active !== true || d.data().orgOnly) { readyP = null; reject(new Error('UNAUTHORIZED')); return; }
-          isAdmin = d.data().role === 'admin';
-          return subscribe().then(function () { resolve(); pushRegister(true).then(bindForeground).catch(function () { /* izin belum ada */ }); });
-        }).catch(function (e) { readyP = null; reject(e); });
+        // Tepat setelah masuk, token login kadang belum terpasang di koneksi Firestore → izin ditolak sesaat. Ulangi otomatis.
+        var attempt = function (n) {
+          return u.getIdToken().then(function () { return db.collection('users').doc(me).get(); }).then(function (d) {
+            if (!d.exists || d.data().active !== true || d.data().orgOnly) { var e0 = new Error('UNAUTHORIZED'); e0.final = true; throw e0; }
+            isAdmin = d.data().role === 'admin';
+            return subscribe();
+          }).catch(function (e) {
+            if (e.final || n >= 4 || !/permission-denied|unauthenticated|unavailable/.test((e && e.code) || '')) throw e;
+            unsubscribe();
+            return new Promise(function (r) { setTimeout(r, 400 + n * 600); }).then(function () { return n >= 2 ? u.getIdToken(true) : null; }).then(function () { return attempt(n + 1); });
+          });
+        };
+        attempt(0).then(function () { resolve(); pushRegister(true).then(bindForeground).catch(function () { /* izin belum ada */ }); })
+          .catch(function (e) { readyP = null; unsubscribe(); reject(/permission-denied/.test((e && e.code) || '') ? new Error('Gagal memuat data setelah masuk. Klik Masuk sekali lagi.') : e); });
       });
     });
     return readyP;
