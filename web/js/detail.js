@@ -10,6 +10,7 @@ const DP_ICON = {
   full: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
   side: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>',
   x: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  share: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>',
   back: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>'
 };
 
@@ -62,7 +63,7 @@ function dpHide() {
   const root = $('#dp-root'); if (root) root.innerHTML = '';
   document.body.classList.remove('dp-open');
   if (DP.open && CM && CM.panel) CM = null;
-  DP.open = false; DP.route = null; DP.trail = []; DP.pushed = 0;
+  DP.open = false; DP.route = null; DP.trail = []; DP.pushed = 0; DP.shareOpen = false;
 }
 
 function dpFull() { try { return localStorage.getItem('pt.dpFull') === '1'; } catch (e) { return false; } }
@@ -76,6 +77,7 @@ function dpShell(inner, foot) {
       <div class="dp-top">
         ${prevLbl ? `<button type="button" class="dp-backbtn" data-dpback>${DP_ICON.back}${esc(prevLbl)}</button>` : `<span class="dp-crumb">${r.kind === 'task' ? 'Task' : 'Project'}</span>`}
         <span class="dp-sp"></span>
+        <button type="button" class="dp-ib" data-dpshare title="Bagikan ke WhatsApp / chat" aria-label="Bagikan" aria-expanded="false">${DP_ICON.share}</button>
         <button type="button" class="dp-ib" data-dpcopy title="Salin link" aria-label="Salin link">${DP_ICON.link}</button>
         <button type="button" class="dp-ib dp-fullbtn" data-dpfull title="${dpFull() ? 'Tampilkan sebagai panel' : 'Buka di halaman penuh'}" aria-label="Ubah ukuran">${dpFull() ? DP_ICON.side : DP_ICON.full}</button>
         <button type="button" class="dp-ib" data-dpclose title="Tutup (Esc)" aria-label="Tutup">${DP_ICON.x}</button>
@@ -89,12 +91,14 @@ function dpShell(inner, foot) {
   $('[data-dpcopy]', root).onclick = async () => {
     try { await navigator.clipboard.writeText(dpUrl(r.kind, r.id)); toast('Link disalin'); } catch (e) { toast('Link: ' + dpUrl(r.kind, r.id)); }
   };
+  $('[data-dpshare]', root).onclick = (e) => { e.stopPropagation(); dpShareToggle(); };
   $('[data-dpfull]', root).onclick = () => { try { localStorage.setItem('pt.dpFull', dpFull() ? '0' : '1'); } catch (e) { /* abaikan */ } dpShow(); };
   return root;
 }
 
 function dpShow() {
   if (!DP.route) return;
+  DP.shareOpen = false;
   if (DP.route.kind === 'task') dpTaskView(); else dpProjectView();
 }
 /** Dipanggil app.js setiap kali tampilan diperbarui (data baru, simpan, dsb.). */
@@ -248,6 +252,15 @@ function dpRenderThread(d) {
 }
 
 // ---------- PROJECT ----------
+function dpProjectStats(code) {
+  const tasks = dpTasks().filter((t) => t.code === code);
+  const done = tasks.filter(L.isDone);
+  const people = Object.values(tasks.reduce((m, t) => { const k = t.owner || '?'; (m[k] = m[k] || { name: t.ownerName || k, n: 0, all: 0 }).all++; if (!L.isDone(t)) m[k].n++; return m; }, {}))
+    .sort((a, b) => b.n - a.n || b.all - a.all);
+  return { tasks, done, people, pct: tasks.length ? Math.round(done.length / tasks.length * 100) : 0,
+    running: tasks.filter((t) => t.status === 'On-Progress').length, review: tasks.filter((t) => t.status === 'Review').length,
+    late: tasks.filter((t) => L.bucket(t) === 'overdue').length };
+}
 function dpProjectView() {
   const code = DP.route.id, p = dpProjectOf(code);
   if (CM && CM.panel) CM = null;
@@ -296,6 +309,7 @@ function dpProjectView() {
 window.addEventListener('hashchange', dpRoute);
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !DP.open || $('#modal-root').innerHTML) return;
+  if (DP.shareOpen) return dpShareToggle(false);
   const pop = $('#cm-pop'); if (pop && !pop.classList.contains('hidden')) return;
   dpClose();
 });
@@ -309,4 +323,77 @@ document.addEventListener('click', (e) => {
   if (!row) return;
   const id = row.dataset.tid || row.id.replace(/^task-/, '');
   if (id && !id.startsWith('tmp-')) openTask(id);
+});
+
+// ---------- Bagikan ke WhatsApp / chat ----------
+const DP_SHARE = { status: true, project: true };
+function dpWa(s) { return String(s || '').replace(/[*_~`]/g, '').replace(/\s+/g, ' ').trim(); }
+function dpShareText() {
+  const r = DP.route; if (!r) return '';
+  const url = dpUrl(r.kind, r.id), out = [];
+  if (r.kind === 'task') {
+    const t = dpTaskOf(r.id); if (!t) return url;
+    out.push('📌 *' + dpWa(String(t.task).replace(/^https?:\/\/(www\.)?/, '')) + '*');
+    if (DP_SHARE.status) {
+      const sc = L.schedule(t), st = L.isArticle(t) ? (L.isDone(t) ? 'Done' : 'Tahap ' + artStage(t) + ' · ' + L.STAGES[artStage(t)]) : t.status;
+      out.push('👤 ' + dpWa(t.ownerName || t.owner) + (sc.end ? '  ·  ⏰ ' + dpWhen(sc.end).replace(' · ', ' ') : ''));
+      out.push('📊 ' + st + (t.priority ? ' · Prioritas ' + t.priority : '') + (L.bucket(t) === 'overdue' ? ' · ⚠ terlambat' : ''));
+    }
+    if (DP_SHARE.project && t.code) { const p = dpProjectOf(t.code); out.push('📁 ' + t.code + (p ? ' · ' + dpWa(p.project) : '')); }
+  } else {
+    const p = dpProjectOf(r.id); if (!p) return url;
+    const k = dpProjectStats(p.code);
+    out.push('📁 *' + p.code + ' · ' + dpWa(p.project) + '*');
+    if (DP_SHARE.status) {
+      out.push('✅ Progres ' + k.done.length + '/' + k.tasks.length + ' task selesai (' + k.pct + '%)');
+      out.push('▶ ' + k.running + ' berjalan · ⏳ ' + k.review + ' menunggu review · ⚠ ' + k.late + ' terlambat');
+    }
+    if (DP_SHARE.project && k.people.length) out.push('👥 ' + k.people.map((x) => dpWa(x.name)).join(', '));
+  }
+  return out.join('\n') + '\n' + url;
+}
+function dpShareToggle(force) {
+  const dp = $('.dp'); if (!dp || !DP.route) return;
+  let pop = $('#dp-share');
+  const open = force === undefined ? !pop : force;
+  if (pop) pop.remove();
+  const btn = $('[data-dpshare]'); if (btn) { btn.classList.toggle('on', open); btn.setAttribute('aria-expanded', String(open)); }
+  DP.shareOpen = open;
+  if (!open) return;
+  const kind = DP.route.kind === 'task' ? 'task' : 'project';
+  const mobile = matchMedia('(pointer: coarse)').matches && !!navigator.share;
+  pop = document.createElement('div'); pop.id = 'dp-share'; pop.className = 'dp-share'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Bagikan ' + kind);
+  pop.innerHTML = `<h4>Bagikan ${kind}</h4><p>Teks bisa diubah sebelum dikirim. Penerima perlu login untuk membuka link.</p>
+    <textarea id="sh-text" rows="7" spellcheck="false"></textarea>
+    <div class="sh-opt"><label class="check"><input type="checkbox" data-sh="status" ${DP_SHARE.status ? 'checked' : ''}> ${kind === 'task' ? 'Status &amp; deadline' : 'Progres'}</label>
+      <label class="check"><input type="checkbox" data-sh="project" ${DP_SHARE.project ? 'checked' : ''}> ${kind === 'task' ? 'Project' : 'Anggota'}</label></div>
+    <div class="sh-btns"><button type="button" class="btn sh-wa" id="sh-wa">${mobile ? 'Bagikan…' : 'WhatsApp'}</button><button type="button" class="btn" id="sh-copy">Salin teks</button><button type="button" class="btn" id="sh-link">Salin link</button></div>
+    <div class="sh-note">${mobile ? 'Pilih WhatsApp (atau aplikasi lain) → pilih chat atau grup → Kirim.' : 'WhatsApp terbuka (Desktop/Web) → pilih chat atau grup → Kirim.'}</div>`;
+  dp.appendChild(pop);
+  const ta = $('#sh-text', pop);
+  let gen = dpShareText(); ta.value = gen;
+  // centang ulang: susun ulang teks, baris tambahan yang diketik sendiri tetap dipertahankan
+  $$('[data-sh]', pop).forEach((c) => c.onchange = () => {
+    DP_SHARE[c.dataset.sh] = c.checked;
+    const old = new Set(gen.split('\n')), extra = ta.value.split('\n').filter((l) => !old.has(l));
+    gen = dpShareText();
+    const lines = gen.split('\n'), link = lines.pop();
+    ta.value = lines.concat(extra.length ? [''].concat(extra.filter((l, i) => l || i)) : [], [link]).join('\n').replace(/\n{3,}/g, '\n\n');
+  });
+  const copy = async (txt, msg) => { try { await navigator.clipboard.writeText(txt); toast(msg); } catch (e) { ta.select(); toast('Tekan Ctrl/⌘+C untuk menyalin', true); } };
+  $('#sh-copy', pop).onclick = () => copy(ta.value, 'Teks disalin — tempel di chat');
+  $('#sh-link', pop).onclick = () => copy(dpUrl(DP.route.kind, DP.route.id), 'Link disalin');
+  $('#sh-wa', pop).onclick = async () => {
+    const text = ta.value.trim();
+    if (mobile) { try { await navigator.share({ text }); dpShareToggle(false); } catch (e) { /* dibatalkan */ } return; }
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+    dpShareToggle(false);
+  };
+  pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); dpShareToggle(false); const b = $('[data-dpshare]'); if (b) b.focus(); } });
+  setTimeout(() => ta.focus(), 30);
+}
+document.addEventListener('click', (e) => {
+  if (!DP.shareOpen || !e.target.closest) return;
+  if (e.target.closest('#dp-share, [data-dpshare]')) return;
+  dpShareToggle(false);
 });
