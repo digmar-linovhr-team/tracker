@@ -23,6 +23,7 @@ const server = http.createServer((req, res) => {
   const open = async (user, w, h) => {
     const p = await (await b.newContext({ viewport: { width: w || 1320, height: h || 900 }, serviceWorkers: 'block' })).newPage();
     p.on('pageerror', (e) => errs.push(user + ': ' + e.message));
+    p.on('response', (r) => { if (r.status() >= 400 && !/favicon/.test(r.url())) console.log('HTTP', r.status(), r.url().slice(0, 160)); });
     p.on('console', (m) => { if (m.type() === 'error' && !/favicon|404|ERR_TUNNEL|ERR_PROXY/.test(m.text())) errs.push(user + ' console: ' + m.text().slice(0, 200)); });
     await p.goto('http://127.0.0.1:8770' + (process.env.E2E_PATH || '/beta/')); await wait(800);
     await p.fill('[name=u]', user); await p.fill('[name=p]', 'demo1234'); await p.click('#f button');
@@ -112,6 +113,12 @@ const server = http.createServer((req, res) => {
   ok(rq && !/^ERR/.test(rq), 'ari membuat request untuk nadia (' + rq + ')');
   d = await fsGet('tasks/' + rq);
   ok(val(d, 'createdBy') === 'ari' && val(d, 'owner') === 'nadia', 'task request tersimpan dengan pembuat & penerima');
+
+  // akun tanpa dokumen private (belum pernah isi email) bisa menyimpan email
+  await fetch(FS + 'private/ari', { method: 'DELETE', headers: { Authorization: 'Bearer owner' } }); await wait(800);
+  const em = await ari.evaluate(() => api.call('setMyEmail', { email: 'ari.baru@contoh.com' }).then(() => 'ok', (e) => e.message));
+  await wait(500);
+  ok(em === 'ok' && val(await fsGet('private/ari'), 'email') === 'ari.baru@contoh.com', 'simpan email untuk akun yang belum punya data email (' + em + ')');
 
   // keluar & masuk lagi: sesi aman
   await ari.evaluate(() => api.logout()); await wait(300);

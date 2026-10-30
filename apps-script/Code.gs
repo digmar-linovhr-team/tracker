@@ -173,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 26 });
+  return json_({ ok: true, app: 'project-tracker', version: 27 });
 }
 
 function doPost(e) {
@@ -3663,6 +3663,14 @@ function runFbAutomation(forceFull) {
     // 1) task yang berubah sejak putaran lalu (putaran pertama: semua)
     var changed = (last ? fsWhere_('tasks', 'updatedAt', 'GREATER_THAN', new Date(last.getTime() - 2 * 60000)) : fsList_('tasks'))
       .map(function (d) { return fbTaskOf_(d, byU); }).filter(function (t) { return t.task && t.owner; });
+    // email diganti → semua task aktif orang itu ikut disinkron ulang ke Calendar
+    if (last) {
+      var seen = {}; changed.forEach(function (t) { seen[t.id] = 1; });
+      fsWhere_('private', 'updatedAt', 'GREATER_THAN', new Date(last.getTime() - 2 * 60000)).forEach(function (p) {
+        fsWhere_('tasks', 'owner', 'EQUAL', p._id).map(function (d) { return fbTaskOf_(d, byU); })
+          .forEach(function (t) { if (!seen[t.id] && t.task && !PTLogic.isDone(t)) { seen[t.id] = 1; changed.push(t); } });
+      });
+    }
     out.changed = changed.length;
     var meta = changed.length ? fsGetMany_('serverMeta', changed.map(function (t) { return t.id; })) : {};
     if (calEnabled_() && changed.length) out.calendar = fbCalTasks_(changed, byU, meta, getCalendar_());

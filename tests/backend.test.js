@@ -1069,9 +1069,14 @@ if (process.env.FB_EMU) it('Tahap 5: otomatisasi membaca Firebase — Calendar, 
   let r = sandbox.runFbAutomation();
   assert.ok(r.changed >= 1 && r.calendar >= 1, 'task baru → event dibuat ' + JSON.stringify(r));
   assert.ok(mails.slice(mailsA).some((m) => /Deadline .* lagi: Uji Calendar Firebase/.test(m.subject)), 'email pengingat deadline (≤ 24 jam)');
-  const m1 = sandbox.fsGet_('serverMeta/TF1'); assert.ok(m1.calDueId && events[m1.calDueId], 'ID event tersimpan di serverMeta');
+  let m1 = sandbox.fsGet_('serverMeta/TF1'); assert.ok(m1.calDueId && events[m1.calDueId], 'ID event tersimpan di serverMeta');
   assert.ok(/Uji Calendar Firebase/.test(events[m1.calDueId].title));
   r = sandbox.runFbAutomation(); assert.strictEqual(r.calendar, 0, 'tanpa perubahan → Calendar tidak disentuh');
+  // ganti email → event Calendar ikut diperbarui tanpa mengubah task
+  sandbox.fsMerge_('private/ari', { email: 'ari.kantor@x.com', updatedAt: new Date() });
+  sandbox.runFbAutomation();
+  const m1b = sandbox.fsGet_('serverMeta/TF1'); assert.ok(m1b.calDueId && events[m1b.calDueId].guests === 'ari.kantor@x.com', 'ganti email → undangan Calendar ke email baru');
+  sandbox.fsMerge_('private/ari', { email: 'ari@x.com', updatedAt: new Date() }); sandbox.runFbAutomation(); m1 = sandbox.fsGet_('serverMeta/TF1'); assert.ok(events[m1.calDueId]);
   // pengajuan review → email admin sekali
   const mails0 = mails.length;
   sandbox.fsMerge_('tasks/TF1', { status: 'Review', reviewAt: new Date().toISOString(), updatedAt: new Date() });

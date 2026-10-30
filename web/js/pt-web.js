@@ -5,7 +5,7 @@
   var CFG = window.PT_CONFIG || {};
   var FIRE = CFG.backend === 'firebase' && window.PTFire;
   var L = window.PTLogic;
-  var VERSION = '2.29.0';
+  var VERSION = '2.29.1';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
 

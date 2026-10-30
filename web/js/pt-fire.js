@@ -181,6 +181,8 @@
     }).map(function (o) {
       var d = o.data ? Object.assign({}, o.data) : null;
       if (d) Object.keys(d).forEach(function (k) { if (d[k] === null && o.type === 'update') d[k] = FV.delete(); });
+      // dokumen private bisa belum ada (akun tanpa email) → selalu tulis dengan merge, bukan update
+      if (o.col === 'private' && o.type !== 'delete') { d.updatedAt = ts; return { col: o.col, id: o.id, type: 'set', merge: true, data: d }; }
       if (o.col === 'tasks' && o.type !== 'delete') {
         d.updatedBy = me; d.updatedAt = ts;
         if (o.type === 'set' && !d.createdBy && (d.type === 'Request' || d.type === 'Sosmed')) d.createdBy = me;
@@ -198,7 +200,7 @@
         var b = db.batch();
         part.forEach(function (o) {
           var ref = db.collection(o.col).doc(o.id);
-          if (o.type === 'delete') b.delete(ref); else if (o.type === 'set') b.set(ref, o.data); else b.update(ref, o.data);
+          if (o.type === 'delete') b.delete(ref); else if (o.type === 'set') { if (o.merge) b.set(ref, o.data, { merge: true }); else b.set(ref, o.data); } else b.update(ref, o.data);
         });
         return b.commit();
       });
