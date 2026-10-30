@@ -97,7 +97,17 @@ const sandbox = {
     getFileById: (id) => ({ moveTo() {}, addEditor: (e) => { (docs[id].editors = docs[id].editors || []).push(e); }, getUrl: () => 'u' }),
     getFolderById: () => ({}), getFoldersByName: () => ({ hasNext: () => false }), createFolder: () => ({ getId: () => 'f1' })
   },
-  ScriptApp: { getProjectTriggers: () => [], deleteTrigger() {}, newTrigger: trigBuilder },
+  ScriptApp: { getProjectTriggers: () => [], deleteTrigger() {}, newTrigger: trigBuilder, getOAuthToken: () => 'owner' },
+  // UrlFetchApp sungguhan ke emulator Firebase (hanya bila FB_EMU=1, dijalankan lewat `firebase emulators:exec`)
+  UrlFetchApp: { fetch: (url, opt) => {
+    const args = ['-sS', '-X', String((opt && opt.method) || 'get').toUpperCase(), '-w', '\n%{http_code}', url];
+    Object.entries((opt && opt.headers) || {}).forEach(([k, v]) => args.push('-H', k + ': ' + v));
+    if (opt && opt.contentType) args.push('-H', 'Content-Type: ' + opt.contentType);
+    if (opt && opt.payload) args.push('--data-binary', opt.payload);
+    const out = require('child_process').execFileSync('curl', args, { encoding: 'utf8', env: Object.assign({}, process.env, { no_proxy: '*', NO_PROXY: '*' }) });
+    const i = out.lastIndexOf('\n'); const body = out.slice(0, i), code = Number(out.slice(i + 1));
+    return { getResponseCode: () => code, getContentText: () => body };
+  } },
   Session: { getScriptTimeZone: () => 'Asia/Jakarta' },
   Utilities: {
     DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
@@ -966,6 +976,32 @@ it('Hapus pengguna: wajib nonaktif dulu, tanpa task → tab dihapus, punya task 
   assert.strictEqual(d.users.find((u) => u.username === 'ari').reportsTo, '', 'atasan yang dihapus dikosongkan');
   assert.strictEqual(post({ action: 'deleteUser', token: admin, username: 'admin' }).ok, false, 'tidak bisa hapus diri sendiri');
   assert.strictEqual(post({ action: 'login', username: 'wisnu', password: 'wisnu12345' }).ok, false);
+});
+
+if (process.env.FB_EMU) it('Firebase: salin data ke Firestore, login lama → akun Firebase sekali saja, verifikasi token', () => {
+  Object.assign(sandbox.CFG, { FB_PROJECT: 'demo-tracker', FS_BASE: 'http://127.0.0.1:8080/v1', AUTH_BASE: 'http://127.0.0.1:9099/identitytoolkit.googleapis.com' });
+  const count = sandbox.migrateToFirestore();
+  const all = post({ action: 'getAll', token: admin }).data;
+  assert.strictEqual(count.tasks, new Set(all.tasks.filter((t) => t.id).map((t) => t.id)).size, 'semua task tersalin');
+  assert.ok(count.users >= 3 && count.briefs >= 1 && count.comments >= 1, JSON.stringify(count));
+  const u = sandbox.fsGet_('users/ari'); assert.strictEqual(u.name, 'Ari'); assert.strictEqual(u.hasTasks, true); assert.strictEqual(u.authMigrated, undefined);
+  const t = all.tasks.find((x) => x.owner === 'ari' && x.results && x.results.length) || all.tasks.find((x) => x.owner === 'ari');
+  const ft = sandbox.fsGet_('tasks/' + t.id); assert.strictEqual(ft.task, t.task); assert.strictEqual(ft.owner, 'ari'); assert.deepStrictEqual(JSON.parse(JSON.stringify(ft.results)), JSON.parse(JSON.stringify(t.results)));
+  const rq = all.tasks.find((x) => x.type === 'Request'); if (rq) assert.ok(sandbox.fsGet_('tasks/' + rq.id).createdBy, 'createdBy request ikut');
+  const cm = sandbox.fsList_('comments'); assert.ok(cm.every((c) => /T/.test(c.createdAt)), 'waktu komentar jadi timestamp');
+  // login lama
+  assert.strictEqual(post({ action: 'fbLogin', username: 'ari', password: 'salah' }).ok, false);
+  let r = post({ action: 'fbLogin', username: 'ari', password: 'rahasia123' }); assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.email, 'ari@linovhr-tracker.firebaseapp.com');
+  assert.strictEqual(sandbox.fsGet_('users/ari').authMigrated, true);
+  const sign = JSON.parse(require('child_process').execFileSync('curl', ['-sS', '-X', 'POST', 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fake',
+    '-H', 'Content-Type: application/json', '--data-binary', JSON.stringify({ email: r.data.email, password: 'rahasia123', returnSecureToken: true })], { encoding: 'utf8', env: Object.assign({}, process.env, { no_proxy: '*' }) }));
+  assert.ok(sign.idToken, JSON.stringify(sign).slice(0, 200));
+  assert.strictEqual(sandbox.authVerify_(sign.idToken).username, 'ari');
+  assert.throws(() => sandbox.authVerify_('palsu'), /UNAUTHORIZED/);
+  assert.strictEqual(post({ action: 'fbLogin', username: 'ari', password: 'rahasia123' }).ok, false, 'setelah pindah, password lama tidak bisa dipakai lagi lewat jalur ini');
+  sandbox.migrateToFirestore();
+  assert.strictEqual(sandbox.fsGet_('users/ari').authMigrated, true, 'salin ulang tidak menghapus status migrasi');
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

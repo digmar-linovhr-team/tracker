@@ -2,7 +2,9 @@
 const fs = require('fs');
 const path = require('path');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } = require('firebase/firestore');
+const { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, setLogLevel } = require('firebase/firestore');
+setLogLevel('silent');
+const by = (u, o) => Object.assign({}, o, { updatedBy: u, updatedAt: serverTimestamp() });
 
 const DOMAIN = 'linovhr-tracker.firebaseapp.com';
 let n = 0;
@@ -56,21 +58,22 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
   });
 
   await it('task: pemilik mengerjakan, tidak bisa Done, tidak bisa ubah task orang lain atau deadline', async () => {
-    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'T1'), { status: 'On-Progress', startedAt: 'x', updatedBy: 'ari' }));
-    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), { status: 'Done', updatedBy: 'ari' }));
-    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), { endDate: '2030-01-01', updatedBy: 'ari' }));
-    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), { status: 'Review' }), 'harus mencatat updatedBy');
-    await assertFails(updateDoc(doc(ari, 'tasks', 'T3'), { status: 'On-Progress', updatedBy: 'ari' }), 'task Done terkunci');
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'T1'), { status: 'Review', updatedBy: 'ammar' }));
+    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { status: 'On-Progress', startedAt: 'x' })));
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { status: 'Done' })));
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { endDate: '2030-01-01' })));
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), { status: 'Review' }), 'harus mencatat updatedBy & waktu');
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), { status: 'Review', updatedBy: 'ari', updatedAt: Timestamp.fromMillis(0) }), 'waktu palsu');
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T3'), by('ari', { status: 'On-Progress' })), 'task Done terkunci');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T1'), by('ammar', { status: 'Review' })));
     await assertFails(deleteDoc(doc(ari, 'tasks', 'T1')));
     await assertSucceeds(updateDoc(doc(admin, 'tasks', 'T3'), { status: 'On-Progress' }));
   });
 
   await it('artikel: maju satu tahap kerja, tidak bisa menyetujui review sendiri', async () => {
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), { stage: 4, status: 'On-Progress', updatedBy: 'ammar' }), 'lompat review brief');
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), { status: 'Review', updatedBy: 'ammar' }), 'status artikel tanpa tahap');
-    await assertSucceeds(updateDoc(doc(ammar, 'tasks', 'T2'), { stage: 3, status: 'Review', reviewAt: 'x', updatedBy: 'ammar' }));
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), { stage: 4, status: 'On-Progress', updatedBy: 'ammar' }), 'setujui brief sendiri');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 4, status: 'On-Progress' })), 'lompat review brief');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { status: 'Review' })), 'status artikel tanpa tahap');
+    await assertSucceeds(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 3, status: 'Review', reviewAt: 'x' })));
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 4, status: 'On-Progress' })), 'setujui brief sendiri');
     await assertSucceeds(updateDoc(doc(admin, 'tasks', 'T2'), { stage: 4, status: 'On-Progress' }));
   });
 
@@ -79,9 +82,9 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await assertFails(setDoc(doc(ari, 'tasks', 'RQ3'), { owner: 'ari', createdBy: 'ari', type: 'Request', status: 'Backlog', task: 'x' }), 'ke diri sendiri');
     await assertFails(setDoc(doc(ari, 'tasks', 'T9'), { owner: 'nadia', createdBy: 'ari', type: 'Non-artikel', status: 'Backlog', task: 'x' }), 'task biasa hanya admin');
     await assertFails(setDoc(doc(ari, 'tasks', 'RQ4'), { owner: 'nadia', createdBy: 'ammar', type: 'Request', status: 'Backlog', task: 'x' }), 'atas nama orang lain');
-    await assertFails(updateDoc(doc(nadia, 'tasks', 'RQ1'), { status: 'Done', updatedBy: 'nadia' }));
-    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ1'), { status: 'Done', doneAt: 'x', updatedBy: 'ari' }));
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'RQ1'), { status: 'Backlog', updatedBy: 'ammar' }));
+    await assertFails(updateDoc(doc(nadia, 'tasks', 'RQ1'), by('nadia', { status: 'Done' })));
+    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ1'), by('ari', { status: 'Done', doneAt: 'x' })));
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'RQ1'), by('ammar', { status: 'Backlog' })));
   });
 
   await it('komentar: tulis atas nama sendiri, ubah ≤ 15 menit, admin menghapus', async () => {

@@ -20,7 +20,7 @@ service cloud.firestore {
     function onlyChanges(keys) { return changed().hasOnly(keys); }
     function unchanged(k) { return !changed().hasAny([k]); }
     function isActiveUser(u) { return u is string && exists(userPath(u)) && get(userPath(u)).data.active == true; }
-    function stamped() { return d().updatedBy == uname(); }
+    function stamped() { return d().updatedBy == uname() && d().updatedAt == request.time; }
 
     // ---------- pengguna ----------
     match /users/{u} {

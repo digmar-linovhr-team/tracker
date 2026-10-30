@@ -14,6 +14,12 @@ var CFG = {
   LOG_SHEET: 'Activity Log',
   BRIEF_SHEET: 'Briefs',
   SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur', LEAVE_SHEET: 'Cuti', COMMENT_SHEET: 'Komentar',
+  // --- Firebase (migrasi dari Google Sheets) ---
+  FB_PROJECT: 'linovhr-tracker',
+  FB_API_KEY: 'AIzaSyCZsmvY7DAFhSWYYkI5qDXHlAYO3eNCips',
+  FB_EMAIL_DOMAIN: 'linovhr-tracker.firebaseapp.com',   // email sintetis akun login: <username>@domain
+  FS_BASE: 'https://firestore.googleapis.com/v1',
+  AUTH_BASE: 'https://identitytoolkit.googleapis.com',
   REPORT_TO: 'digmar@linovhr.com',   // penerima laporan mingguan (Senin) & bulanan (tanggal 1)
   DAILY_HOUR: 6,                     // jam tugas harian otomatis: task berulang & laporan
   BRIEF_FOLDER: 'Brief Artikel',   // folder Google Drive untuk ekspor brief ke Google Doc
@@ -63,6 +69,8 @@ function onOpen() {
     .addItem('Sinkronkan Calendar sekarang', 'runReminders')
     .addItem('Matikan Calendar & email pengingat', 'disableNotifications')
     .addItem('Reset password pengguna…', 'menuResetPassword')
+    .addSeparator()
+    .addItem('Salin data ke Firebase (migrasi)', 'migrateToFirestore')
     .addToUi();
 }
 
@@ -160,7 +168,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 22 });
+  return json_({ ok: true, app: 'project-tracker', version: 23 });
 }
 
 function doPost(e) {
@@ -189,6 +197,7 @@ function route_(b) {
   if (a === 'ping') return { ok: true };
   rememberAppUrl_(b.appUrl);
   if (a === 'login') return login_(b.username, b.password);
+  if (a === 'fbLogin') return fbLogin_(b.username, b.password);
 
   var me = auth_(b.token);
   if (a === 'changePassword') return changePassword_(me, b.oldPassword, b.newPassword);
@@ -3080,6 +3089,202 @@ function commentDelete_(me, id) {
     log_(me, 'comment-delete', c.taskId, id);
     return commentsOf_(me, c.taskId);
   } finally { unlock_(lock); }
+}
+
+
+// ===================== Firebase: akses Firestore & Auth dari Apps Script =====================
+// Memakai OAuth akun pemilik skrip (pemilik proyek Firebase) → tidak perlu file kunci rahasia dan tidak terikat Security Rules.
+function fbToken_() { return ScriptApp.getOAuthToken(); }
+function fbFetch_(method, url, body) {
+  var opt = { method: method, muteHttpExceptions: true, contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + fbToken_(), 'X-Goog-User-Project': CFG.FB_PROJECT } };
+  if (body !== undefined) opt.payload = JSON.stringify(body);
+  var res = UrlFetchApp.fetch(url, opt), code = res.getResponseCode(), txt = res.getContentText();
+  var json = txt ? JSON.parse(txt) : {};
+  if (code >= 300) {
+    var err = new Error('Firebase ' + code + ': ' + ((json.error && (json.error.message || json.error.status)) || txt).toString().slice(0, 300));
+    err.fbCode = code; err.fbMessage = json.error && json.error.message; throw err;
+  }
+  return json;
+}
+// ---------- Firestore REST ----------
+function fsRoot_() { return 'projects/' + CFG.FB_PROJECT + '/databases/(default)/documents'; }
+function fsUrl_(path) { return CFG.FS_BASE + '/' + fsRoot_() + (path ? '/' + path : ''); }
+function fsEnc_(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return isFinite(v) && Math.floor(v) === v && Math.abs(v) < 9e15 ? { integerValue: String(v) } : { doubleValue: v };
+  if (isDate_(v)) return { timestampValue: v.toISOString() };
+  if (Array.isArray(v)) return { arrayValue: v.length ? { values: v.map(fsEnc_) } : {} };
+  if (typeof v === 'object') { var f = {}; Object.keys(v).forEach(function (k) { if (v[k] !== undefined) f[k] = fsEnc_(v[k]); }); return { mapValue: { fields: f } }; }
+  return { stringValue: String(v) };
+}
+function fsDec_(x) {
+  if (!x) return null;
+  if ('stringValue' in x) return x.stringValue;
+  if ('integerValue' in x) return Number(x.integerValue);
+  if ('doubleValue' in x) return Number(x.doubleValue);
+  if ('booleanValue' in x) return x.booleanValue;
+  if ('timestampValue' in x) return new Date(x.timestampValue).toISOString();
+  if ('nullValue' in x) return null;
+  if ('arrayValue' in x) return (x.arrayValue.values || []).map(fsDec_);
+  if ('mapValue' in x) return fsFields_(x.mapValue.fields || {});
+  return null;
+}
+function fsFields_(fields) { var o = {}; Object.keys(fields || {}).forEach(function (k) { o[k] = fsDec_(fields[k]); }); return o; }
+function fsDocObj_(d) { var o = fsFields_(d.fields); o._id = d.name.split('/').pop(); return o; }
+function fsGet_(path) {
+  try { return fsDocObj_(fbFetch_('get', fsUrl_(path))); }
+  catch (e) { if (e.fbCode === 404) return null; throw e; }
+}
+function fsList_(collection) {
+  var out = [], token = '';
+  do {
+    var r = fbFetch_('get', fsUrl_(collection) + '?pageSize=300' + (token ? '&pageToken=' + encodeURIComponent(token) : ''));
+    (r.documents || []).forEach(function (d) { out.push(fsDocObj_(d)); });
+    token = r.nextPageToken || '';
+  } while (token);
+  return out;
+}
+/** Tulis banyak dokumen sekaligus (maks. 500 per commit). writes: [{ path, data } | { path, merge: {...} } | { path, del: true }] */
+function fsCommit_(writes) {
+  for (var i = 0; i < writes.length; i += 450) {
+    var part = writes.slice(i, i + 450).map(function (w) {
+      var name = fsRoot_() + '/' + w.path;
+      if (w.del) return { delete: name };
+      var obj = w.data || w.merge, f = fsEnc_(obj).mapValue.fields;
+      var o = { update: { name: name, fields: f } };
+      if (w.merge) o.updateMask = { fieldPaths: Object.keys(obj).map(function (k) { return /^[A-Za-z_][A-Za-z_0-9]*$/.test(k) ? k : '`' + k + '`'; }) };
+      return o;
+    });
+    fbFetch_('post', CFG.FS_BASE + '/projects/' + CFG.FB_PROJECT + '/databases/(default)/documents:commit', { writes: part });
+  }
+}
+function fsSet_(path, data) { fsCommit_([{ path: path, data: data }]); }
+function fsMerge_(path, data) { fsCommit_([{ path: path, merge: data }]); }
+
+// ---------- Firebase Auth (admin) ----------
+function authEmail_(username) { return String(username).toLowerCase() + '@' + CFG.FB_EMAIL_DOMAIN; }
+function authBase_() { return CFG.AUTH_BASE + '/v1/projects/' + CFG.FB_PROJECT; }
+function authLookup_(username) {
+  var r = fbFetch_('post', authBase_() + '/accounts:lookup', { email: [authEmail_(username)] });
+  return (r.users || [])[0] || null;
+}
+/** Buat akun login, atau setel ulang password bila sudah ada. */
+function authUpsert_(username, password, displayName) {
+  var acc = authLookup_(username);
+  if (acc) {
+    fbFetch_('post', authBase_() + '/accounts:update', { localId: acc.localId, password: password, disableUser: false, displayName: displayName || acc.displayName });
+    return acc.localId;
+  }
+  var r = fbFetch_('post', authBase_() + '/accounts', { email: authEmail_(username), password: password, displayName: displayName || username, emailVerified: true });
+  return r.localId;
+}
+function authDisable_(username, disabled) {
+  var acc = authLookup_(username); if (!acc) return false;
+  fbFetch_('post', authBase_() + '/accounts:update', { localId: acc.localId, disableUser: !!disabled });
+  return true;
+}
+/** Verifikasi ID token Firebase dari aplikasi → pengguna (dipakai aksi yang tetap lewat Apps Script). */
+function authVerify_(idToken) {
+  var res = UrlFetchApp.fetch(CFG.AUTH_BASE + '/v1/accounts:lookup?key=' + CFG.FB_API_KEY,
+    { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify({ idToken: String(idToken || '') }) });
+  var j = JSON.parse(res.getContentText() || '{}'), acc = (j.users || [])[0];
+  if (res.getResponseCode() >= 300 || !acc || !acc.email) throw new Error('UNAUTHORIZED');
+  var u = findUser_(acc.email.split('@')[0]);
+  if (!u || !u.active || u.orgOnly) throw new Error('UNAUTHORIZED');
+  return u;
+}
+
+// ---------- Login lama → akun Firebase (migrasi bertahap) ----------
+/** Dipanggil aplikasi versi Firebase bila login Firebase gagal: cek password lama; bila benar & belum pernah dimigrasi,
+ *  buat akun Firebase dengan password yang sama. Setelah dimigrasi, password lama tidak berlaku lagi di sini. */
+function fbLogin_(username, password) {
+  username = String(username || '').trim().toLowerCase();
+  var cache = CacheService.getScriptCache(), failKey = 'fail_' + username, fails = Number(cache.get(failKey) || 0);
+  if (fails >= CFG.MAX_LOGIN_FAIL) throw new Error('Terlalu banyak percobaan. Coba lagi dalam ' + CFG.LOCK_MINUTES + ' menit.');
+  var u = findUser_(username);
+  var bad = function () { cache.put(failKey, String(fails + 1), CFG.LOCK_MINUTES * 60); return new Error('Username atau password salah'); };
+  if (!u || !u.active || u.orgOnly) throw bad();
+  var doc = fsGet_('users/' + username);
+  if (doc && doc.authMigrated) throw bad();   // sudah pindah: password diperiksa Firebase, bukan hash lama
+  if (hash_(String(password || ''), u.salt) !== u.hash) throw bad();
+  if (String(password).length < 6) throw new Error('Password terlalu pendek untuk sistem baru. Minta admin mereset password Anda.');
+  cache.remove(failKey);
+  authUpsert_(username, String(password), u.name);
+  fsMerge_('users/' + username, { authMigrated: true, mustChange: !!u.mustChange });
+  log_({ username: username }, 'fb-login-migrate', '', '');
+  return { email: authEmail_(username), migrated: true };
+}
+
+// ---------- Pemindahan data Sheets → Firestore ----------
+var MIG_STAMP = 'migrasi';
+function migUserDoc_(u) {
+  return { name: u.name, role: u.role, active: !!u.active, position: u.position || '', reportsTo: u.reportsTo || '', division: u.division || '',
+    skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, wfoExempt: !!u.wfoExempt, hasTasks: !!u.sheetName,
+    legacySheet: u.sheetName || '', onboard: u.onboard || '', mustChange: !!u.mustChange };
+}
+function migTaskDoc_(t, createdBy) {
+  var o = { owner: t.owner, code: t.code || '', task: t.task, startDate: t.startDate || '', endDate: t.endDate || '',
+    startTime: t.startTime || '', endTime: t.endTime || '', status: t.status || 'Backlog', priority: t.priority || 'Medium',
+    startedAt: t.startedAt || '', doneAt: t.doneAt || '', reviewAt: t.reviewAt || '', notes: t.notes || '',
+    results: t.results || [], resultNote: t.resultNote || '', type: t.type || 'Non-artikel', stage: t.stage || 0,
+    liveUrl: t.liveUrl || '', aiCheckUrl: t.aiCheckUrl || '', stageLog: t.stageLog || [],
+    repeat: t.repeat || '', repeatOf: t.repeatOf || '', updatedBy: MIG_STAMP, updatedAt: new Date() };
+  if (createdBy) o.createdBy = createdBy;
+  return o;
+}
+/** Salin seluruh data dari spreadsheet ke Firestore. Aman dijalankan berulang (menimpa per ID). Akun login tidak disentuh. */
+function migrateToFirestore() {
+  resetMemo_();
+  var w = [], count = {}, add = function (col, id, data, merge) { w.push(merge ? { path: col + '/' + id, merge: data } : { path: col + '/' + id, data: data }); count[col] = (count[col] || 0) + 1; };
+  var users = readUsers_();
+  users.forEach(function (u) {
+    var existing = null;
+    try { existing = fsGet_('users/' + u.username); } catch (e) { existing = null; }
+    var d = migUserDoc_(u);
+    if (existing && existing.authMigrated) { d.authMigrated = true; delete d.mustChange; }   // jangan timpa status akun yang sudah pindah
+    add('users', u.username, d, true);
+    if (u.email) add('private', u.username, { email: u.email }, true);
+  });
+  var briefs = readBriefs_(), creatorOf = {};
+  briefs.forEach(function (b) { if (b.taskId && (b.type === 'Request' || b.type === 'Sosmed')) creatorOf[b.taskId] = b.createdBy; });
+  var ids = {};
+  personSheets_().forEach(function (p) {
+    var sh = p.sheet, col = colMap_(sh);
+    if (sh.getLastRow() < 2) return;
+    sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues().forEach(function (r, i) {
+      var t = rowTask_(r, null, col, sh, p.user, i + 2);
+      if (!t || !t.id || ids[t.id]) return;   // tanpa ID / ganda dilewati (jalankan Setup dulu)
+      ids[t.id] = 1;
+      add('tasks', t.id, migTaskDoc_(t, creatorOf[t.id]));
+      var g = function (k) { return col[k] === undefined ? '' : r[col[k]]; };
+      var meta = { calStartId: String(g('cal start id') || ''), calDueId: String(g('cal due id') || ''), calSync: String(g('cal sync') || ''), reminded: String(g('reminded') || '') };
+      if (meta.calStartId || meta.calDueId || meta.reminded) add('serverMeta', t.id, meta);
+    });
+  });
+  cachedProjects_().forEach(function (pr) {
+    if (!pr.code) return;
+    add('projects', pr.code, { project: pr.project || '', pic: pr.pic || '', start: pr.start || '', end: pr.end || '', priority: pr.priority || '', status: pr.status || '' });
+  });
+  briefs.forEach(function (b) {
+    add('briefs', b.id, { taskId: b.taskId, owner: b.owner, createdBy: b.createdBy, type: b.type, status: b.status, keyword: b.keyword, title: b.title,
+      data: b.data || {}, docUrl: b.docUrl || '', createdAt: b.createdAt || '', updatedAt: b.updatedAt || '', updatedBy: b.updatedBy || '', statusAt: b.statusAt || '' });
+  });
+  var rows = readSchedRows_();
+  Object.keys(rows).forEach(function (k) { var r = rows[k]; add('schedule', r.week + '_' + r.username, { week: r.week, username: r.username, days: r.days, source: r.source }); });
+  readSchedReqs_().forEach(function (q) { var o = Object.assign({}, q); delete o.row; delete o.id; add('schedRequests', q.id, o); });
+  var hol = readHolidays_(); Object.keys(hol).forEach(function (d) { add('holidays', d, { name: hol[d] }); });
+  readLeaves_().forEach(function (l) { var o = Object.assign({}, l); delete o.row; delete o.id; add('leaves', l.id, o); });
+  readComments_().forEach(function (c) {
+    add('comments', c.id, { taskId: c.taskId, author: c.author, kind: c.kind, text: c.text, mentions: c.mentions, deleted: !!c.deleted,
+      createdAt: c.createdAt ? new Date(c.createdAt) : new Date(), editedAt: c.editedAt ? new Date(c.editedAt) : null });
+  });
+  fsCommit_(w);
+  fsSet_('settings/migration', { lastRun: new Date(), counts: count });
+  var msg = 'Data disalin ke Firestore:\n' + Object.keys(count).map(function (k) { return '• ' + k + ': ' + count[k]; }).join('\n');
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+  return count;
 }
 
 // ===== LOGIKA BERSAMA (salinan otomatis web/js/logic.js — jangan diedit di sini) =====
