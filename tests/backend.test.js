@@ -18,6 +18,7 @@ class Sheet {
   getMaxRows() { return this.maxRows; }
   getMaxColumns() { return this.maxCols; }
   insertColumnsAfter(c, n) { this.maxCols += n; }
+  insertRowsAfter(r, n) { this.maxRows += n; }
   setFrozenRows() {}
   cell(r, c) { while (this.data.length < r) this.data.push([]); const row = this.data[r - 1]; while (row.length < c) row.push(''); return row; }
   getRange(r, c, nr = 1, nc = 1) { return new Range(this, r, c, nr, nc); }
@@ -35,7 +36,7 @@ class Range {
   getCell(i, j) { return new Range(this.sh, this.r + i - 1, this.c + j - 1, 1, 1); }
   getDataValidation() { const l = this.sh.validation[this.c]; return l ? { getCriteriaType: () => 'VALUE_IN_LIST', getCriteriaValues: () => [l.slice(), true] } : null; }
   setDataValidation(rule) { this.sh.validation[this.c] = rule.list; return this; }
-  clearContent() { return this.setValue(''); }
+  clearContent() { for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) { const row = this.sh.data[this.r - 1 + i]; if (row && row.length >= this.c + j) row[this.c - 1 + j] = ''; } return this; }
   setNumberFormat() { return this; }
   setFontWeight() { return this; }
   getRow() { return this.r; }
@@ -1047,6 +1048,78 @@ if (process.env.FB_EMU) it('Firebase: kirim notifikasi (push/email), push uji, p
     const od = pushed.filter((p) => p.data.taskId === 'tdl');
     assert.ok(od.length === 1 && /terlewat/.test(od[0].data.title), 'push saat terlewat');
   }
+});
+
+if (process.env.FB_EMU) it('Tahap 5: otomatisasi membaca Firebase — Calendar, review, pengingat, task berulang, status project, laporan, salinan ke Sheets, mundur', () => {
+  sandbox.fcmSend_ = () => 'ok';
+  props.NOTIF_ON = '1'; props.CAL_ID = 'cal1';
+  sandbox.fsSet_('serverMeta/auto', { lastRun: new Date(Date.now() - 3600e3) });
+  const tz = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  // sebelum peralihan: tidak berjalan
+  assert.strictEqual(sandbox.runFbAutomation(), null, 'BACKEND sheets → otomatisasi Firebase diam');
+  sandbox.fbCutover();
+  assert.strictEqual(props.BACKEND, 'firebase');
+  assert.ok(triggers.includes('runFbAutomation') && triggers.includes('runNightlyBackup'), 'pemicu baru dipasang');
+  // pemicu lama tidak menyentuh Sheets lagi
+  const ev0 = Object.keys(events).length; sandbox.runReminders(); assert.strictEqual(Object.keys(events).length, ev0, 'runReminders diam setelah peralihan');
+  // task berubah → event Calendar
+  const now = new Date(), due = new Date(now.getTime() + 5 * 3600e3);
+  sandbox.fsSet_('tasks/TF1', { owner: 'ari', task: 'Uji Calendar Firebase', code: 'P1', status: 'On-Progress', startDate: tz(now), endDate: tz(due), startTime: '09:00', endTime: '23:30', priority: 'High', type: 'Non-artikel', updatedBy: 'ari', updatedAt: new Date() });
+  const mailsA = mails.length;
+  let r = sandbox.runFbAutomation();
+  assert.ok(r.changed >= 1 && r.calendar >= 1, 'task baru → event dibuat ' + JSON.stringify(r));
+  assert.ok(mails.slice(mailsA).some((m) => /Deadline .* lagi: Uji Calendar Firebase/.test(m.subject)), 'email pengingat deadline (≤ 24 jam)');
+  const m1 = sandbox.fsGet_('serverMeta/TF1'); assert.ok(m1.calDueId && events[m1.calDueId], 'ID event tersimpan di serverMeta');
+  assert.ok(/Uji Calendar Firebase/.test(events[m1.calDueId].title));
+  r = sandbox.runFbAutomation(); assert.strictEqual(r.calendar, 0, 'tanpa perubahan → Calendar tidak disentuh');
+  // pengajuan review → email admin sekali
+  const mails0 = mails.length;
+  sandbox.fsMerge_('tasks/TF1', { status: 'Review', reviewAt: new Date().toISOString(), updatedAt: new Date() });
+  r = sandbox.runFbAutomation();
+  assert.strictEqual(r.reviews, 1); assert.ok(mails.slice(mails0).some((m) => /menunggu review/.test(m.subject)), 'admin diberi email review');
+  assert.ok(!events[m1.calDueId], 'task Review → event dihapus (sama seperti versi Sheets)');
+  sandbox.fsMerge_('tasks/TF1', { updatedAt: new Date() }); r = sandbox.runFbAutomation(); assert.strictEqual(r.reviews, 0, 'email review tidak diulang');
+  // email pengingat 24 jam
+  sandbox.fsMerge_('tasks/TF1', { status: 'On-Progress', reviewAt: '', updatedAt: new Date() });
+  const mails1 = mails.length; sandbox.runFbAutomation();
+  assert.ok(!mails.slice(mails1).some((m) => /Deadline .* lagi: Uji Calendar Firebase/.test(m.subject)), 'pengingat tidak diulang');
+  // status project mengikuti task
+  sandbox.fsSet_('projects/P1', { project: 'Project uji', status: 'Backlog' });
+  sandbox.fsMerge_('tasks/TF1', { status: 'Done', doneAt: new Date().toISOString(), updatedAt: new Date() });
+  sandbox.fsWhere_('tasks', 'code', 'EQUAL', 'P1').filter((t) => t._id !== 'TF1').forEach((t) => sandbox.fsMerge_('tasks/' + t._id, { status: 'Done' }));
+  sandbox.runFbAutomation();
+  assert.strictEqual(sandbox.fsGet_('projects/P1').status, 'Done', 'status project → Done');
+  // task berulang
+  const today = tz(now);
+  sandbox.fsSet_('tasks/TREP', { owner: 'ari', task: 'Laporan harian', status: 'Backlog', startDate: today, endDate: today, startTime: '09:00', endTime: '17:00', repeat: 'daily', type: 'Non-artikel', updatedAt: new Date() });
+  let tomorrow = sandbox.addDaysIso_(today, 1); while ([0, 6].includes(new Date(tomorrow + 'T12:00:00Z').getUTCDay())) tomorrow = sandbox.addDaysIso_(tomorrow, 1); const made = sandbox.fbRecurring_(tomorrow);
+  assert.ok(made.length >= 1, 'salinan task berulang dibuat');
+  const copyId = made.find((id) => sandbox.fsGet_('tasks/' + id).repeatOf === 'TREP'); assert.ok(copyId, 'salinan dari TREP');
+  const copy = sandbox.fsGet_('tasks/' + copyId); assert.strictEqual(copy.status, 'Backlog'); assert.strictEqual(copy.repeat, ''); assert.strictEqual(copy.startDate, tomorrow);
+  assert.strictEqual(sandbox.fbRecurring_(tomorrow).length, 0, 'tidak dobel di hari yang sama');
+  // ringkasan pagi & laporan dari Firebase
+  assert.doesNotThrow(() => sandbox.fbDailyDigest_());
+  const rep = sandbox.sendTeamReport_('week', new Date()); assert.ok(/Laporan mingguan/.test(rep.subject));
+  // Calendar penuh: task dihapus → event ikut dihapus
+  sandbox.fsSet_('tasks/TF2', { owner: 'ari', task: 'Akan dihapus', status: 'Backlog', startDate: tz(due), endDate: tz(due), startTime: '09:00', endTime: '18:00', type: 'Non-artikel', updatedAt: new Date() });
+  sandbox.runFbAutomation(); const m2 = sandbox.fsGet_('serverMeta/TF2'); assert.ok(m2 && events[m2.calDueId]);
+  sandbox.fsCommit_([{ path: 'tasks/TF2', del: true }]);
+  const full = sandbox.fbCalFull_(); assert.ok(full.removed >= 1 && !events[m2.calDueId], 'event task yang dihapus dibersihkan');
+  // salinan ke Sheets
+  sandbox.fsMerge_('tasks/TF1', { task: 'Judul dari Firebase' });
+  sandbox.fsSet_('users/baru', { name: 'Orang Baru', role: 'member', active: true, hasTasks: true, legacySheet: '', orgOnly: false });
+  const bk = sandbox.runNightlyBackup();
+  assert.ok(bk.tasks >= 2 && bk.users >= 3, JSON.stringify(bk));
+  sandbox.resetMemo_();
+  const sheetTasks = sandbox.allTasks_();
+  assert.ok(sheetTasks.some((t) => t.id === 'TF1' && t.task === 'Judul dari Firebase' && t.status === 'Done'), 'task Firebase tersalin ke tab orangnya');
+  assert.ok(sandbox.readUsers_().some((u) => u.username === 'baru' && u.sheetName === 'Orang Baru'), 'pengguna baru tersalin');
+  assert.ok(sheetTasks.some((t) => t.id === copyId && t.repeatOf === 'TREP'), 'salinan task berulang ikut');
+  // mundur
+  sandbox.fbRollback();
+  assert.strictEqual(props.BACKEND, 'sheets');
+  assert.strictEqual(sandbox.runFbAutomation(), null, 'setelah mundur otomatisasi Firebase diam');
+  sandbox.fsCommit_([{ path: 'users/baru', del: true }]);
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

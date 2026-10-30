@@ -71,6 +71,9 @@ function onOpen() {
     .addItem('Reset password pengguna…', 'menuResetPassword')
     .addSeparator()
     .addItem('Aktifkan push deadline (Firebase)', 'installPushDeadlines')
+    .addItem('Pindahkan otomatisasi ke Firebase (peralihan)', 'fbCutover')
+    .addItem('Kembalikan otomatisasi ke Sheets (mundur)', 'fbRollback')
+    .addItem('Salin data Firebase ke Sheets sekarang', 'runNightlyBackup')
     .addItem('Salin data ke Firebase (migrasi)', 'migrateToFirestore')
     .addItem('Salin ulang dari nol ke Firebase (peralihan)', 'migrateFresh')
     .addToUi();
@@ -170,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 25 });
+  return json_({ ok: true, app: 'project-tracker', version: 26 });
 }
 
 function doPost(e) {
@@ -1647,13 +1650,23 @@ function syncValues_(sh, row, r, col, user, cal) {
   var curSig = String(r[col['cal sync']] || '');
   var ids = [String(r[col['cal start id']] || ''), String(r[col['cal due id']] || '')];
   var tm = t ? taskTimes_(t) : {};
-  var want = t && user.active && user.email && wantsReminders_(t) && (tm.start || tm.end);
-  var sig = want ? [user.email, t.code, t.task, tm.start ? tm.start.getTime() : '', tm.end ? tm.end.getTime() : ''].join('|') : '';
+  var sig = calSig_(t, user, tm);
   if (sig === curSig) return;
 
   ids.forEach(function (id) { deleteEvent_(cal, id); });
+  var newIds = sig ? calEvents_(cal, t, user, tm) : ['', ''];
+  if (!sameRow_(sh, row, col, r)) { newIds.forEach(function (id) { deleteEvent_(cal, id); }); return; }   // baris bergeser → ulangi di putaran berikut
+  writeObj_(sh, row, { 'cal start id': newIds[0], 'cal due id': newIds[1], 'cal sync': sig });
+}
+/** Tanda isi event: berubah → event dibuat ulang. Kosong = tidak perlu event. */
+function calSig_(t, user, tm) {
+  var want = t && user && user.active && user.email && wantsReminders_(t) && (tm.start || tm.end);
+  return want ? [user.email, t.code, t.task, tm.start ? tm.start.getTime() : '', tm.end ? tm.end.getTime() : ''].join('|') : '';
+}
+/** Buat event ▶ mulai & ⏰ deadline; hasil [idMulai, idDeadline]. */
+function calEvents_(cal, t, user, tm) {
   var newIds = ['', ''];
-  if (want) {
+  {
     var label = (t.code ? '[' + t.code + '] ' : '') + t.task;
     var desc = 'Penanggung jawab: ' + user.name +
       (tm.start ? '\nMulai: ' + Utilities.formatDate(tm.start, tz_(), 'EEE, d MMM yyyy HH:mm') : '') +
@@ -1675,8 +1688,7 @@ function syncValues_(sh, row, r, col, user, cal) {
       newIds[1] = ev2.getId();
     }
   }
-  if (!sameRow_(sh, row, col, r)) { newIds.forEach(function (id) { deleteEvent_(cal, id); }); return; }   // baris bergeser → ulangi di putaran berikut
-  writeObj_(sh, row, { 'cal start id': newIds[0], 'cal due id': newIds[1], 'cal sync': sig });
+  return newIds;
 }
 
 function deleteEvent_(cal, id) {
@@ -1716,7 +1728,7 @@ function deleteRowEvents_(sh, row) {
 /** Trigger 15 menit: sinkron Calendar (termasuk edit langsung di sheet) + email pengingat. */
 function runReminders() {
   resetMemo_();
-  if (!calEnabled_()) return;
+  if (!calEnabled_() || fbMode_()) return;   // setelah peralihan: runFbAutomation yang bekerja
   // Tidak memegang kunci global selama sinkron Calendar (bisa lama) supaya simpan/acc anggota & admin tidak tertahan.
   // Penulisan per baris dicek ulang Task ID-nya (sameRow_). Putaran yang tumpang-tindih dicegah dengan penanda waktu.
   var props = PropertiesService.getScriptProperties(), running = Number(props.getProperty('REM_RUNNING') || 0);
@@ -1811,6 +1823,7 @@ function emailReminder_(sh, row, r, col, user, now) {
 function sendDailyDigest() {
   resetMemo_();
   if (!calEnabled_()) return;
+  if (fbMode_()) return fbDailyDigest_();
   var tz = tz_(), now = new Date();
   var dow = Number(Utilities.formatDate(now, tz, 'u')); // 1=Senin … 7=Minggu
   if (dow >= 6) return;
@@ -2917,7 +2930,10 @@ function runDailyJobs() {
   var tz = tz_(), now = new Date(), today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), props = PropertiesService.getScriptProperties();
   if (props.getProperty('DAILY_LAST') === today) return;
   props.setProperty('DAILY_LAST', today);
-  try { if (runRecurring_(today).length) dataCacheClear_(); } catch (e) { Logger.log('Task berulang: ' + e); }
+  if (fbMode_()) {
+    try { fbRecurring_(today); } catch (e) { Logger.log('Task berulang: ' + e); }
+    try { if (calEnabled_()) fbCalFull_(); } catch (e) { Logger.log('Calendar penuh: ' + e); }
+  } else try { if (runRecurring_(today).length) dataCacheClear_(); } catch (e) { Logger.log('Task berulang: ' + e); }
   try { if (Utilities.formatDate(now, tz, 'u') === '1') sendTeamReport_('week', now); } catch (e) { Logger.log('Laporan mingguan: ' + e); }
   try { if (Utilities.formatDate(now, tz, 'd') === '1') sendTeamReport_('month', now); } catch (e) { Logger.log('Laporan bulanan: ' + e); }
 }
@@ -2938,9 +2954,9 @@ function reportRange_(kind, now) {
 }
 function sendTeamReport_(kind, now) {
   var L = PTLogic, rg = reportRange_(kind, now || new Date());
-  var people = readUsers_().filter(function (u) { return u.active && u.sheetName && !u.orgOnly; });
+  var people = srcUsers_().filter(function (u) { return u.active && u.sheetName && !u.orgOnly; });
   var active = {}; people.forEach(function (u) { active[u.username] = u; });
-  var all = withLeaves_(allTasks_().filter(function (t) { return active[t.owner]; }));
+  var all = srcWithLeaves_(srcTasks_().filter(function (t) { return active[t.owner]; }));
   var tasks = all.filter(function (t) { return !L.isRequest(t); });
   var range = { from: rg.from, to: rg.to }, sum = L.summarize(tasks, range, now);
   var per = L.byPerson(tasks, range, now).filter(function (p) { return p.total; })
@@ -2948,7 +2964,7 @@ function sendTeamReport_(kind, now) {
   var wl = L.workload(all, now), full = people.filter(function (u) { return wl[u.username] && wl[u.username].level === 'full'; });
   var overdueNow = people.map(function (u) { return { u: u, n: (wl[u.username] || {}).overdue || 0 }; }).filter(function (x) { return x.n; });
   var iso = function (d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }, f0 = iso(rg.from), t0 = iso(rg.to);
-  var leaves = approvedLeaves_().filter(function (l) { return active[l.username] && l.from <= t0 && f0 <= l.to; });
+  var leaves = srcApprovedLeaves_().filter(function (l) { return active[l.username] && l.from <= t0 && f0 <= l.to; });
   var reqDone = all.filter(function (t) { return L.isRequest(t) && L.isDone(t) && t.doneAt && new Date(t.doneAt) >= rg.from && new Date(t.doneAt) <= rg.to; }).length;
   var pct = function (x) { return x === null || x === undefined ? '–' : Math.round(x * 100) + '%'; };
   var tile = function (label, val, sub, color) {
@@ -3491,21 +3507,22 @@ function installPushDeadlines() {
   runPushDeadlines();
   try { SpreadsheetApp.getUi().alert('Push deadline aktif: dicek setiap 15 menit dari data Firebase.'); } catch (e) { /* dijalankan dari editor */ }
 }
-function runPushDeadlines(now) {
-  now = now || new Date();
+function runPushDeadlines(now, preTasks) {
+  if (fbMode_() && !preTasks) return 0;   // setelah peralihan: dijalankan dari runFbAutomation
+  now = isDate_(now) ? now : new Date();
   var L = PTLogic, nowMs = now.getTime(), meta = fsGet_('serverMeta/pushDeadline') || {}, sent = {}, keep = {}, count = 0;
   try { sent = JSON.parse(meta.sent || '{}'); } catch (e) { sent = {}; }
   // hanya task yang belum selesai yang dibaca (hemat kuota baca Firestore)
-  var tasks = fsQuery_('tasks', 'status', 'NOT_IN', ['Done', 'Recurring']).filter(function (t) { return t.owner && !L.isDone(t) && t.endDate; })
+  var tasks = preTasks || fsQuery_('tasks', 'status', 'NOT_IN', ['Done', 'Recurring']).filter(function (t) { return t.owner && !L.isDone(t) && t.endDate; })
     .map(function (t) { var x = Object.assign({}, t); x.id = t._id; return x; });
-  try {
+  if (!preTasks) try {
     var lv = fsList_('leaves').filter(function (l) { return l.status === 'Disetujui'; });
     if (lv.length) L.applyLeaves(tasks, lv);
   } catch (e) { Logger.log('cuti: ' + e); }
   var active = {};
   fsList_('users').forEach(function (u) { if (u.active === true && !u.orgOnly) active[u._id] = true; });
   tasks.forEach(function (t) {
-    if (!active[t.owner]) return;
+    if (!active[t.owner] || L.isDone(t) || t.status === 'Recurring') return;
     var end = L.schedule(t).end; if (!end) return;
     var iso = end.toISOString(), left = end.getTime() - nowMs, kind = '';
     if (left <= 0 && left > -36 * 3600e3) kind = 'overdue';
@@ -3526,6 +3543,396 @@ function runPushDeadlines(now) {
   return count;
 }
 
+
+// ===================== Tahap 5: otomatisasi membaca Firebase =====================
+// Saklar BACKEND (Script Properties): 'sheets' (default) atau 'firebase'. Setelah peralihan semua pekerjaan otomatis
+// membaca Firestore, dan spreadsheet menjadi salinan baca-saja yang diperbarui tiap malam (runNightlyBackup).
+function backend_() { try { return PropertiesService.getScriptProperties().getProperty('BACKEND') === 'firebase' ? 'firebase' : 'sheets'; } catch (e) { return 'sheets'; } }
+function fbMode_() { return backend_() === 'firebase'; }
+
+// ---------- data dari Firestore (bentuk sama dengan data Sheets) ----------
+function fbUsers_() {
+  if (MEMO_.fbUsers) return MEMO_.fbUsers;
+  var priv = {};
+  fsList_('private').forEach(function (p) { priv[p._id] = p; });
+  MEMO_.fbUsers = fsList_('users').map(function (u) {
+    var p = priv[u._id] || {};
+    return { username: u._id, name: u.name || u._id, role: u.role === 'admin' ? 'admin' : 'member', active: u.active === true,
+      email: String(p.email || '').trim(), prefs: p.prefs || {}, sheetName: u.hasTasks ? (u.legacySheet || u.name || u._id) : '',
+      hasTasks: !!u.hasTasks, legacySheet: u.legacySheet || '', orgOnly: !!u.orgOnly, position: u.position || '', reportsTo: u.reportsTo || '',
+      division: u.division || '', skills: u.skills || '', joined: u.joined || '', wfoExempt: !!u.wfoExempt, onboard: u.onboard || '', mustChange: !!u.mustChange };
+  });
+  return MEMO_.fbUsers;
+}
+function fbUserMap_() { var m = {}; fbUsers_().forEach(function (u) { m[u.username] = u; }); return m; }
+function fbTaskOf_(d, byU) {
+  var t = Object.assign({}, d);
+  t.id = d._id; delete t._id;
+  t.ownerName = (byU[t.owner] || {}).name || t.owner;
+  t.results = Array.isArray(t.results) ? t.results : [];
+  t.stageLog = Array.isArray(t.stageLog) ? t.stageLog : [];
+  t.status = t.status || 'Backlog';
+  return t;
+}
+function fbTasks_() {
+  if (MEMO_.fbTasks) return MEMO_.fbTasks;
+  var byU = fbUserMap_();
+  MEMO_.fbTasks = fsList_('tasks').map(function (d) { return fbTaskOf_(d, byU); }).filter(function (t) { return t.task && t.owner; });
+  return MEMO_.fbTasks;
+}
+function fbApprovedLeaves_() {
+  if (MEMO_.fbLeaves) return MEMO_.fbLeaves;
+  MEMO_.fbLeaves = fsList_('leaves').filter(function (l) { return l.status === 'Disetujui'; }).map(function (l) { return { username: l.username, from: l.from, to: l.to, kind: l.kind }; });
+  return MEMO_.fbLeaves;
+}
+/** Sumber data sesuai saklar BACKEND — dipakai laporan dll. */
+function srcUsers_() { return fbMode_() ? fbUsers_() : readUsers_(); }
+function srcTasks_() { return fbMode_() ? fbTasks_() : allTasks_(); }
+function srcApprovedLeaves_() { return fbMode_() ? fbApprovedLeaves_() : approvedLeaves_(); }
+function srcWithLeaves_(tasks) {
+  try { var lv = srcApprovedLeaves_(); if (lv.length) PTLogic.applyLeaves(tasks, lv); } catch (e) { Logger.log('cuti: ' + e); }
+  return tasks;
+}
+
+/** Kueri satu kolom dengan nilai apa pun (Date → timestamp). */
+function fsWhere_(collection, field, op, value) { return fsQuery_(collection, field, op, value); }
+/** Kueri rentang pada satu kolom: a <= field <= b. */
+function fsRange_(collection, field, a, b) {
+  var f = function (op, v) { return { fieldFilter: { field: { fieldPath: field }, op: op, value: fsEnc_(v) } }; };
+  var r = fbFetch_('post', fsUrl_('') + ':runQuery', { structuredQuery: { from: [{ collectionId: collection }],
+    where: { compositeFilter: { op: 'AND', filters: [f('GREATER_THAN_OR_EQUAL', a), f('LESS_THAN_OR_EQUAL', b)] } } } });
+  return (r || []).filter(function (x) { return x.document; }).map(function (x) { return fsDocObj_(x.document); });
+}
+/** Ambil banyak dokumen sekaligus → { id: doc } (yang tidak ada dilewati). */
+function fsGetMany_(collection, ids) {
+  var out = {};
+  for (var i = 0; i < ids.length; i += 100) {
+    var part = ids.slice(i, i + 100);
+    if (!part.length) continue;
+    var r = fbFetch_('post', fsUrl_('') + ':batchGet', { documents: part.map(function (id) { return fsRoot_() + '/' + collection + '/' + id; }) });
+    (r || []).forEach(function (x) { if (x.found) { var d = fsDocObj_(x.found); out[d._id] = d; } });
+  }
+  return out;
+}
+
+// ---------- Calendar ----------
+/** Sinkron event Calendar untuk daftar task. meta: { taskId: serverMeta } — ID event & tanda isi. Hasil: tulis serverMeta. */
+function fbCalTasks_(tasks, byU, meta, cal) {
+  var w = [];
+  tasks.forEach(function (t) {
+    try {
+      var m = meta[t.id] || {}, tm = taskTimes_(t), sig = calSig_(t, byU[t.owner], tm);
+      if (sig === String(m.calSync || '')) return;
+      deleteEvent_(cal, m.calStartId); deleteEvent_(cal, m.calDueId);
+      var ids = sig ? calEvents_(cal, t, byU[t.owner], tm) : ['', ''];
+      w.push({ path: 'serverMeta/' + t.id, merge: { calStartId: ids[0], calDueId: ids[1], calSync: sig } });
+    } catch (e) { Logger.log('Calendar ' + t.id + ': ' + e); }
+  });
+  if (w.length) fsCommit_(w);
+  return w.length;
+}
+/** Sinkron penuh (harian): semua task + bersihkan event task yang sudah dihapus. */
+function fbCalFull_() {
+  var cal = getCalendar_(), byU = fbUserMap_(), tasks = fbTasks_(), have = {}, meta = {};
+  fsList_('serverMeta').forEach(function (m) { meta[m._id] = m; });
+  tasks.forEach(function (t) { have[t.id] = 1; });
+  emptyCalTrash_(cal);
+  var n = fbCalTasks_(tasks, byU, meta, cal), gone = [];
+  Object.keys(meta).forEach(function (id) {
+    var m = meta[id];
+    if (have[id] || !(m.calStartId || m.calDueId)) return;
+    deleteEvent_(cal, m.calStartId); deleteEvent_(cal, m.calDueId);
+    gone.push({ path: 'serverMeta/' + id, del: true });
+  });
+  if (gone.length) fsCommit_(gone);
+  return { synced: n, removed: gone.length };
+}
+
+// ---------- pemicu 15 menit setelah peralihan ----------
+/** Calendar (task yang berubah), email ke admin saat ada pengajuan review, status project, email pengingat & push deadline. */
+function runFbAutomation(forceFull) {
+  if (!fbMode_()) return null;
+  resetMemo_();
+  var props = PropertiesService.getScriptProperties(), running = Number(props.getProperty('FB_AUTO_RUNNING') || 0);
+  if (running && Date.now() - running < 6 * 60000) return null;
+  props.setProperty('FB_AUTO_RUNNING', String(Date.now()));
+  var out = { changed: 0, calendar: 0, reviews: 0, projects: 0, emails: 0, pushes: 0 };
+  try {
+    var now = new Date(), state = fsGet_('serverMeta/auto') || {}, byU = fbUserMap_();
+    var last = state.lastRun && forceFull !== true ? new Date(state.lastRun) : null;
+    // 1) task yang berubah sejak putaran lalu (putaran pertama: semua)
+    var changed = (last ? fsWhere_('tasks', 'updatedAt', 'GREATER_THAN', new Date(last.getTime() - 2 * 60000)) : fsList_('tasks'))
+      .map(function (d) { return fbTaskOf_(d, byU); }).filter(function (t) { return t.task && t.owner; });
+    out.changed = changed.length;
+    var meta = changed.length ? fsGetMany_('serverMeta', changed.map(function (t) { return t.id; })) : {};
+    if (calEnabled_() && changed.length) out.calendar = fbCalTasks_(changed, byU, meta, getCalendar_());
+    // 2) pengajuan review baru → email admin (sekali per pengajuan)
+    var reviews = [], rw = [];
+    changed.forEach(function (t) {
+      if (t.status !== 'Review' || !t.reviewAt || PTLogic.isRequest(t)) return;
+      var key = 'review|' + new Date(t.reviewAt).getTime(), sent = String((meta[t.id] || {}).reminded || '').split(',').filter(String);
+      if (sent.indexOf(key) >= 0) return;
+      reviews.push(t); sent.push(key);
+      (meta[t.id] = meta[t.id] || {}).reminded = sent.slice(-6).join(',');
+      rw.push({ path: 'serverMeta/' + t.id, merge: { reminded: meta[t.id].reminded } });
+    });
+    if (reviews.length && calEnabled_()) { fbEmailReviews_(reviews); out.reviews = reviews.length; }
+    if (rw.length) fsCommit_(rw);
+    // 3) status project mengikuti task
+    var codes = {}; changed.forEach(function (t) { if (t.code) codes[t.code] = 1; });
+    out.projects = fbSyncProjects_(Object.keys(codes));
+    // 4) deadline: task dengan deadline di sekitar hari ini (hemat baca: rentang tanggal saja)
+    var tz = tz_(), iso = function (d) { return Utilities.formatDate(d, tz, 'yyyy-MM-dd'); };
+    var win = fsRange_('tasks', 'endDate', iso(new Date(now.getTime() - 12 * 864e5)), iso(new Date(now.getTime() + 2 * 864e5)))
+      .map(function (d) { return fbTaskOf_(d, byU); }).filter(function (t) { return t.task && t.owner && wantsReminders_(t); });
+    srcWithLeaves_(win);
+    if (calEnabled_() && win.length) out.emails = fbEmailReminders_(win, byU, now);
+    out.pushes = runPushDeadlines(now, win);
+    fsSet_('serverMeta/auto', { lastRun: now, last: out });
+  } finally { props.deleteProperty('FB_AUTO_RUNNING'); }
+  return out;
+}
+function fbEmailReviews_(tasks) {
+  fbUsers_().filter(function (u) { return u.role === 'admin' && u.email && u.active; }).forEach(function (a) {
+    try {
+      MailApp.sendEmail({ to: a.email, name: 'Project Tracker', subject: '🔎 ' + tasks.length + ' task menunggu review',
+        htmlBody: emailShell_('Halo ' + esc_(a.name) + ',', 'Task berikut diajukan untuk direview. Buka menu <b>Review</b> di Project Tracker untuk menyetujui atau mengembalikan.' + taskTableHtml_(tasks, true)) });
+    } catch (e) { Logger.log('Email review: ' + e); }
+  });
+}
+/** Email 24 jam sebelum deadline & saat terlewat (sekali per tenggat). Tanda terkirim di serverMeta/{task}.reminded. */
+function fbEmailReminders_(tasks, byU, now) {
+  var meta = fsGetMany_('serverMeta', tasks.map(function (t) { return t.id; })), w = [], n = 0;
+  tasks.forEach(function (t) {
+    var user = byU[t.owner];
+    if (!user || !user.email || !user.active) return;
+    var end = PTLogic.schedule(t).end || taskTimes_(t).end;
+    if (!end) return;
+    var endKey = Utilities.formatDate(end, tz_(), "yyyy-MM-dd'T'HH:mm"), left = end.getTime() - now.getTime(), key = null, subject = null, intro = null;
+    if (left > 0 && left <= CFG.EMAIL_DUE_HOURS * 36e5) {
+      key = 'due|' + endKey; subject = '⏰ Deadline ' + humanLeft_(left) + ' lagi: ' + shortTitle_(t.task);
+      intro = 'Task berikut akan mencapai deadline dalam <b>' + humanLeft_(left) + '</b>.';
+    } else if (left <= 0 && -left < 48 * 36e5) {
+      key = 'overdue|' + endKey; subject = '⚠️ Lewat deadline: ' + shortTitle_(t.task);
+      intro = 'Task berikut sudah <b>melewati deadline</b> dan belum ditandai Done.';
+    }
+    if (!key) return;
+    var sent = String((meta[t.id] || {}).reminded || '').split(',').filter(String);
+    if (sent.indexOf(key) >= 0) return;
+    try {
+      MailApp.sendEmail({ to: user.email, subject: subject, name: 'Project Tracker', htmlBody: emailShell_('Halo ' + esc_(user.name) + ',', intro + taskTableHtml_([t])) });
+      n++;
+    } catch (e) { Logger.log('Email pengingat ' + t.id + ': ' + e); return; }
+    sent.push(key);
+    w.push({ path: 'serverMeta/' + t.id, merge: { reminded: sent.slice(-6).join(',') } });
+  });
+  if (w.length) fsCommit_(w);
+  return n;
+}
+/** Status project mengikuti task-nya (aturan sama dengan versi Sheets). */
+function fbSyncProjects_(codes) {
+  if (!codes.length) return 0;
+  var w = [];
+  codes.forEach(function (c) {
+    try {
+      var p = fsGet_('projects/' + c); if (!p) return;
+      var st = fsWhere_('tasks', 'code', 'EQUAL', c).map(function (t) { return t.status || 'Backlog'; });
+      var next = projectStatusFor_(st, p.status || '');
+      if (next && next !== p.status) w.push({ path: 'projects/' + c, merge: { status: next } });
+    } catch (e) { Logger.log('Status project ' + c + ': ' + e); }
+  });
+  if (w.length) fsCommit_(w);
+  return w.length;
+}
+
+// ---------- harian ----------
+function fbDailyDigest_() {
+  var tz = tz_(), now = new Date();
+  if (Number(Utilities.formatDate(now, tz, 'u')) >= 6) return;
+  var today = Utilities.formatDate(now, tz, 'yyyy-MM-dd'), byU = fbUserMap_(), teamOverdue = [];
+  var open = srcWithLeaves_(fsWhere_('tasks', 'status', 'NOT_IN', ['Done', 'Recurring', 'Hold', 'Review'])
+    .map(function (d) { return fbTaskOf_(d, byU); }).filter(function (t) { return t.task && t.owner && wantsReminders_(t); }));
+  fbUsers_().filter(function (u) { return u.active && u.hasTasks && !u.orgOnly; }).forEach(function (u) {
+    var mine = open.filter(function (t) { return t.owner === u.username; });
+    var overdue = mine.filter(function (t) { var e = PTLogic.schedule(t).end; return e && e < now; });
+    var dueToday = mine.filter(function (t) { return t.endDate === today && overdue.indexOf(t) < 0; });
+    var startToday = mine.filter(function (t) { return t.startDate === today && t.endDate !== today && t.status !== 'On-Progress'; });
+    teamOverdue = teamOverdue.concat(overdue);
+    if (!u.email || !(overdue.length + dueToday.length + startToday.length)) return;
+    var body = '';
+    if (overdue.length) body += '<h3 style="color:#c93636;margin:18px 0 6px">Terlambat (' + overdue.length + ')</h3>' + taskTableHtml_(overdue);
+    if (dueToday.length) body += '<h3 style="margin:18px 0 6px">Deadline hari ini (' + dueToday.length + ')</h3>' + taskTableHtml_(dueToday);
+    if (startToday.length) body += '<h3 style="margin:18px 0 6px">Mulai hari ini (' + startToday.length + ')</h3>' + taskTableHtml_(startToday);
+    try {
+      MailApp.sendEmail({ to: u.email, name: 'Project Tracker', subject: '☀️ Task hari ini: ' + dueToday.length + ' deadline' + (overdue.length ? ', ' + overdue.length + ' terlambat' : ''),
+        htmlBody: emailShell_('Selamat pagi, ' + esc_(u.name) + '!', body) });
+    } catch (e) { Logger.log('Ringkasan ' + u.username + ': ' + e); }
+  });
+  if (!teamOverdue.length) return;
+  fbUsers_().filter(function (u) { return u.role === 'admin' && u.email && u.active; }).forEach(function (a) {
+    try {
+      MailApp.sendEmail({ to: a.email, name: 'Project Tracker', subject: '📋 Rekap tim: ' + teamOverdue.length + ' task terlambat',
+        htmlBody: emailShell_('Rekap pagi tim', 'Task yang melewati deadline dan belum Done:' + taskTableHtml_(teamOverdue, true)) });
+    } catch (e) { Logger.log('Rekap admin: ' + e); }
+  });
+}
+/** Task berulang: salinan baru dibuat langsung di Firestore. */
+function fbRecurring_(today) {
+  var props = PropertiesService.getScriptProperties(), byU = fbUserMap_(), made = [], w = [];
+  ['daily', 'weekly', 'monthly'].forEach(function (rep) {
+    fsWhere_('tasks', 'repeat', 'EQUAL', rep).map(function (d) { return fbTaskOf_(d, byU); }).forEach(function (t) {
+      if (t.status === 'Hold' || t.type === 'Request') return;
+      var owner = byU[t.owner];
+      if (!owner || !owner.active || !owner.hasTasks || !repeatDue_(t, today)) return;
+      var key = 'REP_' + t.id;
+      if (props.getProperty(key) === today) return;
+      var span = /^\d{4}-\d{2}-\d{2}$/.test(String(t.endDate)) && /^\d{4}-\d{2}-\d{2}$/.test(String(t.startDate)) ? Math.max(0, Math.round((ymdUtc_(t.endDate) - ymdUtc_(t.startDate)) / 864e5)) : 0;
+      if (t.repeat === 'daily') span = 0;
+      var art = t.type === 'Artikel', id = newId_(), nowIso = new Date().toISOString();
+      w.push({ path: 'tasks/' + id, data: { owner: t.owner, code: t.code || '', task: t.task, startDate: today, endDate: addDaysIso_(today, span),
+        startTime: t.startTime || '', endTime: t.endTime || '', status: 'Backlog', priority: t.priority || 'Medium', notes: t.notes || '',
+        type: t.type || 'Non-artikel', stage: art ? 1 : 0, stageLog: art ? [{ s: 1, t: nowIso, by: 'otomatis' }] : [],
+        startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', liveUrl: '', aiCheckUrl: '', repeat: '', repeatOf: t.id,
+        updatedBy: 'otomatis', updatedAt: new Date() } });
+      props.setProperty(key, today); made.push(id);
+    });
+  });
+  if (w.length) fsCommit_(w);
+  return made;
+}
+
+// ---------- salinan malam ke Sheets (cadangan baca-saja & jalur mundur) ----------
+function bkCell_(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) { var d = new Date(v); return isNaN(d) ? v : d; }
+  if (typeof v === 'string' && /^[=+\-@]/.test(v)) return "'" + v;
+  return v;
+}
+/** Tulis ulang isi satu tab: header dilengkapi, baris data lama dikosongkan, lalu ditulis sesuai urutan kolom. */
+function mirrorRows_(name, headers, rows) {
+  var ss = SpreadsheetApp.getActive(), sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  ensureHeaders_(sh, headers);
+  delete MEMO_.cols[name];
+  var col = colMap_(sh), width = sh.getLastColumn();
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, width).clearContent();
+  if (!rows.length) return 0;
+  var data = rows.map(function (o) {
+    var arr = []; for (var i = 0; i < width; i++) arr.push('');
+    Object.keys(o).forEach(function (k) { if (col[k] !== undefined) arr[col[k]] = o[k]; });
+    return arr;
+  });
+  if (sh.getMaxRows() < data.length + 1) sh.insertRowsAfter(sh.getMaxRows(), data.length + 1 - sh.getMaxRows());
+  sh.getRange(2, 1, data.length, width).setValues(data);
+  return data.length;
+}
+function runNightlyBackup() {
+  resetMemo_();
+  if (!fbMode_() && !runNightlyBackup.force) {
+    try { SpreadsheetApp.getUi().alert('Salinan dari Firebase hanya berjalan setelah peralihan (menu: Pindahkan otomatisasi ke Firebase).'); } catch (e) { /* pemicu */ }
+    return null;
+  }
+  var lock = lock_(60000), count = {};
+  try {
+    var users = fbUsers_(), byU = fbUserMap_(), tasks = fbTasks_(), meta = {};
+    fsList_('serverMeta').forEach(function (m) { meta[m._id] = m; });
+    // Users: perbarui baris yang ada (hash password lama tetap), tambah pengguna baru
+    var ush = sheet_(CFG.USERS_SHEET); ensureHeaders_(ush, USER_HEADERS); delete MEMO_.cols[CFG.USERS_SHEET];
+    var ucol = colMap_(ush), rowsU = ush.getLastRow() > 1 ? ush.getRange(2, 1, ush.getLastRow() - 1, ush.getLastColumn()).getValues() : [];
+    var rowOf = {}; rowsU.forEach(function (r, i) { var u = String(r[ucol['username']] || '').trim().toLowerCase(); if (u) rowOf[u] = i; });
+    users.forEach(function (u) {
+      var o = { 'username': u.username, 'name': u.name, 'role': u.role, 'sheet name': u.sheetName, 'active': u.active, 'email': u.email, 'position': u.position,
+        'reports to': u.reportsTo, 'division': u.division, 'skills': bkCell_(u.skills), 'joined': u.joined, 'org only': u.orgOnly, 'wfo exempt': u.wfoExempt, 'onboard': u.onboard };
+      var r = rowOf[u.username];
+      if (r === undefined) { r = rowsU.length; rowsU.push(new Array(ush.getLastColumn()).fill('')); rowsU[r][ucol['must change']] = true; rowOf[u.username] = r; }
+      Object.keys(o).forEach(function (k) { if (ucol[k] !== undefined) rowsU[r][ucol[k]] = o[k]; });
+    });
+    Object.keys(rowOf).forEach(function (un) { if (!byU[un] && ucol['active'] !== undefined) rowsU[rowOf[un]][ucol['active']] = false; });
+    if (rowsU.length) ush.getRange(2, 1, rowsU.length, ush.getLastColumn()).setValues(rowsU);
+    invalidateUsers_(); count.users = users.length;
+    // Tab task per orang
+    var byOwner = {}; tasks.forEach(function (t) { (byOwner[t.owner] = byOwner[t.owner] || []).push(t); });
+    var ntask = 0;
+    users.forEach(function (u) {
+      if (!u.hasTasks || !u.sheetName || /^\(arsip\)/.test(u.sheetName)) return;
+      var sh0 = sheet_(u.sheetName);
+      if (sh0) try { fixStatusValidation_(sh0); } catch (e) { /* abaikan */ }
+      ntask += mirrorRows_(u.sheetName, TASK_HEADERS, (byOwner[u.username] || []).map(function (t) {
+        var m = meta[t.id] || {};
+        return { 'code': t.code || '', 'task': bkCell_(t.task), 'start date': toDateCell_(t.startDate), 'end date': toDateCell_(t.endDate), 'status': t.status,
+          'start time': t.startTime || '', 'end time': t.endTime || '', 'priority': t.priority || '', 'task id': t.id, 'started at': bkCell_(t.startedAt),
+          'done at': bkCell_(t.doneAt), 'notes': bkCell_(t.notes || ''), 'cal start id': m.calStartId || '', 'cal due id': m.calDueId || '', 'cal sync': m.calSync || '',
+          'reminded': m.reminded || '', 'review at': bkCell_(t.reviewAt), 'result': t.results.length ? serializeResults_(t.results) : '', 'result note': bkCell_(t.resultNote || ''),
+          'type': t.type || 'Non-artikel', 'stage': t.stage || '', 'live url': t.liveUrl || '', 'ai check url': t.aiCheckUrl || '',
+          'stage log': t.stageLog.length ? JSON.stringify(t.stageLog) : '', 'repeat': t.repeat || '', 'repeat of': t.repeatOf || '' };
+      }));
+    });
+    count.tasks = ntask;
+    count.projects = mirrorRows_(CFG.MAIN_SHEET, MAIN_HEADERS, fsList_('projects').map(function (p) {
+      return { 'code': p._id, 'project': bkCell_(p.project || ''), 'pic': p.pic || '', 'start': toDateCell_(p.start), 'end': toDateCell_(p.end), 'priority': p.priority || '', 'status': p.status || '' };
+    }));
+    count.briefs = mirrorRows_(CFG.BRIEF_SHEET, BRIEF_HEADERS, fsList_('briefs').map(function (b) {
+      return { 'brief id': b._id, 'task id': b.taskId || '', 'owner': b.owner || '', 'created by': b.createdBy || '', 'type': b.type || '', 'status': b.status || '',
+        'keyword': bkCell_(b.keyword || ''), 'title': bkCell_(b.title || ''), 'data': JSON.stringify(b.data || {}), 'doc url': b.docUrl || '',
+        'created at': bkCell_(b.createdAt), 'updated at': bkCell_(b.updatedAt), 'updated by': b.updatedBy || '', 'status at': bkCell_(b.statusAt) };
+    }));
+    count.schedule = mirrorRows_(CFG.SCHED_SHEET, SCHED_HEADERS, fsList_('schedule').map(function (r) {
+      return { 'week': "'" + r.week, 'username': r.username, 'days': (r.days || []).join(','), 'source': r.source || 'choice', 'updated at': bkCell_(r.updatedAt), 'updated by': r.updatedBy || '' };
+    }));
+    count.schedRequests = mirrorRows_(CFG.SREQ_SHEET, SREQ_HEADERS, fsList_('schedRequests').map(function (q) {
+      return { 'id': q._id, 'username': q.username, 'week': "'" + q.week, 'kind': q.kind || '', 'from day': q.from || '', 'to day': q.to || '', 'reason': bkCell_(q.reason || ''),
+        'status': q.status || '', 'created at': bkCell_(q.createdAt), 'decided by': q.decidedBy || '', 'decided at': bkCell_(q.decidedAt), 'note': bkCell_(q.note || '') };
+    }));
+    count.holidays = mirrorRows_(CFG.HOLIDAY_SHEET, HOLIDAY_HEADERS, fsList_('holidays').map(function (h) { return { 'date': toDateCell_(h._id), 'name': h.name || 'Libur' }; }));
+    count.leaves = mirrorRows_(CFG.LEAVE_SHEET, LEAVE_HEADERS, fsList_('leaves').map(function (l) {
+      return { 'id': l._id, 'username': l.username, 'kind': l.kind || '', 'from': toDateCell_(l.from), 'to': toDateCell_(l.to), 'reason': bkCell_(l.reason || ''), 'status': l.status || '',
+        'created at': bkCell_(l.createdAt), 'created by': l.createdBy || '', 'decided by': l.decidedBy || '', 'decided at': bkCell_(l.decidedAt), 'note': bkCell_(l.note || '') };
+    }));
+    count.comments = mirrorRows_(CFG.COMMENT_SHEET, COMMENT_HEADERS, fsList_('comments').sort(function (a, b) { return String(a.createdAt).localeCompare(String(b.createdAt)); }).map(function (c) {
+      return { 'id': c._id, 'task id': c.taskId || '', 'author': c.author || '', 'kind': c.kind || 'user', 'text': bkCell_(c.text || ''), 'mentions': (c.mentions || []).join(','),
+        'created at': bkCell_(c.createdAt), 'edited at': bkCell_(c.editedAt), 'deleted': !!c.deleted };
+    }));
+    dataCacheClear_();
+    fsSet_('serverMeta/backup', { at: new Date(), counts: count });
+  } finally { unlock_(lock); }
+  return count;
+}
+
+// ---------- peralihan & mundur ----------
+function fbSetTriggers_(on) {
+  var fb = ['runFbAutomation', 'runNightlyBackup'], old = ['runReminders', 'runPushDeadlines'];
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var h = t.getHandlerFunction();
+    if (fb.indexOf(h) >= 0 || (on && old.indexOf(h) >= 0)) ScriptApp.deleteTrigger(t);
+  });
+  if (on) {
+    ScriptApp.newTrigger('runFbAutomation').timeBased().everyMinutes(15).create();
+    ScriptApp.newTrigger('runNightlyBackup').timeBased().atHour(23).everyDays(1).inTimezone(tz_()).create();
+  } else if (calEnabled_()) {
+    ScriptApp.newTrigger('runReminders').timeBased().everyMinutes(15).create();
+  }
+}
+/** Menu peralihan: semua pekerjaan otomatis membaca Firebase; Sheets jadi salinan baca-saja tiap malam. */
+function fbCutover() {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('BACKEND', 'firebase');
+  ensureDailyTrigger_();
+  fbSetTriggers_(true);
+  var r = null; try { r = runFbAutomation(true); } catch (e) { Logger.log('Putaran pertama: ' + e); }
+  var msg = 'Otomatisasi sekarang membaca Firebase.\n\n• Calendar, email pengingat, push deadline, review: tiap 15 menit\n• Ringkasan pagi, task berulang, laporan: harian seperti biasa\n• Salinan ke spreadsheet: tiap malam pukul 23.00' +
+    (r ? '\n\nPutaran pertama: ' + r.changed + ' task diperiksa, ' + r.calendar + ' event Calendar diperbarui.' : '');
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+  return r;
+}
+/** Menu mundur: salin data terbaru dari Firebase ke Sheets, lalu otomatisasi kembali membaca Sheets. */
+function fbRollback() {
+  var count = null;
+  try { runNightlyBackup.force = true; count = runNightlyBackup(); } catch (e) { Logger.log('Salinan terakhir: ' + e); } finally { runNightlyBackup.force = false; }
+  PropertiesService.getScriptProperties().setProperty('BACKEND', 'sheets');
+  fbSetTriggers_(false);
+  var msg = 'Otomatisasi kembali membaca spreadsheet.' + (count ? '\nData terbaru dari Firebase sudah disalin: ' + JSON.stringify(count) : '\nPERHATIAN: salinan terakhir gagal — cek log eksekusi.');
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
+  return count;
+}
 
 // ===== LOGIKA BERSAMA (salinan otomatis web/js/logic.js — jangan diedit di sini) =====
 /* Logika bersama: dipakai proses utama (notifikasi) dan tampilan (dashboard).
