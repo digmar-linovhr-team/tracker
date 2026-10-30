@@ -226,7 +226,7 @@ function createBriefOptimistic(task, data, okMsg) {
       putBrief(r.brief);
       if (S.bEdit && S.bEdit.id === tmp.id) {
         S.bEdit.id = r.brief.id; S.bEdit.b.id = r.brief.id; S.bEdit.b.updatedAt = r.brief.updatedAt; S.bEdit.savedAt = new Date();
-        const el = $('#bsave'); if (el && S.view === 'brief') el.textContent = saveText();
+        saveUi();
         const act = $('#bactions');
         if (act && S.view === 'brief') { act.innerHTML = actionsHtml(S.bEdit.b, canEditBrief(S.bEdit.b), briefStatus(S.bEdit.b)[0]); bindBriefActions(); }
       }
@@ -275,7 +275,7 @@ function viewBrief() {
       <button class="btn ghost sm" id="bback">← Brief</button>
       <div class="bed-task">${task ? `${task.code ? `<span class="code-tag">${esc(task.code)}</span> ` : ''}<b>${prettyTitle(task.task)}</b> <span class="muted">· ${esc(task.ownerName)}${L.schedule(task).end ? ' · deadline ' + esc(fmtD(L.schedule(task).end)) : ''}</span>` : '<span class="muted">Task sudah dihapus</span>'}</div>
       <span class="bstat ${stc}">${esc(st)}</span>
-      <span class="muted small" id="bsave">${saveText()}</span>
+      ${saveGroup()}
       <div class="bed-actions" id="bactions">${actions}</div>
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}`;
@@ -300,7 +300,7 @@ function viewBrief() {
       <button class="btn ghost sm" id="bback">← Brief</button>
       <div class="bed-task">${task ? `${task.code ? `<span class="code-tag">${esc(task.code)}</span> ` : ''}<b>${prettyTitle(task.task)}</b> <span class="muted">· ${esc(task.ownerName)}${L.schedule(task).end ? ' · deadline ' + esc(fmtD(L.schedule(task).end)) : ''}</span>` : '<span class="muted">Task sudah dihapus</span>'}</div>
       <span class="bstat ${stc}">${esc(st)}</span>
-      <span class="muted small" id="bsave">${saveText()}</span>
+      ${saveGroup()}
       <div class="bed-actions" id="bactions">${actionsHtml(b, edit, st)}      </div>
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}
@@ -403,7 +403,7 @@ function saveText() {
   if (!E) return '';
   if (E.saving) return 'Menyimpan…';
   if (E.isNew && !String((E.b.data && E.b.data.title) || '').trim()) return 'Isi judul untuk menyimpan';
-  if (E.dirty) return 'Belum tersimpan';
+  if (E.dirty) return '● Belum disimpan';
   return E.savedAt ? 'Tersimpan ' + pad(E.savedAt.getHours()) + ':' + pad(E.savedAt.getMinutes()) : '';
 }
 function secCard(n, title, inner) {
@@ -435,9 +435,10 @@ function serpPreview(d, task) {
 function markDirty() {
   const E = S.bEdit;
   E.dirty = true;
-  if ($('#bsave')) $('#bsave').textContent = saveText();
-  clearTimeout(E.timer);
-  E.timer = setTimeout(briefSave, 2500);
+  saveUi();
+  // tidak lagi simpan otomatis ke server (hemat kuota): cadangan draft disimpan di browser saja
+  clearTimeout(E.draftTimer);
+  E.draftTimer = setTimeout(() => draftPut(E), 800);
 }
 function refreshLive() {
   const d = S.bEdit.b.data;
@@ -454,6 +455,7 @@ function rerenderBrief(focusSel) {
 }
 
 function bindBriefEditor(edit) {
+  setTimeout(() => { if (typeof draftBanner === 'function') draftBanner(); }, 0);
   const E = S.bEdit, d = E.b.data, root = $('#bmain');   // elemen baru tiap render → listener tidak menumpuk
   $('#bback').onclick = () => { S.bf.kind = isSocial(E.b) ? 'sosmed' : 'artikel'; go('briefs'); };
   if ($('#breload')) $('#breload').onclick = async () => { E.dirty = false; E.error = ''; await loadData(true); S.bEdit = null; openBrief(E.id); };
@@ -493,7 +495,7 @@ function bindBriefEditor(edit) {
       const v = el.value.trim(); if (!v) return;
       if (!d.extras.includes(v)) d.extras.push(v);
       markDirty(); rerenderBrief('[data-extrain]');
-    } else if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); briefSave(); }
+    }
   });
   root.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b || b.disabled) return;
@@ -582,21 +584,20 @@ async function briefSave() {
   if (E.creating) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 1200); return; }   // tunggu brief baru selesai dibuat dulu
   clearTimeout(E.timer);
   if (E.isNew) {   // brief sosmed baru: dibuat di server begitu judulnya diisi
-    if (!String((E.b.data && E.b.data.title) || '').trim()) { const el0 = $('#bsave'); if (el0 && S.view === 'brief') el0.textContent = saveText(); return; }
+    if (!String((E.b.data && E.b.data.title) || '').trim()) { saveUi(); return; }
     E.saving = true; E.dirty = false;
-    const el1 = $('#bsave'); if (el1 && S.view === 'brief') el1.textContent = saveText();
+    saveUi();
     const snap0 = JSON.stringify(E.b.data);
-    try { E.creating = socCreate(E); await E.creating; E.savedAt = new Date(); if (JSON.stringify(E.b.data) !== snap0) E.dirty = true; }
+    try { E.creating = socCreate(E); await E.creating; E.savedAt = new Date(); if (JSON.stringify(E.b.data) !== snap0) E.dirty = true; else draftDel(E.id); }
     catch (e) { E.dirty = true; toast('Brief belum tersimpan: ' + cleanErr(e), true); }
     finally {
       E.creating = null; E.saving = false;
-      const el2 = $('#bsave'); if (el2 && S.view === 'brief') el2.textContent = saveText();
-      if (E.dirty && !E.isNew) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 2500); }
+      saveUi();
     }
     return;
   }
   E.saving = true; E.dirty = false;
-  const el = $('#bsave'); if (el && S.view === 'brief') el.textContent = saveText();
+  saveUi();
   const snap = JSON.parse(JSON.stringify(E.b));
   try {
     const r = isSocial(snap)
@@ -605,6 +606,7 @@ async function briefSave() {
     if (r.task) { patchTask(r.task.id, { task: r.task.task }); if (S.view === 'brief' && $('#bsoc-task')) $('#bsoc-task').innerHTML = socTaskInfo(E.b); }
     E.b.updatedAt = r.brief.updatedAt; E.b.updatedBy = r.brief.updatedBy; E.b.docUrl = r.brief.docUrl || E.b.docUrl;
     E.savedAt = new Date(); E.error = '';
+    if (!E.dirty) draftDel(snap.id);
     putBrief(Object.assign({}, r.brief, { data: E.dirty ? snap.data : r.brief.data }));
   } catch (e) {
     E.dirty = true;
@@ -613,8 +615,7 @@ async function briefSave() {
     else toast('Brief belum tersimpan: ' + msg, true);
   } finally {
     E.saving = false;
-    const el2 = $('#bsave'); if (el2 && S.view === 'brief') el2.textContent = saveText();
-    if (E.dirty && !E.error) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 4000); }
+    saveUi();
   }
 }
 /** Dipanggil saat meninggalkan editor: simpan perubahan yang tertunda di belakang layar. */
@@ -623,7 +624,53 @@ function briefFlush() {
   if (E && E.isNew && !String((E.b.data && E.b.data.title) || '').trim()) { if (E.dirty) toast('Brief sosmed tanpa judul tidak disimpan.'); S.bEdit = null; return; }
   if (E && E.dirty && !E.error) briefSave();
 }
-window.addEventListener('beforeunload', (e) => { if (S.bEdit && (S.bEdit.dirty || S.bEdit.saving) && !S.bEdit.error) { briefSave(); e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', (e) => {
+  const E = S.bEdit;
+  if (E && (E.dirty || E.saving) && !E.error) { draftPut(E); e.preventDefault(); e.returnValue = ''; }
+});
+
+// ---------- simpan manual + draft di browser ----------
+function saveGroup() {
+  const E = S.bEdit, edit = E && canEditBrief(E.b);
+  return `<span class="bsave-g"><span class="muted small" id="bsave">${saveText()}</span>${edit ? `<button type="button" class="btn sm primary" id="bsavebtn" title="Simpan (Ctrl/⌘ + S)" ${E.dirty && !E.saving ? '' : 'disabled'}>${E.saving ? 'Menyimpan…' : 'Simpan'}</button>` : ''}</span>`;
+}
+function saveUi() {
+  if (S.view !== 'brief') return;
+  const E = S.bEdit, el = $('#bsave'), b = $('#bsavebtn');
+  if (el) { el.textContent = saveText(); el.classList.toggle('unsaved', !!(E && E.dirty && !E.saving)); }
+  if (b && E) { b.disabled = !(E.dirty && !E.saving); b.textContent = E.saving ? 'Menyimpan…' : 'Simpan'; }
+}
+const DRAFT_KEY = 'pt.bdraft.';
+function draftPut(E) {
+  if (!E || !E.dirty || E.isNew || !E.id || String(E.id).startsWith('tmp-')) return;
+  try { localStorage.setItem(DRAFT_KEY + E.id, JSON.stringify({ at: new Date().toISOString(), base: E.b.updatedAt || '', data: E.b.data })); } catch (e) { /* penuh / diblokir */ }
+}
+function draftGet(id) { try { return JSON.parse(localStorage.getItem(DRAFT_KEY + id) || 'null'); } catch (e) { return null; } }
+function draftDel(id) { try { localStorage.removeItem(DRAFT_KEY + id); } catch (e) { /* abaikan */ } }
+/** Saat brief dibuka: tawarkan memulihkan perubahan yang belum sempat disimpan di perangkat ini. */
+function draftBanner() {
+  const E = S.bEdit;
+  if (S.view !== 'brief' || !E || E.dirty || !canEditBrief(E.b) || $('#bdraft')) return;
+  const dr = draftGet(E.id);
+  if (!dr || !dr.data) return;
+  if (JSON.stringify(dr.data) === JSON.stringify(E.b.data)) { draftDel(E.id); return; }
+  const at = new Date(dr.at), newer = dr.base && E.b.updatedAt && dr.base !== E.b.updatedAt;
+  const top = $('.bed-top'); if (!top) return;
+  const bn = document.createElement('div');
+  bn.className = 'banner warn'; bn.id = 'bdraft';
+  bn.innerHTML = `<div><b>Ada perubahan yang belum disimpan</b> dari ${esc(cmWhen(at.toISOString()))} di perangkat ini.${newer ? ' Brief ini sudah diubah lagi sejak itu — memulihkan akan menimpa perubahan tersebut.' : ''}</div>
+    <div class="row"><button class="btn sm" id="bdraft-x">Buang</button><button class="btn sm primary" id="bdraft-ok">Pulihkan</button></div>`;
+  top.insertAdjacentElement('afterend', bn);
+  $('#bdraft-x').onclick = () => { draftDel(E.id); bn.remove(); };
+  $('#bdraft-ok').onclick = () => {
+    E.b.data = E.b.type === 'Request' ? normRequest(dr.data) : isSocial(E.b) ? normSocial(dr.data) : normBrief(dr.data);
+    E.dirty = true; rerenderBrief(); toast('Perubahan dipulihkan — klik Simpan untuk menyimpan');
+  };
+}
+document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('#bsavebtn'); if (b && !b.disabled) briefSave(); });
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S') && S.view === 'brief' && S.bEdit) { e.preventDefault(); if (S.bEdit.dirty) briefSave(); }
+});
 
 // ---------- integrasi dengan task ----------
 /** Chip Brief di baris task. */

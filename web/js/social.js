@@ -135,10 +135,10 @@ function newSocialBrief(copyFrom) {
     data, docUrl: '', createdAt: '', updatedAt: '', updatedBy: S.user.username };
   S.bEdit = { id: tmp.id, b: tmp, dirty: !!copyFrom, saving: false, savedAt: null, error: '', isNew: true };
   go('brief');
-  if (copyFrom) { toast('Salinan dibuat. Ubah seperlunya — tersimpan otomatis.'); briefSave(); }
+  if (copyFrom) { toast('Salinan dibuat. Ubah seperlunya, lalu klik Simpan.'); briefSave(); }
   else setTimeout(() => { const el = $('[data-k="title"]'); if (el) el.focus(); }, 50);
 }
-/** Simpan brief sosmed baru untuk pertama kali (dipanggil oleh simpan otomatis bila judul sudah diisi). */
+/** Simpan brief sosmed baru untuk pertama kali (dipanggil saat Simpan diklik, bila judul sudah diisi). */
 async function socCreate(E) {
   const snap = JSON.parse(JSON.stringify(E.b));
   const r = await api.call('saveSocialBrief', { brief: { data: snap.data } });
@@ -181,7 +181,7 @@ function viewSocial() {
       <button class="btn ghost sm" id="bback">← Brief</button>
       <div class="bed-task"><span class="soc-ico">${SOC_ICON}</span><b id="soc-ttl">${esc(d.title || 'Brief sosmed baru')}</b> <span class="muted">· dibuat ${esc(nameOf(b.createdBy))}</span></div>
       <span class="bstat ${stc}" id="bstatus">${esc(st)}</span>
-      <span class="muted small" id="bsave">${saveText()}</span>
+      ${saveGroup()}
       <div class="bed-actions" id="bactions"></div>
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}
@@ -371,9 +371,8 @@ async function socialAssign() {
     })
     .finally(() => {
       E.creating = null; E.saving = false;
-      const el = $('#bsave'); if (el && S.view === 'brief') el.textContent = saveText();
+      saveUi();
       saveCache();
-      if (E.dirty && !E.error) { clearTimeout(E.timer); E.timer = setTimeout(briefSave, 2500); }
     });
 }
 function socRefreshStatus() {
@@ -425,6 +424,7 @@ function socLive() {
 }
 
 function bindSocialEditor(edit) {
+  setTimeout(() => { if (typeof draftBanner === 'function') draftBanner(); }, 0);
   const E = S.bEdit, d = E.b.data, root = $('#bmain');
   $('#bback').onclick = () => { S.bf.kind = 'sosmed'; go('briefs'); };
   if ($('#breload')) $('#breload').onclick = async () => { E.dirty = false; E.error = ''; await loadData(true); S.bEdit = null; openBrief(E.id); };
