@@ -3,8 +3,9 @@
 (function () {
   'use strict';
   var CFG = window.PT_CONFIG || {};
+  var FIRE = CFG.backend === 'firebase' && window.PTFire;
   var L = window.PTLogic;
-  var VERSION = '2.24.1';
+  var VERSION = '2.25.0';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
 
@@ -46,6 +47,10 @@
       if (get('demoFail', false) && action === 'updateStatus') throw new Error('Simulasi server gagal');
       try { return JSON.parse(JSON.stringify(window.PTDemo.handle(action, payload, session))); }
       catch (e) { if (e.message === 'UNAUTHORIZED') unauthorized(); throw e; }
+    }
+    if (FIRE) {
+      try { return await window.PTFire.call(action, payload); }
+      catch (e) { if (e && e.message === 'UNAUTHORIZED') { unauthorized(); throw new Error('Sesi berakhir, silakan login lagi'); } throw e; }
     }
     var url = apiUrl();
     if (!url) throw new Error('Alamat server belum diatur');
@@ -187,7 +192,7 @@
     config: async function () {
       return {
         apiUrl: apiUrl(), apiLocked: !!CFG.apiUrl, user: get('user', null), demo: get('demo', false),
-        reminders: get('reminders', [1440, 60]), version: VERSION, platform: 'web',
+        reminders: get('reminders', [1440, 60]), version: VERSION, platform: 'web', backend: FIRE ? 'firebase' : 'sheets',
         notifPermission: notifSupported() ? Notification.permission : 'unsupported',
         installed: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
         canInstall: !!installPrompt,
@@ -210,18 +215,28 @@
       return true;
     },
     login: async function (username, password) {
+      if (FIRE && !get('demo', false)) {
+        var fu = await window.PTFire.login(username, password);
+        set('token', 'firebase'); set('user', fu);
+        if (!fu.mustChange) startScheduler();
+        return fu;
+      }
       var r = await api('login', { username: username, password: password });
       set('token', r.token); set('user', r.user);
       if (!r.user.mustChange) startScheduler();
       return r.user;
     },
     changePassword: async function (oldPassword, newPassword) {
+      if (FIRE && !get('demo', false)) {
+        var fu = await window.PTFire.changePassword(oldPassword, newPassword);
+        set('user', fu); startScheduler(); return fu;
+      }
       var r = await api('changePassword', { oldPassword: oldPassword, newPassword: newPassword });
       set('user', r.user);
       startScheduler();
       return r.user;
     },
-    logout: async function () { set('token', ''); set('user', null); set('reviewBaseline', false); stopScheduler(); return true; },
+    logout: async function () { set('token', ''); set('user', null); set('reviewBaseline', false); stopScheduler(); if (FIRE) { try { await window.PTFire.logout(); } catch (e) { /* abaikan */ } } return true; },
     call: async function (action, payload) {
       var r = await api(action, payload);
       if (action === 'myTasks') { myTasks = r.tasks || []; checkNotifications(); }
@@ -255,6 +270,8 @@
     openExternal: async function (url) { if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener'); },
     on: function (ch, fn) { (listeners[ch] = listeners[ch] || []).push(fn); }
   };
+
+  if (FIRE) window.PTFire.on('changed', function () { if (get('token', '')) emit('data:changed'); });
 
   // lanjutkan sesi yang tersimpan
   var u0 = get('user', null);

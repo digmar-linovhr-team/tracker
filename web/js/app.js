@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.24.1';
+const CSS_VERSION = '2.25.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -2122,6 +2122,7 @@ api.on('reviews:refreshed', (tasks) => {
   saveCache(); renderNav();
   if (S.view === 'review') softRender();
 });
+api.on('data:changed', () => { if (S.user && !S.pending.size) refreshInBackground(50); });
 api.on('nav:view', (v) => { if (S.user && v) go(v); });
 api.on('nav:task', async (id) => {
   if (!S.user || !S.user.sheetName) return;

@@ -85,6 +85,10 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await assertFails(updateDoc(doc(nadia, 'tasks', 'RQ1'), by('nadia', { status: 'Done' })));
     await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ1'), by('ari', { status: 'Done', doneAt: 'x' })));
     await assertFails(updateDoc(doc(ammar, 'tasks', 'RQ1'), by('ammar', { status: 'Backlog' })));
+    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ2'), by('ari', { owner: 'ammar', status: 'Backlog', stageLog: [] })), 'alihkan request');
+    await assertFails(deleteDoc(doc(nadia, 'tasks', 'RQ2')), 'penerima tidak bisa menghapus');
+    await assertSucceeds(deleteDoc(doc(ari, 'tasks', 'RQ2')), 'pembuat menghapus selama belum dikerjakan');
+    await assertFails(deleteDoc(doc(ari, 'tasks', 'RQ1')), 'sudah berjalan → hanya admin');
   });
 
   await it('komentar: tulis atas nama sendiri, ubah ≤ 15 menit, admin menghapus', async () => {

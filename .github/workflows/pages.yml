@@ -1,6 +1,6 @@
 name: Deploy ke GitHub Pages
 
-# Setiap push ke branch main, folder web/ dipublikasikan ke GitHub Pages.
+# Setiap push ke branch main, folder web/ dipublikasikan ke GitHub Pages (versi Firebase di /beta).
 on:
   push:
     branches: [main]
@@ -28,9 +28,11 @@ jobs:
           node-version: 20
       - name: Uji logika & backend
         run: TZ=Asia/Jakarta node tests/logic.test.js && TZ=Asia/Jakarta node tests/backend.test.js
+      - name: Bangun situs (utama + /beta versi Firebase)
+        run: node tools/build-site.js _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web
+          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

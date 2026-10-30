@@ -64,8 +64,8 @@ service cloud.firestore {
     function creatorOk() {
       return old().get('createdBy', '') == uname() && old().get('type', '') in ['Request', 'Sosmed'] && stamped()
         && (onlyChanges(planKeys())
-            // pembuat Request menyetujui / mengembalikan hasil
-            || (old().type == 'Request' && onlyChanges(['status', 'doneAt', 'reviewAt', 'stageLog', 'endDate', 'endTime', 'updatedAt', 'updatedBy'])))
+            // pembuat Request: mengalihkan penerima (status kembali Backlog), menjawab klarifikasi, menyetujui / mengembalikan hasil
+            || (old().type == 'Request' && onlyChanges(planKeys().concat(['status', 'doneAt', 'reviewAt', 'stageLog']))))
         && (unchanged('owner') || isActiveUser(d().owner));
     }
     match /tasks/{id} {
@@ -74,7 +74,9 @@ service cloud.firestore {
         || (active() && d().get('createdBy', '') == uname() && d().get('type', '') in ['Request', 'Sosmed']
             && d().status == 'Backlog' && isActiveUser(d().owner) && d().owner != uname());
       allow update: if admin() || (active() && (ownerWorkOk() || creatorOk()));
-      allow delete: if admin();
+      // pembuat Request/Sosmed boleh menghapus selama belum mulai dikerjakan
+      allow delete: if admin() || (active() && old().get('createdBy', '') == uname() && old().status == 'Backlog'
+        && old().get('startedAt', '') == '');
     }
 
     // ---------- brief (artikel, sosmed, request) ----------
@@ -83,7 +85,7 @@ service cloud.firestore {
       allow create: if active() && d().createdBy == uname();
       allow update: if admin() || (active() && (old().createdBy == uname() || old().get('owner', '') == uname())
         && unchanged('createdBy'));
-      allow delete: if admin() || (active() && old().createdBy == uname() && old().get('taskId', '') == '');
+      allow delete: if admin() || (active() && old().createdBy == uname() && old().get('type', '') in ['Sosmed', 'Request']);
     }
 
     // ---------- jadwal kerja ----------

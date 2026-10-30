@@ -71,6 +71,7 @@ function onOpen() {
     .addItem('Reset password pengguna…', 'menuResetPassword')
     .addSeparator()
     .addItem('Salin data ke Firebase (migrasi)', 'migrateToFirestore')
+    .addItem('Salin ulang dari nol ke Firebase (peralihan)', 'migrateFresh')
     .addToUi();
 }
 
@@ -198,6 +199,7 @@ function route_(b) {
   rememberAppUrl_(b.appUrl);
   if (a === 'login') return login_(b.username, b.password);
   if (a === 'fbLogin') return fbLogin_(b.username, b.password);
+  if (String(a).indexOf('fb:') === 0) return fbRoute_(a.slice(3), b);
 
   var me = auth_(b.token);
   if (a === 'changePassword') return changePassword_(me, b.oldPassword, b.newPassword);
@@ -3191,9 +3193,9 @@ function authVerify_(idToken) {
     { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify({ idToken: String(idToken || '') }) });
   var j = JSON.parse(res.getContentText() || '{}'), acc = (j.users || [])[0];
   if (res.getResponseCode() >= 300 || !acc || !acc.email) throw new Error('UNAUTHORIZED');
-  var u = findUser_(acc.email.split('@')[0]);
-  if (!u || !u.active || u.orgOnly) throw new Error('UNAUTHORIZED');
-  return u;
+  var un = acc.email.split('@')[0], d = fsGet_('users/' + un);
+  if (!d || d.active !== true || d.orgOnly) throw new Error('UNAUTHORIZED');
+  return { username: un, name: d.name || un, role: d.role === 'admin' ? 'admin' : 'member' };
 }
 
 // ---------- Login lama → akun Firebase (migrasi bertahap) ----------
@@ -3236,6 +3238,96 @@ function fbDiagnose() {
   catch (e) { Logger.log('6. Tulis Firestore: GAGAL — ' + e.message); }
 }
 
+
+// ---------- Aksi versi Firebase yang butuh server (dipanggil aplikasi dengan ID token) ----------
+function fbRoute_(a, b) {
+  var me = authVerify_(b.idToken);
+  var needAdmin = function () { if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini'); };
+  switch (a) {
+    case 'saveUserNew': needAdmin(); return fbCreateUser_(me, b.user || {});
+    case 'resetPassword': needAdmin(); return fbResetPassword_(me, b.username);
+    case 'deleteUser': needAdmin(); return fbDeleteUser_(me, b.username, b.confirm);
+    case 'exportBriefDoc': return fbExportBrief_(me, b.briefId);
+    case 'sendReport': needAdmin(); return sendTeamReport_(b.kind === 'month' ? 'month' : 'week', new Date());
+  }
+  throw new Error('Aksi tidak dikenal');
+}
+function fbCreateUser_(me, data) {
+  var username = slug_(data.username || data.name || '');
+  if (!username) throw new Error('Username wajib diisi');
+  if (fsGet_('users/' + username)) throw new Error('Username "' + username + '" sudah dipakai');
+  var orgOnly = !!data.orgOnly;
+  var doc = { name: String(data.name || username).trim().slice(0, 80), role: data.role === 'admin' && !orgOnly ? 'admin' : 'member', active: true,
+    position: String(data.position || '').trim().slice(0, 80), reportsTo: String(data.reportsTo || '').toLowerCase(), division: String(data.division || '').trim().slice(0, 60),
+    skills: String(data.skills || '').trim().slice(0, 120), joined: /^\d{4}-\d{2}$/.test(String(data.joined || '')) ? data.joined : '',
+    orgOnly: orgOnly, wfoExempt: !!data.wfoExempt, hasTasks: !orgOnly && data.hasTasks !== false, onboard: orgOnly ? '' : 'pending',
+    mustChange: !orgOnly, authMigrated: !orgOnly, createdAt: new Date() };
+  var pw = orgOnly ? '' : tempPassword_();
+  if (!orgOnly) authUpsert_(username, pw, doc.name);
+  var w = [{ path: 'users/' + username, data: doc }];
+  if (data.email) w.push({ path: 'private/' + username, data: { email: cleanEmail_(data.email) } });
+  fsCommit_(w);
+  log_(me, 'fb-create-user', '', username);
+  var out = { user: Object.assign({ username: username, sheetName: doc.hasTasks ? doc.name : '', email: data.email ? cleanEmail_(data.email) : '' }, doc) };
+  out.user.createdAt = doc.createdAt.toISOString();
+  if (pw) out.password = pw;
+  return out;
+}
+function fbResetPassword_(me, username) {
+  username = String(username || '').toLowerCase();
+  var d = fsGet_('users/' + username);
+  if (!d || d.orgOnly) throw new Error('Pengguna tidak ditemukan');
+  var pw = tempPassword_();
+  authUpsert_(username, pw, d.name);
+  fsMerge_('users/' + username, { mustChange: true, authMigrated: true });
+  log_(me, 'fb-reset-password', '', username);
+  return { password: pw };
+}
+function fbDeleteUser_(me, username, confirm) {
+  username = String(username || '').toLowerCase();
+  if (username === me.username) throw new Error('Anda tidak bisa menghapus akun sendiri');
+  var d = fsGet_('users/' + username);
+  if (!d) throw new Error('Pengguna tidak ditemukan');
+  if (d.active) throw new Error('Nonaktifkan akun ini dulu sebelum menghapusnya');
+  var tasks = fsList_('tasks').filter(function (t) { return t.owner === username; });
+  if (tasks.length && String(confirm || '').trim().toLowerCase() !== username) throw new Error('Ketik username "' + username + '" untuk mengonfirmasi penghapusan');
+  var w = [];
+  tasks.forEach(function (t) { var id = t._id; delete t._id; w.push({ path: 'archiveTasks/' + id, data: Object.assign(t, { archivedAt: new Date(), archivedBy: me.username }) }); w.push({ path: 'tasks/' + id, del: true }); });
+  fsList_('users').forEach(function (u) { if (u.reportsTo === username) w.push({ path: 'users/' + u._id, merge: { reportsTo: '' } }); });
+  w.push({ path: 'users/' + username, del: true }, { path: 'private/' + username, del: true });
+  fsCommit_(w);
+  try { var acc = authLookup_(username); if (acc) fbFetch_('post', authBase_() + '/accounts:delete', { localId: acc.localId }); } catch (e) { Logger.log('Hapus akun login: ' + e); }
+  log_(me, 'fb-delete-user', '', username + ' (' + tasks.length + ' task diarsipkan)');
+  return { ok: true, username: username, archived: tasks.length ? 'arsip di Firestore (archiveTasks)' : '', tasks: tasks.length };
+}
+function fbExportBrief_(me, id) {
+  var b = fsGet_('briefs/' + String(id || ''));
+  if (!b) throw new Error('Brief tidak ditemukan (mungkin sudah dihapus). Muat ulang data.');
+  b.id = b._id; delete b._id;
+  if (b.type === 'Sosmed' || b.type === 'Request') throw new Error('Google Doc hanya untuk brief artikel.');
+  var t = b.taskId ? fsGet_('tasks/' + b.taskId) : null;
+  if (me.role !== 'admin' && !(t && t.owner === me.username) && b.createdBy !== me.username) throw new Error('Hanya admin dan penulisnya yang bisa mengekspor brief ini.');
+  var task = t ? Object.assign({ id: b.taskId, ownerName: ((fsGet_('users/' + t.owner) || {}).name) || t.owner }, t) : null;
+  var name = 'Brief — ' + (b.keyword || b.title || b.id) + (task && task.code ? ' [' + task.code + ']' : '');
+  var doc = null;
+  if (b.docUrl) { try { doc = DocumentApp.openByUrl(b.docUrl); doc.setName(name); } catch (e) { doc = null; } }
+  if (!doc) {
+    doc = DocumentApp.create(name);
+    try { DriveApp.getFileById(doc.getId()).moveTo(briefFolder_()); } catch (e) { Logger.log('Pindah folder: ' + e); }
+  }
+  writeBriefDoc_(doc, b, task);
+  doc.saveAndClose();
+  var file = DriveApp.getFileById(doc.getId());
+  [task && task.owner, b.createdBy, me.username].filter(Boolean).forEach(function (un) {
+    var p = fsGet_('private/' + un);
+    if (p && p.email) { try { file.addEditor(p.email); } catch (e) { Logger.log('Bagikan ke ' + p.email + ': ' + e); } }
+  });
+  var url = doc.getUrl ? doc.getUrl() : file.getUrl();
+  fsMerge_('briefs/' + b.id, { docUrl: url });
+  b.docUrl = url;
+  return { url: url, brief: b };
+}
+
 // ---------- Pemindahan data Sheets → Firestore ----------
 var MIG_STAMP = 'migrasi';
 function migUserDoc_(u) {
@@ -3252,6 +3344,16 @@ function migTaskDoc_(t, createdBy) {
     repeat: t.repeat || '', repeatOf: t.repeatOf || '', updatedBy: MIG_STAMP, updatedAt: new Date() };
   if (createdBy) o.createdBy = createdBy;
   return o;
+}
+/** Hapus semua data uji coba di Firestore (task, brief, komentar, jadwal, cuti, notifikasi, dll.) lalu salin ulang dari spreadsheet.
+ *  Akun login & status migrasinya tetap. Dipakai saat peralihan supaya perubahan selama masa beta tidak terbawa. */
+function migrateFresh() {
+  resetMemo_();
+  var cols = ['tasks', 'projects', 'briefs', 'schedule', 'schedRequests', 'holidays', 'leaves', 'comments', 'notifications', 'serverMeta'], w = [];
+  cols.forEach(function (c) { fsList_(c).forEach(function (d) { w.push({ path: c + '/' + d._id, del: true }); }); });
+  fsCommit_(w);
+  Logger.log('Dihapus: ' + w.length + ' dokumen');
+  return migrateToFirestore();
 }
 /** Salin seluruh data dari spreadsheet ke Firestore. Aman dijalankan berulang (menimpa per ID). Akun login tidak disentuh. */
 function migrateToFirestore() {

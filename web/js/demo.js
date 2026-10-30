@@ -6,6 +6,8 @@ const people = [
   ['dany', 'Dany'], ['arya', 'Arya'], ['wisnu', 'Wisnu'], ['nadia', 'Nadia']
 ];
 
+let idGen = (kind) => kind + 'DEMO' + Date.now() + Math.random().toString(36).slice(2, 5);
+function nid(kind) { return idGen(kind); }
 function iso(d) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -227,7 +229,7 @@ function cmListD(s, me, taskId) {
   });
   return { taskId, comments, people: s.users.filter((u) => u.active && !u.orgOnly).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })) };
 }
-function cmSysD(s, taskId, me, text, tone) { s.comments.push({ id: 'KMD' + Date.now() + Math.random().toString(36).slice(2, 5), taskId, author: me.username, kind: tone ? 'sys:' + tone : 'sys', text, createdAt: new Date().toISOString() }); }
+function cmSysD(s, taskId, me, text, tone) { s.comments.push({ id: nid('KM'), taskId, author: me.username, kind: tone ? 'sys:' + tone : 'sys', text, createdAt: new Date().toISOString() }); }
 // ---------- jadwal kerja (meniru server) ----------
 const SCH_D = ['mon', 'tue', 'wed', 'thu', 'fri'], SCH_W = ['mon', 'tue', 'thu'], SCH_N = { mon: 'Senin', tue: 'Selasa', wed: 'Rabu', thu: 'Kamis', fri: 'Jumat' };
 function schWeekOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); }
@@ -284,12 +286,12 @@ function saveReq(s, me, br) {
     const owner = s.users.find((u) => u.username === a.owner && u.sheetName);
     if (!owner) throw new Error('Pilih penerima request.');
     if (owner.username === (cur ? cur.createdBy : me.username)) throw new Error('Request tidak bisa ditujukan ke pembuatnya sendiri.');
-    if (!task) { task = { id: 'TDEMO' + Date.now(), startDate: iso(new Date()), startTime: '09:00', status: 'Backlog', startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', notes: '', type: 'Request', stageLog: [{ e: 'created', t: now }] }; s.tasks.push(task); }
+    if (!task) { task = { id: nid('T'), startDate: iso(new Date()), startTime: '09:00', status: 'Backlog', startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', notes: '', type: 'Request', stageLog: [{ e: 'created', t: now }] }; s.tasks.push(task); }
     if (task.owner !== owner.username) newOwner = owner;
     Object.assign(task, { owner: owner.username, ownerName: owner.name, sheet: owner.name, task: title, code: a.code || '', endDate: a.endDate, endTime: a.endTime || '18:00', priority: a.priority || 'Medium' });
   } else if (task) task.task = title;
   const thread = cur ? (cur.data.thread || []) : [];
-  if (!cur) { cur = { id: 'RQDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '', type: 'Request', status: 'Konfirmasi', statusAt: now }; s.briefs.push(cur); }
+  if (!cur) { cur = { id: nid('RQ'), createdBy: me.username, createdAt: now, docUrl: '', type: 'Request', status: 'Konfirmasi', statusAt: now }; s.briefs.push(cur); }
   else if (newOwner) { cur.status = 'Konfirmasi'; task.status = 'Backlog'; reqLog(task, 'created'); thread.push({ by: me.username, name: me.name, t: now, text: 'Request dialihkan ke ' + newOwner.name + '.', sys: true }); }
   Object.assign(cur, { taskId: task.id, owner: task.owner, title, keyword: '', data: { v: 1, title, body: d.body, attachments: d.attachments || [], thread, assign: a || (cur.data && cur.data.assign) }, updatedAt: now, updatedBy: me.username });
   return { brief: cur, task };
@@ -371,10 +373,10 @@ function saveSocial(s, me, br) {
     const a = br.assign, owner = s.users.find((u) => u.username === a.owner && u.sheetName);
     if (!owner) throw new Error('Pilih penanggung jawab.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(a.endDate || '')) throw new Error('Isi deadline.');
-    if (!task) { task = { id: 'TDEMO' + Date.now(), startDate: iso(new Date()), startTime: '09:00', status: 'Backlog', startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', notes: '', type: 'Sosmed' }; s.tasks.push(task); }
+    if (!task) { task = { id: nid('T'), startDate: iso(new Date()), startTime: '09:00', status: 'Backlog', startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', notes: '', type: 'Sosmed' }; s.tasks.push(task); }
     Object.assign(task, { owner: owner.username, ownerName: owner.name, sheet: owner.name, task: title, code: a.code || '', endDate: a.endDate, endTime: a.endTime || '18:00', priority: a.priority || 'Medium' });
   } else if (task && title) task.task = title;
-  if (!cur) { cur = { id: 'BSDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '', type: 'Sosmed', statusAt: now }; s.briefs.push(cur); }
+  if (!cur) { cur = { id: nid('BS'), createdBy: me.username, createdAt: now, docUrl: '', type: 'Sosmed', statusAt: now }; s.briefs.push(cur); }
   const st = task ? (SOC_ST[task.status] || 'Ditugaskan') : 'Draft';
   if (cur.status !== st) cur.statusAt = now;
   Object.assign(cur, { taskId: task ? task.id : '', owner: task ? task.owner : '', status: st, keyword: d.format || 'Carousel', title, data: d, updatedAt: now, updatedBy: me.username });
@@ -425,7 +427,7 @@ function handle(action, b, session) {
       const text = String(b.text || '').trim(); if (!text) throw new Error('Komentar kosong');
       if (!s.tasks.some((t) => t.id === b.taskId)) throw new Error('Task tidak ditemukan. Muat ulang data.');
       const ment = (b.mentions || []).filter((un) => { const u = s.users.find((x) => x.username === un); return u && un !== me.username && text.includes('@' + u.name); });
-      s.comments.push({ id: 'KMD' + Date.now(), taskId: b.taskId, author: me.username, kind: 'user', text, mentions: ment, createdAt: new Date().toISOString() });
+      s.comments.push({ id: nid('KM'), taskId: b.taskId, author: me.username, kind: 'user', text, mentions: ment, createdAt: new Date().toISOString() });
       return cmListD(s, me, b.taskId);
     }
     case 'commentEdit': {
@@ -455,7 +457,7 @@ function handle(action, b, session) {
       if (me.role !== 'admin' && q.kind === 'Cuti' && to < iso(new Date())) throw new Error('Cuti tidak bisa diajukan untuk tanggal yang sudah lewat. Untuk sakit/izin mendadak, pilih jenis Sakit atau Izin.');
       const clash = s.leaves.find((l) => l.username === un && ['Menunggu', 'Disetujui'].includes(l.status) && l.from <= to && from <= l.to);
       if (clash) throw new Error('Sudah ada ' + clash.kind.toLowerCase() + ' ' + clash.from + (clash.to !== clash.from ? ' s.d. ' + clash.to : '') + ' (' + clash.status.toLowerCase() + ') yang bertabrakan.');
-      s.leaves.push({ id: 'CTDEMO' + Date.now(), username: un, kind: q.kind, from, to, reason: String(q.reason || '').trim(), status: direct ? 'Disetujui' : 'Menunggu', createdAt: new Date().toISOString(), decidedBy: direct ? me.username : '', note: '' });
+      s.leaves.push({ id: nid('CT'), username: un, kind: q.kind, from, to, reason: String(q.reason || '').trim(), status: direct ? 'Disetujui' : 'Menunggu', createdAt: new Date().toISOString(), decidedBy: direct ? me.username : '', note: '' });
       return schData(s, me, schWeekOf(new Date(from + 'T00:00:00')));
     }
     case 'leaveCancel': {
@@ -480,7 +482,7 @@ function handle(action, b, session) {
       let cur = br.id && s.briefs.find((x) => x.id === br.id);
       if (br.id && !cur) throw new Error('Brief tidak ditemukan');
       if (cur && br.baseUpdatedAt && cur.updatedAt !== br.baseUpdatedAt) throw new Error('Brief ini baru saja diubah oleh ' + cur.updatedBy + '. Muat ulang supaya perubahannya tidak tertimpa.');
-      if (!cur) { cur = { id: 'BRDEMO' + Date.now(), createdBy: me.username, createdAt: now, docUrl: '', status: 'Draft' }; s.briefs.push(cur); if (t.type === 'Artikel' && (t.stage || 1) === 1) demoStage(t, 2, me); }
+      if (!cur) { cur = { id: nid('BR'), createdBy: me.username, createdAt: now, docUrl: '', status: 'Draft' }; s.briefs.push(cur); if (t.type === 'Artikel' && (t.stage || 1) === 1) demoStage(t, 2, me); }
       Object.assign(cur, { taskId: br.taskId, owner: t.owner, type: br.type || 'Informasional', data: br.data || {},
         keyword: (br.data && br.data.kwMain) || '', title: (br.data && br.data.h1) || '', updatedAt: now, updatedBy: me.username });
       return { brief: cur };
@@ -506,7 +508,7 @@ function handle(action, b, session) {
       const p = schPlan(s, me, w);
       if (!p.days.includes(q.from)) throw new Error('Hari itu bukan hari WFO Anda.');
       if (s.sreqs.some((r) => r.username === me.username && r.week === w && r.from === q.from && r.status === 'Menunggu')) throw new Error('Sudah ada pengajuan untuk hari itu yang menunggu keputusan admin.');
-      s.sreqs.push({ id: 'JDDEMO' + Date.now(), username: me.username, week: w, kind: q.kind === 'skip' ? 'skip' : 'swap', from: q.from, to: q.kind === 'skip' ? '' : q.to, reason: q.reason, status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', decidedAt: '', note: '' });
+      s.sreqs.push({ id: nid('JD'), username: me.username, week: w, kind: q.kind === 'skip' ? 'skip' : 'swap', from: q.from, to: q.kind === 'skip' ? '' : q.to, reason: q.reason, status: 'Menunggu', createdAt: new Date().toISOString(), decidedBy: '', decidedAt: '', note: '' });
       return schData(s, me, w);
     }
     case 'saveRequest': return saveReq(s, me, b.brief || {});
@@ -602,7 +604,7 @@ function handle(action, b, session) {
       const art = t.type === 'Artikel', wantStage = Number(t.stage) || 0;
       const clean = Object.assign({}, t); delete clean.stage; if (art) delete clean.status;
       if (t.id) { saved = s.tasks.find((x) => x.id === t.id); oldCode = saved.code; Object.assign(saved, clean, { ownerName: owner.name }); }
-      else { saved = Object.assign({ startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', status: 'Backlog' }, clean, { id: 'TDEMO' + Date.now(), ownerName: owner.name }); s.tasks.push(saved); }
+      else { saved = Object.assign({ startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', status: 'Backlog' }, clean, { id: nid('T'), ownerName: owner.name }); s.tasks.push(saved); }
       if (art && !saved.stage) { saved.stage = 1; saved.status = 'Backlog'; saved.stageLog = [{ s: 1, t: new Date().toISOString() }]; }
       if (art && wantStage && wantStage !== saved.stage) demoStage(saved, wantStage, me);
       return { id: saved.id, task: saved, projects: syncProj(s, [saved.code, oldCode]) };
@@ -682,5 +684,7 @@ function handle(action, b, session) {
   throw new Error('Aksi tidak dikenal');
 }
 
-root.PTDemo = { handle };
+/** Jalankan aksi pada state lain (dipakai versi Firebase: state = salinan data Firestore). */
+function handleWith(st, action, b, session) { const prev = db; db = st; try { return handle(action, b, session); } finally { db = prev; } }
+root.PTDemo = { handle, handleWith, setIdGen: (fn) => { idGen = fn; }, briefSums, iso, seed: () => build() };
 })(typeof self !== 'undefined' ? self : this);
