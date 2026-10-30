@@ -4,7 +4,8 @@
  "scripts": {
   "test:rules": "firebase emulators:exec --only firestore --project demo-tracker \"node rules.test.js\"",
   "test:backend": "firebase emulators:exec --only firestore,auth --project demo-tracker \"FB_EMU=1 node ../tests/backend.test.js\"",
-  "test:e2e": "node ../tools/build-site.js ../.e2e-site --emulator && firebase emulators:exec --only firestore,auth --project demo-tracker \"node seed-emulator.js && node e2e.js\""
+  "test:e2e:main": "node ../tools/build-site.js ../.e2e-site --emulator --main=firebase && E2E_PATH=/ firebase emulators:exec --only firestore,auth --project demo-tracker \"node seed-emulator.js && node e2e.js\"",
+    "test:e2e": "node ../tools/build-site.js ../.e2e-site --emulator && firebase emulators:exec --only firestore,auth --project demo-tracker \"node seed-emulator.js && node e2e.js\""
  },
  "devDependencies": {
   "@firebase/rules-unit-testing": "^4.0.1",
