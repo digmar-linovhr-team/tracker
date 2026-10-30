@@ -1004,6 +1004,51 @@ if (process.env.FB_EMU) it('Firebase: salin data ke Firestore, login lama → ak
   assert.strictEqual(sandbox.fsGet_('users/ari').authMigrated, true, 'salin ulang tidak menghapus status migrasi');
 });
 
+if (process.env.FB_EMU) it('Firebase: kirim notifikasi (push/email), push uji, push deadline sekali per tenggat', () => {
+  const pushed = [];
+  sandbox.fcmSend_ = (token, data) => { pushed.push({ token, data }); return token === 'tok-mati' ? 'gone' : 'ok'; };
+  const mails0 = mails.length;
+  sandbox.fsCommit_([
+    { path: 'devices/tok-ari', data: { username: 'ari', label: 'Mac · Chrome' } },
+    { path: 'devices/tok-mati', data: { username: 'ari', label: 'lama' } },
+    { path: 'private/ari', merge: { email: 'ari@x.com' } },
+    { path: 'notifications/n1', data: { to: 'ari', from: 'admin', type: 'mention', text: 'Admin menyebut Anda', taskId: 't1', view: '', push: true, email: false, read: false } },
+    { path: 'notifications/n2', data: { to: 'ari', from: 'admin', type: 'returned', text: 'Task dikembalikan', taskId: 't1', view: '', push: false, email: true, read: false } },
+    { path: 'notifications/n3', data: { to: 'ari', from: 'nadia', type: 'mention', text: 'palsu', push: true, email: false, read: false } }
+  ]);
+  const me = { username: 'admin', role: 'admin' };
+  const r = sandbox.fbDispatch_(me, ['n1', 'n2', 'n3'], 'https://digmar-linovhr-team.github.io/tracker/beta/');
+  assert.strictEqual(r.push, 1); assert.strictEqual(r.email, 1, 'email hanya untuk jenis penting; @sebutan tidak di-email karena push sampai');
+  assert.ok(pushed.some((p) => p.token === 'tok-ari' && p.data.tag === 'n-n1'));
+  assert.ok(!pushed.some((p) => p.data.body === 'palsu'), 'notifikasi milik orang lain tidak ikut dikirim');
+  assert.strictEqual(sandbox.fsGet_('devices/tok-mati'), null, 'token tidak berlaku dihapus');
+  assert.strictEqual(sandbox.fsGet_('notifications/n1').dispatched, true);
+  assert.strictEqual(mails.length, mails0 + 1); assert.ok(/view=/.test(mails[mails.length - 1].htmlBody));
+  const again = sandbox.fbDispatch_(me, ['n1', 'n2'], ''); assert.strictEqual(again.push + again.email, 0, 'tidak terkirim dua kali');
+  // setelan: push @sebutan dimatikan → jatuh ke email
+  sandbox.fsMerge_('private/ari', { prefs: { pushMention: false, pushDeadline: true } });
+  sandbox.fsSet_('notifications/n4', { to: 'ari', from: 'admin', type: 'mention', text: 'lagi', push: true, email: false, read: false });
+  const r4 = sandbox.fbDispatch_(me, ['n4'], ''); assert.strictEqual(r4.push, 0); assert.strictEqual(r4.email, 1);
+  // push deadline
+  const now = new Date(); const due = new Date(now.getTime() + 90 * 60000);
+  const ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const hm = (d) => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  sandbox.fsSet_('tasks/tdl', { owner: 'ari', task: 'Laporan uji', status: 'On-Progress', startDate: ymd(now), endDate: ymd(due), endTime: hm(due) });
+  sandbox.fsSet_('tasks/tdone', { owner: 'ari', task: 'Selesai', status: 'Done', startDate: ymd(now), endDate: ymd(due), endTime: hm(due) });
+  pushed.length = 0;
+  if (ymd(now) === ymd(due)) {   // lewati bila uji berjalan dekat tengah malam (cuti/hari kerja tidak relevan di sini)
+    sandbox.runPushDeadlines(now);
+    const mine = pushed.filter((p) => p.data.taskId === 'tdl');
+    assert.ok(mine.length === 1 && /2 jam/.test(mine[0].data.title), 'task jatuh tempo 2 jam lagi mendapat push');
+    assert.ok(!pushed.some((p) => p.data.taskId === 'tdone'), 'task Done tidak');
+    pushed.length = 0; sandbox.runPushDeadlines(new Date(now.getTime() + 15 * 60000));
+    assert.ok(!pushed.some((p) => p.data.taskId === 'tdl'), 'tidak diulang 15 menit kemudian');
+    pushed.length = 0; sandbox.runPushDeadlines(new Date(due.getTime() + 60000));
+    const od = pushed.filter((p) => p.data.taskId === 'tdl');
+    assert.ok(od.length === 1 && /terlewat/.test(od[0].data.title), 'push saat terlewat');
+  }
+});
+
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   const list = sandbox.parseResults_('Brief | https://docs.google.com/a\nhttps://drive.google.com/x\nDraft - https://canva.com/d\nbukan link');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);

@@ -39,13 +39,14 @@
     return v;
   }
   function docData(d) { return plain(d.data({ serverTimestamps: 'estimate' })); }
-  var raw = { users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {} };
+  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {} };
 
   function nameOf(u) { var x = raw.users[u]; return x ? x.name : u; }
   function rebuild() {
     var users = Object.keys(raw.users).map(function (u) {
       var x = raw.users[u];
-      return Object.assign({}, x, { username: u, sheetName: x.hasTasks ? (x.legacySheet || x.name) : '', email: (raw.private[u] || {}).email || '' });
+      return Object.assign({}, x, { username: u, sheetName: x.hasTasks ? (x.legacySheet || x.name) : '', email: (raw.private[u] || {}).email || '',
+        pushDevices: isAdmin ? Object.keys(raw.devices).filter(function (k) { return raw.devices[k].username === u; }).length : undefined });
     });
     var tasks = Object.keys(raw.tasks).map(function (id) {
       var t = raw.tasks[id];
@@ -77,6 +78,7 @@
           snap.docChanges().forEach(function (c) {
             var key = keyFn ? keyFn(c.doc) : c.doc.id;
             if (c.type === 'removed') delete raw[col][key]; else raw[col][key] = docData(c.doc);
+            if (col === 'notifications' && !first && c.type === 'added' && !raw[col][key].read) emit('notif:new', Object.assign({ id: key }, raw[col][key]));
           });
           if (first) { first = false; resolve(); } else changed();
         }, function (err) { console.error('Langganan ' + name + ' gagal', err); if (first) reject(err); else emit('error', err); }));
@@ -98,6 +100,7 @@
     }
     add('comments', db.collection('comments'), 'comments');
     add('notifications', db.collection('notifications').where('to', '==', me), 'notifications');
+    if (isAdmin) add('devices', db.collection('devices'), 'devices');
     return Promise.all(pending).then(rebuild);
   }
   function unsubscribe() {
@@ -119,7 +122,7 @@
         db.collection('users').doc(me).get().then(function (d) {
           if (!d.exists || d.data().active !== true || d.data().orgOnly) { readyP = null; reject(new Error('UNAUTHORIZED')); return; }
           isAdmin = d.data().role === 'admin';
-          return subscribe().then(resolve);
+          return subscribe().then(function () { resolve(); pushRegister(true).then(bindForeground).catch(function () { /* izin belum ada */ }); });
         }).catch(function (e) { readyP = null; reject(e); });
       });
     });
@@ -208,6 +211,96 @@
     return e instanceof Error ? e : new Error(String(e));
   }
 
+
+  // ---------- notifikasi: dibuat dari aksi ----------
+  var PUSH_TYPES = { mention: 1 };
+  var EMAIL_TYPES = { returned: 1, approved: 1, request: 1, leave: 1, sched: 1 };
+  function notifsFor(action, p, before, after, result) {
+    var out = [], myName = (after.users.find(function (u) { return u.username === me; }) || {}).name || me;
+    var admins = after.users.filter(function (u) { return u.role === 'admin' && u.active !== false && !u.orgOnly && u.username !== me; }).map(function (u) { return u.username; });
+    var tB = function (id) { return before.tasks.find(function (t) { return t.id === id; }); };
+    var tA = function (id) { return after.tasks.find(function (t) { return t.id === id; }); };
+    var short = function (x) { x = String(x || '').replace(/^https?:\/\/(www\.)?/, ''); return x.length > 70 ? x.slice(0, 67) + '…' : x; };
+    var add = function (to, type, text, extra) {
+      (Array.isArray(to) ? to : [to]).forEach(function (u) { if (u && u !== me) out.push(Object.assign({ to: u, type: type, text: text }, extra || {})); });
+    };
+    switch (action) {
+      case 'commentAdd': {
+        var c = (result && result.comments || []).filter(function (x) { return x.author === me && x.kind === 'user'; }).pop();
+        if (c) add(c.mentions || [], 'mention', myName + ' menyebut Anda: ' + short(c.text), { taskId: p.taskId, title: (tA(p.taskId) || {}).task || '' });
+        break;
+      }
+      case 'saveTask': {
+        var id = result && result.id, a = id && tA(id), b0 = id && tB(id);
+        if (a && (!b0 || b0.owner !== a.owner)) add(a.owner, 'assign', myName + ' menugaskan task: ' + short(a.task), { taskId: id });
+        break;
+      }
+      case 'updateStatus': {
+        var t1 = tA(p.taskId), t0 = tB(p.taskId);
+        if (t1 && t0 && t0.status !== 'Review' && t1.status === 'Review') add(admins, 'review', myName + ' mengajukan review: ' + short(t1.task), { view: 'review', taskId: p.taskId });
+        break;
+      }
+      case 'advanceStage': {
+        var t2 = tA(p.taskId);
+        if (t2 && t2.status === 'Review') add(admins, 'review', myName + ' mengajukan ' + ({ 3: 'review brief', 5: 'review artikel', 8: 'review cek AI' }[t2.stage] || 'review') + ': ' + short(t2.task), { view: 'review', taskId: p.taskId });
+        break;
+      }
+      case 'reviewTask': {
+        var t3 = tA(p.taskId); if (!t3) break;
+        if (p.decision === 'return') add(t3.owner, 'returned', 'Dikembalikan: ' + short(t3.task) + (p.reason ? ' — ' + short(p.reason) : ''), { taskId: p.taskId });
+        else add(t3.owner, 'approved', (t3.status === 'Done' ? 'Disetujui & selesai: ' : 'Disetujui, lanjut tahap berikutnya: ') + short(t3.task), { taskId: p.taskId });
+        if (p.decision !== 'return' && t3.type === 'Sosmed' && t3.status === 'Done') add(t3.createdBy, 'approved', 'Konten sosmed selesai: ' + short(t3.task), { taskId: p.taskId, view: 'briefs' });
+        break;
+      }
+      case 'saveRequest': case 'saveSocialBrief': {
+        var tk = result && result.task; if (!tk) break;
+        var prev = tB(tk.id);
+        if (!prev || prev.owner !== tk.owner) add(tk.owner, action === 'saveRequest' ? 'request' : 'assign', (action === 'saveRequest' ? 'Request baru dari ' : 'Brief sosmed dari ') + myName + ': ' + short(tk.task), { taskId: tk.id, view: 'briefs' });
+        break;
+      }
+      case 'requestAction': {
+        var br = result && result.brief, t4 = result && result.task; if (!br || !t4) break;
+        var mine = t4.owner === me, title = short(br.title || t4.task);
+        if (p.act === 'message') add(mine ? br.createdBy : t4.owner, 'request', myName + (mine ? ' bertanya soal request: ' : ' membalas request: ') + title, { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'accept') add(br.createdBy, 'request', myName + ' menerima request: ' + title, { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'submit') add(br.createdBy, 'request', myName + ' mengajukan hasil request: ' + title, { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'approve') add(t4.owner, 'approved', 'Hasil request disetujui: ' + title, { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'return') add(t4.owner, 'returned', 'Hasil request dikembalikan: ' + title + (p.payload && p.payload.text ? ' — ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
+        break;
+      }
+      case 'leaveRequest': {
+        var q = p.leave || {};
+        if (isAdmin && q.username && q.username !== me) add(q.username, 'leave', myName + ' mencatat ' + String(q.kind || '').toLowerCase() + ' Anda: ' + q.from + (q.to && q.to !== q.from ? ' s.d. ' + q.to : ''), { view: 'schedule' });
+        else if (!isAdmin) add(admins, 'leave', myName + ' mengajukan ' + String(q.kind || '').toLowerCase() + ': ' + q.from + (q.to && q.to !== q.from ? ' s.d. ' + q.to : ''), { view: 'schedule' });
+        break;
+      }
+      case 'leaveDecide': {
+        var l = after.leaves.find(function (x) { return x.id === p.id; });
+        if (l) add(l.username, 'leave', l.kind + ' ' + l.from + (l.to !== l.from ? ' s.d. ' + l.to : '') + (p.decision === 'approve' ? ' disetujui' : ' ditolak') + (p.note ? ' — ' + short(p.note) : ''), { view: 'schedule' });
+        break;
+      }
+      case 'schedRequest': add(admins, 'sched', myName + ' mengajukan perubahan jadwal WFO', { view: 'schedule' }); break;
+      case 'schedDecide': {
+        var r = after.sreqs.find(function (x) { return x.id === p.id; });
+        if (r) add(r.username, 'sched', 'Pengajuan jadwal ' + (p.decision === 'approve' ? 'disetujui' : 'ditolak') + (p.note ? ' — ' + short(p.note) : ''), { view: 'schedule' });
+        break;
+      }
+    }
+    return out;
+  }
+  async function sendNotifs(list) {
+    if (!list.length) return;
+    var b = db.batch(), ids = [], ts = FV.serverTimestamp();
+    list.forEach(function (n) {
+      var ref = db.collection('notifications').doc();
+      ids.push(ref.id);
+      b.set(ref, Object.assign({ from: me, read: false, createdAt: ts, push: !!PUSH_TYPES[n.type], email: !!EMAIL_TYPES[n.type], taskId: '', view: '', title: '' }, n));
+    });
+    await b.commit();
+    // email & push dikirim server; tidak menunda tampilan
+    server('fb:dispatch', { ids: ids }).catch(function (e) { console.warn('Kirim notifikasi', e); });
+  }
+
   // ---------- aksi lewat Apps Script ----------
   async function server(action, payload) {
     if (!CFG.apiUrl) throw new Error('Alamat server Apps Script belum diatur');
@@ -219,12 +312,74 @@
     return j.data;
   }
 
+
+  // ---------- push (Firebase Cloud Messaging) ----------
+  var pushToken = '';
+  function pushSupported() { return !!(window.Notification && navigator.serviceWorker && window.firebase && firebase.messaging && firebase.messaging.isSupported && firebase.messaging.isSupported()) && !CFG.emulator && !!CFG.vapidKey; }
+  function deviceLabel() {
+    var ua = navigator.userAgent, os = /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iPhone/iPad' : 'Perangkat';
+    var br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    return os + ' · ' + br;
+  }
+  async function pushRegister(silent) {
+    if (!pushSupported() || Notification.permission !== 'granted') return '';
+    var reg = await navigator.serviceWorker.ready;
+    var token = await firebase.messaging().getToken({ vapidKey: CFG.vapidKey, serviceWorkerRegistration: reg });
+    if (!token) return '';
+    pushToken = token;
+    await db.collection('devices').doc(token).set({ username: me, label: deviceLabel(), lastSeen: FV.serverTimestamp(), ua: navigator.userAgent.slice(0, 200) }, { merge: true });
+    try { localStorage.setItem('pt.pushToken', token); } catch (e) { /* abaikan */ }
+    return token;
+  }
+  var onMsgBound = false;
+  function bindForeground() {
+    if (onMsgBound || !pushSupported()) return;
+    onMsgBound = true;
+    firebase.messaging().onMessage(function (m) {
+      var d = (m && m.data) || {};
+      if (String(d.tag || '').indexOf('n-') === 0) return;   // notifikasi lonceng sudah ditangani langsung dari Firestore
+      emit('push', d);
+    });
+  }
+  async function pushStatus() {
+    await ensureReady();
+    var perm = window.Notification ? Notification.permission : 'unsupported';
+    var prefs = (raw.private[me] && raw.private[me].prefs) || {};
+    var devs = [];
+    try { devs = (await db.collection('devices').where('username', '==', me).get()).docs.map(function (x) { return Object.assign({ token: x.id }, plain(x.data())); }); } catch (e) { /* abaikan */ }
+    return { supported: pushSupported(), permission: perm, enabled: perm === 'granted' && devs.some(function (x) { return x.token === pushToken; }), devices: devs.length,
+      thisDevice: pushToken ? deviceLabel() : '', prefs: { mention: prefs.pushMention !== false, deadline: prefs.pushDeadline !== false } };
+  }
+  async function enablePush() {
+    await ensureReady();
+    if (!pushSupported()) throw new Error('Browser ini belum mendukung push notification. Gunakan Chrome atau Edge terbaru.');
+    var perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    if (perm !== 'granted') return { permission: perm };
+    await pushRegister(false); bindForeground();
+    return { permission: perm, enabled: !!pushToken };
+  }
+  async function setPushPrefs(prefs) {
+    await ensureReady();
+    var cur = (raw.private[me] && raw.private[me].prefs) || {};
+    var next = Object.assign({}, cur, { pushMention: prefs.mention !== false, pushDeadline: prefs.deadline !== false });
+    await db.collection('private').doc(me).set({ prefs: next }, { merge: true });
+    return { ok: true };
+  }
+  async function disablePush() {
+    await ensureReady();
+    if (pushToken) { try { await db.collection('devices').doc(pushToken).delete(); await firebase.messaging().deleteToken(); } catch (e) { /* abaikan */ } pushToken = ''; }
+    try { localStorage.removeItem('pt.pushToken'); } catch (e) { /* abaikan */ }
+    return { ok: true };
+  }
+
   // ---------- antarmuka ----------
   async function call(action, payload) {
     payload = payload || {};
     await ensureReady();
     if (action === 'saveUser' && !S.users.some(function (u) { return u.username === String((payload.user || {}).username || '').toLowerCase(); })) action = 'saveUserNew';
     if (SERVER_ACTIONS[action]) return server('fb:' + action, payload);
+    if (action === 'notifications') return { notifications: listNotifs() };
+    if (action === 'notifRead') return markRead(payload.ids, payload.all);
     var before = S, work = clone(S);
     var result = window.PTDemo.handleWith(work, action, payload, { username: me });
     result = clone(result === undefined ? null : result);
@@ -234,7 +389,20 @@
     try { await commit(ops); }
     catch (e) { writing--; rebuild(); emit('changed'); throw friendly(e); }
     writing--;
+    try { await sendNotifs(notifsFor(action, payload, before, work, result)); } catch (e) { console.warn('Notifikasi tidak terkirim', e); }
     return result;
+  }
+  function listNotifs() {
+    return Object.keys(raw.notifications).map(function (id) { return Object.assign({ id: id }, raw.notifications[id]); })
+      .sort(function (a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); }).slice(0, 60);
+  }
+  async function markRead(ids, all) {
+    var list = all ? listNotifs().filter(function (n) { return !n.read; }).map(function (n) { return n.id; }) : (ids || []);
+    if (!list.length) return { ok: true };
+    var b = db.batch();
+    list.forEach(function (id) { if (raw.notifications[id]) { raw.notifications[id].read = true; b.update(db.collection('notifications').doc(id), { read: true }); } });
+    await b.commit();
+    return { ok: true };
   }
 
   async function login(username, password) {
@@ -277,7 +445,8 @@
   window.PTFire = {
     call: call, login: login, logout: logout, changePassword: changePassword, ready: ensureReady,
     on: function (ch, fn) { (listeners[ch] = listeners[ch] || []).push(fn); },
-    notifications: function () { return Object.keys(raw.notifications).map(function (id) { return Object.assign({ id: id }, raw.notifications[id]); }); },
+    notifications: listNotifs, _notifsFor: notifsFor,
+    pushStatus: pushStatus, enablePush: enablePush, disablePush: disablePush, setPushPrefs: setPushPrefs, testPush: function () { return server('fb:testPush', {}); },
     db: function () { init(); return db; }, auth: function () { init(); return auth; }, me: function () { return me; },
     _diff: diff, _stored: stored
   };

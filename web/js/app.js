@@ -218,6 +218,7 @@ async function enterApp() {
   $('#me-avatar').textContent = initials(S.user.name);
   $('#demo-tag').innerHTML = S.cfg.demo ? 'Mode demo' : 'Linov<b>HR</b>';
   renderNav();
+  if (typeof bellInit === 'function' && !S.bellReady) { S.bellReady = true; bellInit(); } else if (typeof bellLoad === 'function') bellLoad();
   const first = S.user.role === 'admin' && !S.user.sheetName ? 'dashboard' : 'mine';
   const cached = readCache();
   if (cached && cached.mine && (S.user.role !== 'admin' || cached.all)) {
@@ -480,7 +481,8 @@ function banners() {
   if (S.user.sheetName && !S.user.email) {
     out.push(`<div class="banner"><div><b>Masukkan email Anda</b> agar task otomatis masuk Google Calendar dan pengingat deadline dikirim ke email.</div><button class="btn sm primary" data-go="settings">Isi email</button></div>`);
   }
-  if (S.cfg.notifPermission === 'default') {
+  const pb = pushBanner(); if (pb) out.push(pb);
+  if (S.cfg.notifPermission === 'default' && !api.push) {
     out.push(`<div class="banner"><div><b>Izinkan notifikasi</b> agar pengingat muncul selama Project Tracker terbuka.</div><button class="btn sm" id="ask-notif">Izinkan</button></div>`);
   }
   return out.join('');
@@ -489,6 +491,7 @@ function banners() {
 function bindBanners() {
   $$('[data-go]').forEach((b) => b.onclick = () => go(b.dataset.go));
   const rq = $('#go-req'); if (rq) rq.onclick = () => { S.bf.kind = 'request'; S.bf.tab = 'todo'; go('briefs'); };
+  bindPushBanner();
   const n = $('#ask-notif');
   if (n) n.onclick = async () => { const p = await api.requestNotifications(); S.cfg = await api.config(); toast(p === 'granted' ? 'Notifikasi aktif' : 'Notifikasi tidak diizinkan', p !== 'granted'); go(S.view); };
 }
@@ -1820,7 +1823,7 @@ function viewUsers() {
   const row = (u) => {
     const boss = u.reportsTo ? nameOf_(u.reportsTo) : '';
     const tags = [u.role === 'admin' ? '<span class="chip accent">Admin</span>' : '',
-      !u.active ? '<span class="chip">Nonaktif</span>' : u.orgOnly ? '<span class="chip" title="Hanya tampil di menu Struktur">Tanpa akun</span>' : u.mustChange ? '<span class="chip warn">Belum login</span>' : ''].join('');
+      !u.active ? '<span class="chip">Nonaktif</span>' : u.pushDevices === 0 && !u.orgOnly && !u.mustChange ? '<span class="chip warn" title="Belum menyalakan push notification di perangkat mana pun">🔕 Push belum aktif</span>' : u.orgOnly ? '<span class="chip" title="Hanya tampil di menu Struktur">Tanpa akun</span>' : u.mustChange ? '<span class="chip warn">Belum login</span>' : ''].join('');
     const email = u.email ? `<span class="ul-1">${esc(u.email)}</span>`
       : u.orgOnly || !u.sheetName ? '<span class="ul-1 muted">Tanpa email</span>' : '<span class="ul-1 ul-warn">Email belum diisi</span>';
     return `<div class="ul-row">
@@ -2012,6 +2015,7 @@ function viewSettings() {
         <button class="btn" id="tn" ${c.notifPermission === 'unsupported' || c.notifPermission === 'denied' ? 'disabled' : ''}>Kirim notifikasi uji</button>
       </div>
     </div></div>
+    ${api.push ? '<div id="push-card"></div>' : ''}
     <div class="card settings-sect"><div class="card-h"><h2>Tampilan</h2></div><div class="card-b">
       <p>Pilih mode terang atau gelap. <b>Ikuti sistem</b> menyesuaikan otomatis dengan setelan perangkat.</p>
       <div class="theme-pick" id="theme-pick" role="radiogroup" aria-label="Mode tampilan">${THEMES.map(([k, l, ic]) => `<button type="button" role="radio" data-theme-k="${k}" aria-checked="${window.PTTheme.get() === k}" class="${window.PTTheme.get() === k ? 'on' : ''}">
@@ -2055,6 +2059,7 @@ function viewSettings() {
   if ($('#inst')) $('#inst').onclick = async () => { await api.install(); S.cfg = await api.config(); viewSettings(); };
   $('#lo').onclick = async () => { clearCaches(); await api.logout(); S.user = null; resetSession(); S.cfg = await api.config(); showLogin(); };
   $('#guide').onclick = () => guideModal();
+  if (api.push) pushCard();
   $$('[data-rep]').forEach((b) => b.onclick = async () => {
     try { const r = await busy(b, () => api.call('sendReport', { kind: b.dataset.rep })); toast(`Laporan ${b.dataset.rep === 'month' ? 'bulanan' : 'mingguan'} (${r.period}) terkirim ke ${r.to}`); }
     catch (e) { /* busy menampilkan pesan */ }

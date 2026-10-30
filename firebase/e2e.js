@@ -23,7 +23,7 @@ const server = http.createServer((req, res) => {
   const open = async (user, w, h) => {
     const p = await (await b.newContext({ viewport: { width: w || 1320, height: h || 900 }, serviceWorkers: 'block' })).newPage();
     p.on('pageerror', (e) => errs.push(user + ': ' + e.message));
-    p.on('console', (m) => { if (m.type() === 'error' && !/favicon|404/.test(m.text())) errs.push(user + ' console: ' + m.text().slice(0, 200)); });
+    p.on('console', (m) => { if (m.type() === 'error' && !/favicon|404|ERR_TUNNEL|ERR_PROXY/.test(m.text())) errs.push(user + ' console: ' + m.text().slice(0, 200)); });
     await p.goto('http://127.0.0.1:8770/beta/'); await wait(800);
     await p.fill('[name=u]', user); await p.fill('[name=p]', 'demo1234'); await p.click('#f button');
     try { await p.waitForSelector('#shell:not(.hidden)', { timeout: 15000 }); }
@@ -62,9 +62,29 @@ const server = http.createServer((req, res) => {
   // admin di jendela lain: realtime melihat pengajuan, lalu mengembalikan
   const admin = await open('admin');
   ok(await admin.evaluate((id) => S.all.tasks.some((t) => t.id === id && t.status === 'Review'), tid), 'admin melihat pengajuan review');
+  // lonceng: admin menerima @sebutan & pengajuan review dari ari
+  const nb = await admin.evaluate(() => ({ count: document.querySelector('#nb-count').textContent, shown: !document.querySelector('#nb-wrap').classList.contains('hidden') }));
+  ok(nb.shown && Number(nb.count) >= 2, 'lonceng admin menampilkan notifikasi belum dibaca (' + nb.count + ')');
+  await admin.click('#btn-bell'); await wait(300);
+  const items = await admin.$$eval('.nb-item', (els) => els.map((e) => e.textContent));
+  ok(items.some((t) => /menyebut/i.test(t)) && items.some((t) => /review/i.test(t)), 'panel notifikasi berisi @sebutan & review');
+  if (SHOTS) await admin.screenshot({ path: SHOTS + '/e2e-bell.png' });
+  await admin.click('#nb-all'); await wait(800);
+  d = await admin.evaluate(() => api.call('notifications').then((r) => r.notifications.filter((n) => !n.read).length));
+  ok(d === 0, 'tandai semua dibaca tersimpan');
+  await admin.keyboard.press('Escape');
+  // pengguna: penanda push belum aktif
+  await admin.evaluate(() => go('users')); await wait(500);
+  ok(await admin.evaluate(() => /Push belum aktif/.test(document.querySelector('#view').innerText)), 'admin melihat siapa yang belum menyalakan push');
+  await admin.evaluate(() => go('settings')); await wait(800);
+  ok(await admin.evaluate(() => !!document.querySelector('#push-card .card')), 'kartu push notification tampil di Pengaturan');
+  if (SHOTS) await admin.screenshot({ path: SHOTS + '/e2e-settings.png', fullPage: true });
+  await admin.evaluate(() => go('mine'));
+
   await admin.evaluate((id) => api.call('reviewTask', { taskId: id, decision: 'return', reason: 'Tambahkan link hasil' }), tid);
   await wait(2500);
   ok(await ari.evaluate((id) => (S.mine.tasks.find((t) => t.id === id) || {}).status, tid) === 'On-Progress', 'ari menerima keputusan admin secara realtime (tanpa muat ulang)');
+  ok(await ari.evaluate(() => api.call('notifications').then((r) => r.notifications.some((n) => n.type === 'returned' && !n.read))), 'ari mendapat notifikasi task dikembalikan');
   d = await fsGet('tasks/' + tid);
   ok(/Tambahkan link hasil/.test(val(d, 'notes') || ''), 'catatan pengembalian tersimpan');
 

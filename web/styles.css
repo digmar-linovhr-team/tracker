@@ -1262,3 +1262,26 @@ body.cm-open { overflow: hidden; }
 .cm-edit-act { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
 @media (max-width: 760px) { .cm-panel { width: 100vw; border-left: 0; } }
 .tbl td.cm-col, .tbl th.cm-col { width: 1%; padding-left: 4px; padding-right: 4px; white-space: nowrap; }
+
+/* ---------- Lonceng notifikasi (2.25.0) ---------- */
+.nb-wrap { position: relative; display: inline-flex; }
+#btn-bell { position: relative; }
+.nb-count { position: absolute; top: 2px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 10.5px; font-weight: 700; display: grid; place-items: center; line-height: 1; border: 2px solid var(--bg, var(--surface)); }
+.nb-panel { position: absolute; top: calc(100% + 8px); right: 0; width: min(380px, calc(100vw - 24px)); max-height: min(520px, 75vh); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 14px 40px rgba(0,0,0,.16); z-index: 80; overflow: hidden; }
+.nb-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.nb-head b { font-size: 14px; }
+.nb-list { overflow-y: auto; }
+.nb-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; border: 0; background: none; padding: 10px 14px; font: inherit; cursor: pointer; border-bottom: 1px solid var(--border); }
+.nb-item:hover { background: var(--surface-2); }
+.nb-item.unread { background: var(--accent-soft); }
+.nb-item.unread:hover { background: var(--info-soft); }
+.nb-ic { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 700; background: var(--surface-2); color: var(--text-2); }
+.nb-mention { background: var(--accent-soft); color: var(--accent); }
+.nb-returned { background: var(--warn-soft); color: var(--warn); }
+.nb-approved { background: var(--good-soft); color: var(--good); }
+.nb-review { background: var(--info-soft); color: var(--info); }
+.nb-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.4; }
+.nb-txt small { color: var(--muted); font-size: 11.5px; }
+.nb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--info); flex: none; margin-top: 6px; }
+.nb-empty { padding: 28px 18px; text-align: center; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) { .nb-panel { position: fixed; top: 60px; right: 12px; left: 12px; width: auto; } }

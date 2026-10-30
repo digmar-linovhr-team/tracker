@@ -182,6 +182,7 @@
   }
   var qs = new URLSearchParams(location.search);
   if (qs.get('task')) setTimeout(function () { emit('nav:task', qs.get('task')); }, 1500);
+  else if (qs.get('view')) setTimeout(function () { emit('nav:view', qs.get('view')); }, 1500);
 
   // ---------- install PWA ----------
   var installPrompt = null;
@@ -268,10 +269,26 @@
       return c.outcome === 'accepted';
     },
     openExternal: async function (url) { if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener'); },
-    on: function (ch, fn) { (listeners[ch] = listeners[ch] || []).push(fn); }
+    on: function (ch, fn) { (listeners[ch] = listeners[ch] || []).push(fn); },
+    push: FIRE ? {
+      status: function () { return window.PTFire.pushStatus(); },
+      enable: function () { return window.PTFire.enablePush(); },
+      disable: function () { return window.PTFire.disablePush(); },
+      setPrefs: function (p) { return window.PTFire.setPushPrefs(p); },
+      test: function () { return window.PTFire.testPush(); }
+    } : null
   };
 
-  if (FIRE) window.PTFire.on('changed', function () { if (get('token', '')) emit('data:changed'); });
+  if (FIRE) {
+    window.PTFire.on('changed', function () { if (get('token', '')) emit('data:changed'); });
+    var NB_TITLE = { mention: 'Anda disebut', assign: 'Task baru untuk Anda', review: 'Ada yang mengajukan review', returned: 'Dikembalikan untuk diperbaiki',
+      approved: 'Disetujui', request: 'Request', leave: 'Cuti & izin', sched: 'Jadwal kerja' };
+    window.PTFire.on('push', function (d) { showNotification(d.title || 'Project Tracker', d.body || '', d.taskId || null, d.tag || null, d.view || ''); });
+    window.PTFire.on('notif:new', function (n) {
+      emit('notif:new', n);
+      showNotification(NB_TITLE[n.type] || 'Project Tracker', n.text || '', n.taskId || null, 'n-' + n.id, n.view || (n.type === 'mention' ? '' : ''));
+    });
+  }
 
   // lanjutkan sesi yang tersimpan
   var u0 = get('user', null);

@@ -3,7 +3,7 @@
 const VERSION = 'pt-v2.25.0';
 const SHELL = [
   './', 'index.html', 'styles.css', 'config.js', 'manifest.webmanifest',
-  'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/pt-web.js', 'js/app.js', 'js/brief.js', 'js/article.js', 'js/social.js', 'js/org.js', 'js/briefdoc.js', 'js/request.js', 'js/schedule.js', 'js/comments.js', 'vendor/chart.umd.js',
+  'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/pt-web.js', 'js/app.js', 'js/brief.js', 'js/article.js', 'js/social.js', 'js/org.js', 'js/briefdoc.js', 'js/request.js', 'js/schedule.js', 'js/comments.js', 'js/bell.js', 'js/push.js', 'vendor/chart.umd.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'
 ];
 
@@ -13,7 +13,8 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+    // hanya cache milik versi ini (utama 'pt-v…' / beta 'pt-beta-v…') yang dibersihkan, supaya keduanya tidak saling menghapus
+    .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k.startsWith(VERSION.replace(/[\d.]+$/, ''))).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
@@ -43,7 +44,7 @@ self.addEventListener('notificationclick', (e) => {
       await client.focus();
       if (taskId || view) client.postMessage({ type: 'nav', taskId, view });
     } else {
-      await self.clients.openWindow(self.registration.scope + (taskId ? '?task=' + encodeURIComponent(taskId) : ''));
+      await self.clients.openWindow(self.registration.scope + (taskId ? '?task=' + encodeURIComponent(taskId) : view ? '?view=' + encodeURIComponent(view) : ''));
     }
   })());
 });

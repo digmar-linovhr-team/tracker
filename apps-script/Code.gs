@@ -70,6 +70,7 @@ function onOpen() {
     .addItem('Matikan Calendar & email pengingat', 'disableNotifications')
     .addItem('Reset password pengguna…', 'menuResetPassword')
     .addSeparator()
+    .addItem('Aktifkan push deadline (Firebase)', 'installPushDeadlines')
     .addItem('Salin data ke Firebase (migrasi)', 'migrateToFirestore')
     .addItem('Salin ulang dari nol ke Firebase (peralihan)', 'migrateFresh')
     .addToUi();
@@ -169,7 +170,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 23 });
+  return json_({ ok: true, app: 'project-tracker', version: 24 });
 }
 
 function doPost(e) {
@@ -3249,6 +3250,8 @@ function fbRoute_(a, b) {
     case 'deleteUser': needAdmin(); return fbDeleteUser_(me, b.username, b.confirm);
     case 'exportBriefDoc': return fbExportBrief_(me, b.briefId);
     case 'sendReport': needAdmin(); return sendTeamReport_(b.kind === 'month' ? 'month' : 'week', new Date());
+    case 'dispatch': return fbDispatch_(me, b.ids, b.appUrl);
+    case 'testPush': return { sent: pushTo_(me.username, { title: '🔔 Push uji', body: 'Push notification berjalan di perangkat ini.', tag: 'test-' + Date.now(), view: 'settings' }, '') };
   }
   throw new Error('Aksi tidak dikenal');
 }
@@ -3407,6 +3410,122 @@ function migrateToFirestore() {
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
   return count;
 }
+
+// ===================== Push notification & email notifikasi (versi Firebase) =====================
+// Aplikasi menulis dokumen notifications/{id}; server mengirim push (FCM HTTP v1) dan/atau email lalu menandainya terkirim.
+var NOTIF_TITLE_ = { mention: '💬 Anda disebut di komentar', assign: '＋ Task baru untuk Anda', review: '⏳ Pengajuan review', returned: '↩ Task dikembalikan',
+  approved: '✓ Task disetujui', request: '✉ Request', leave: '🌴 Cuti & izin', sched: '🗓 Jadwal kerja' };
+
+/** Kueri sederhana satu kolom: fsQuery_('devices', 'username', 'EQUAL', 'ari'). */
+function fsQuery_(collection, field, op, value) {
+  var r = fbFetch_('post', fsUrl_('') + ':runQuery', { structuredQuery: { from: [{ collectionId: collection }],
+    where: { fieldFilter: { field: { fieldPath: field }, op: op || 'EQUAL', value: fsEnc_(value) } } } });
+  return (r || []).filter(function (x) { return x.document; }).map(function (x) { return fsDocObj_(x.document); });
+}
+
+/** Kirim satu pesan data-only ke satu perangkat. Hasil: 'ok' | 'gone' (token tidak berlaku) | 'error'. */
+function fcmSend_(token, data) {
+  var strs = {};
+  Object.keys(data || {}).forEach(function (k) { if (data[k] !== undefined && data[k] !== null) strs[k] = String(data[k]); });
+  var res = UrlFetchApp.fetch('https://fcm.googleapis.com/v1/projects/' + CFG.FB_PROJECT + '/messages:send', {
+    method: 'post', muteHttpExceptions: true, contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + fbToken_(), 'X-Goog-User-Project': CFG.FB_PROJECT },
+    payload: JSON.stringify({ message: { token: token, data: strs, webpush: { headers: { Urgency: 'high', TTL: '86400' } } } }) });
+  var code = res.getResponseCode(), txt = res.getContentText() || '';
+  if (code < 300) return 'ok';
+  if (code === 404 || /UNREGISTERED|registration token|not a valid FCM/i.test(txt)) return 'gone';
+  Logger.log('FCM ' + code + ': ' + txt.slice(0, 300));
+  return 'error';
+}
+
+/** Push ke semua perangkat seseorang. kind 'mention' / 'deadline' mengikuti setelan orang itu; '' = selalu. Hasil: jumlah perangkat yang menerima. */
+function pushTo_(username, data, kind) {
+  if (kind) {
+    var prefs = ((fsGet_('private/' + username) || {}).prefs) || {};
+    if (kind === 'mention' && prefs.pushMention === false) return 0;
+    if (kind === 'deadline' && prefs.pushDeadline === false) return 0;
+  }
+  var sent = 0, gone = [];
+  fsQuery_('devices', 'username', 'EQUAL', username).forEach(function (d) {
+    var r = fcmSend_(d._id, data);
+    if (r === 'ok') sent++; else if (r === 'gone') gone.push({ path: 'devices/' + d._id, del: true });
+  });
+  if (gone.length) fsCommit_(gone);
+  return sent;
+}
+
+function fbDispatch_(me, ids, appUrl) {
+  ids = (ids || []).slice(0, 50);
+  var base = /^https:\/\/[a-z0-9-]+\.github\.io\/[\w\-\/]*$/i.test(String(appUrl || '')) ? String(appUrl) : appUrl_();
+  var out = { push: 0, email: 0 }, done = [], users = {}, priv = {};
+  var userOf = function (u) { if (!(u in users)) users[u] = fsGet_('users/' + u); return users[u]; };
+  var privOf = function (u) { if (!(u in priv)) priv[u] = fsGet_('private/' + u) || {}; return priv[u]; };
+  ids.forEach(function (id) {
+    try {
+      var n = fsGet_('notifications/' + String(id));
+      if (!n || n.from !== me.username || n.dispatched) return;
+      done.push({ path: 'notifications/' + n._id, merge: { dispatched: true } });
+      var to = userOf(n.to);
+      if (!to || to.active !== true || to.orgOnly) return;
+      var title = NOTIF_TITLE_[n.type] || 'Project Tracker', sent = 0;
+      if (n.push) sent = pushTo_(n.to, { title: title, body: n.text || '', tag: 'n-' + n._id, taskId: n.taskId || '', view: n.view || '' }, n.type === 'mention' ? 'mention' : '');
+      out.push += sent ? 1 : 0;
+      // email: jenis penting selalu; @sebutan hanya bila push tidak sampai ke perangkat mana pun
+      var email = privOf(n.to).email;
+      if (email && (n.email || (n.type === 'mention' && !sent))) {
+        var link = base ? base + (base.indexOf('?') < 0 ? '?' : '&') + 'view=' + encodeURIComponent(n.view || (n.type === 'mention' ? 'mine' : 'mine')) : '';
+        MailApp.sendEmail({ to: email, name: 'Project Tracker', subject: title.replace(/^\S+\s/, '') + (n.title ? ': ' + shortTitle_(n.title) : ''),
+          htmlBody: emailShell_('Halo ' + esc_(to.name || n.to) + ',', '<p>' + esc_(n.text || '') + '</p>' + (link ? '<p><a href="' + esc_(link) + '">Buka Project Tracker</a></p>' : '')) });
+        out.email++;
+      }
+    } catch (e) { Logger.log('dispatch ' + id + ': ' + e); }
+  });
+  if (done.length) fsCommit_(done);
+  return out;
+}
+
+// ---------- Push deadline: 2 jam sebelum & saat terlewat (pemicu tiap 15 menit) ----------
+function installPushDeadlines() {
+  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runPushDeadlines'; });
+  if (!has) ScriptApp.newTrigger('runPushDeadlines').timeBased().everyMinutes(15).create();
+  runPushDeadlines();
+  try { SpreadsheetApp.getUi().alert('Push deadline aktif: dicek setiap 15 menit dari data Firebase.'); } catch (e) { /* dijalankan dari editor */ }
+}
+function runPushDeadlines(now) {
+  now = now || new Date();
+  var L = PTLogic, nowMs = now.getTime(), meta = fsGet_('serverMeta/pushDeadline') || {}, sent = {}, keep = {}, count = 0;
+  try { sent = JSON.parse(meta.sent || '{}'); } catch (e) { sent = {}; }
+  // hanya task yang belum selesai yang dibaca (hemat kuota baca Firestore)
+  var tasks = fsQuery_('tasks', 'status', 'NOT_IN', ['Done', 'Recurring']).filter(function (t) { return t.owner && !L.isDone(t) && t.endDate; })
+    .map(function (t) { var x = Object.assign({}, t); x.id = t._id; return x; });
+  try {
+    var lv = fsList_('leaves').filter(function (l) { return l.status === 'Disetujui'; });
+    if (lv.length) L.applyLeaves(tasks, lv);
+  } catch (e) { Logger.log('cuti: ' + e); }
+  var active = {};
+  fsList_('users').forEach(function (u) { if (u.active === true && !u.orgOnly) active[u._id] = true; });
+  tasks.forEach(function (t) {
+    if (!active[t.owner]) return;
+    var end = L.schedule(t).end; if (!end) return;
+    var iso = end.toISOString(), left = end.getTime() - nowMs, kind = '';
+    if (left <= 0 && left > -36 * 3600e3) kind = 'overdue';
+    else if (left > 0 && left <= 2 * 3600e3) kind = 'due120';
+    if (!kind) return;
+    var key = t.id + '|' + kind + '|' + iso;
+    keep[key] = sent[key] || nowMs;
+    if (sent[key]) return;
+    var hhmm = Utilities.formatDate(end, tz_(), 'HH:mm');
+    var data = kind === 'overdue'
+      ? { title: '⚠ Deadline terlewat', body: t.task + ' — deadline ' + hhmm + ' sudah lewat.', tag: key, taskId: t.id, view: 'mine' }
+      : { title: '⏰ Deadline 2 jam lagi', body: t.task + ' — deadline pukul ' + hhmm + '.', tag: key, taskId: t.id, view: 'mine' };
+    try { if (pushTo_(t.owner, data, 'deadline')) count++; } catch (e) { Logger.log('push deadline ' + t.id + ': ' + e); }
+  });
+  // simpan penanda: yang masih relevan saja (penanda lama terhapus sendiri)
+  Object.keys(sent).forEach(function (k) { if (!(k in keep) && nowMs - sent[k] < 3 * 864e5) keep[k] = sent[k]; });
+  fsSet_('serverMeta/pushDeadline', { sent: JSON.stringify(keep), runAt: now });
+  return count;
+}
+
 
 // ===== LOGIKA BERSAMA (salinan otomatis web/js/logic.js — jangan diedit di sini) =====
 /* Logika bersama: dipakai proses utama (notifikasi) dan tampilan (dashboard).
