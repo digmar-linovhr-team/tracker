@@ -1023,7 +1023,7 @@ if (process.env.FB_EMU) it('Firebase: kirim notifikasi (push/email), push uji, p
   assert.ok(!pushed.some((p) => p.data.body === 'palsu'), 'notifikasi milik orang lain tidak ikut dikirim');
   assert.strictEqual(sandbox.fsGet_('devices/tok-mati'), null, 'token tidak berlaku dihapus');
   assert.strictEqual(sandbox.fsGet_('notifications/n1').dispatched, true);
-  assert.strictEqual(mails.length, mails0 + 1); assert.ok(/view=/.test(mails[mails.length - 1].htmlBody));
+  assert.strictEqual(mails.length, mails0 + 1); assert.ok(/\?task=t1/.test(mails[mails.length - 1].htmlBody), 'link email langsung ke task');
   const again = sandbox.fbDispatch_(me, ['n1', 'n2'], ''); assert.strictEqual(again.push + again.email, 0, 'tidak terkirim dua kali');
   // setelan: push @sebutan dimatikan → jatuh ke email
   sandbox.fsMerge_('private/ari', { prefs: { pushMention: false, pushDeadline: true } });

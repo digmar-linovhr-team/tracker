@@ -5,7 +5,7 @@
   var CFG = window.PT_CONFIG || {};
   var FIRE = CFG.backend === 'firebase' && window.PTFire;
   var L = window.PTLogic;
-  var VERSION = '2.25.0';
+  var VERSION = '2.26.0';
   var POLL_MS = 5 * 60 * 1000;
   var TICK_MS = 30 * 1000;
 
@@ -94,7 +94,7 @@
     } catch (e) { /* fallback */ }
     try {
       var n = new Notification(title, opts);
-      n.onclick = function () { window.focus(); if (view) emit('nav:view', view); else if (taskId) emit('nav:task', taskId); n.close(); };
+      n.onclick = function () { window.focus(); if (taskId) emit('nav:task', taskId); else if (view) emit('nav:view', view); n.close(); };
       return true;
     } catch (e) { return false; }
   }
@@ -176,13 +176,14 @@
   if (navigator.serviceWorker) {
     navigator.serviceWorker.addEventListener('message', function (e) {
       if (!e.data || e.data.type !== 'nav') return;
-      if (e.data.view) emit('nav:view', e.data.view);
-      else if (e.data.taskId) emit('nav:task', e.data.taskId);
+      if (e.data.taskId) emit('nav:task', e.data.taskId, e.data.view);
+      else if (e.data.view) emit('nav:view', e.data.view);
     });
   }
   var qs = new URLSearchParams(location.search);
-  if (qs.get('task')) setTimeout(function () { emit('nav:task', qs.get('task')); }, 1500);
-  else if (qs.get('view')) setTimeout(function () { emit('nav:view', qs.get('view')); }, 1500);
+  // ?task=ID (dari email/push) → #task/ID, dibuka setelah login
+  if (qs.get('task')) history.replaceState(null, '', location.pathname + '#task/' + encodeURIComponent(qs.get('task')));
+  else if (qs.get('view')) { var v0 = qs.get('view'); setTimeout(function () { emit('nav:view', v0); }, 1500); history.replaceState(null, '', location.pathname + location.hash); }
 
   // ---------- install PWA ----------
   var installPrompt = null;

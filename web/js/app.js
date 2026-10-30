@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.25.0';
+const CSS_VERSION = '2.26.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -218,6 +218,7 @@ async function enterApp() {
   $('#me-avatar').textContent = initials(S.user.name);
   $('#demo-tag').innerHTML = S.cfg.demo ? 'Mode demo' : 'Linov<b>HR</b>';
   renderNav();
+  document.body.classList.toggle('dp-rows', typeof dpEnabled === 'function' && dpEnabled());
   if (typeof bellInit === 'function' && !S.bellReady) { S.bellReady = true; bellInit(); } else if (typeof bellLoad === 'function') bellLoad();
   const first = S.user.role === 'admin' && !S.user.sheetName ? 'dashboard' : 'mine';
   const cached = readCache();
@@ -233,6 +234,11 @@ async function enterApp() {
     $('#view').innerHTML = '<div class="loading">Memuat data…</div>';
     await loadData();
     go(first);
+  }
+  if (S.pendingTask) { const id = S.pendingTask; S.pendingTask = null; openTask(id); }
+  else if (typeof dpRoute === 'function') {
+    const r = dpParse(location.hash);
+    if (dpEnabled()) dpRoute(); else if (r && r.kind === 'task') { history.replaceState(null, '', location.pathname); legacyOpenTask(r.id); }
   }
 }
 
@@ -327,6 +333,7 @@ function refreshInBackground(delay) {
 }
 
 function go(view) {
+  if (S.view !== view && typeof DP !== 'undefined' && DP.open) dpClose();
   if (S.view === 'brief' && view !== 'brief' && typeof briefFlush === 'function') briefFlush();
   if (S.view !== view) { const m = $('.main'); if (m) m.scrollTop = 0; window.scrollTo(0, 0); }
   S.view = view;
@@ -353,6 +360,7 @@ function go(view) {
   // halaman Review & Brief selalu disegarkan di belakang layar agar pengajuan terbaru langsung terlihat
   if ((view === 'review' || view === 'briefs') && (!S.lastSync || Date.now() - S.lastSync > 15000) && !S.pending.size) refreshInBackground(0);
   ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  if (typeof dpRefresh === 'function') dpRefresh();
 }
 
 function projectName(code) {
@@ -1380,15 +1388,18 @@ function viewReview() {
   $$('[data-ext]', $('#view')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
   bindBriefChips($('#view'));
   $$('[data-approve]').forEach((b) => b.onclick = () => decideReview(b.dataset.approve, 'approve'));
-  $$('[data-return]').forEach((b) => b.onclick = () => {
-    const t = findTask(b.dataset.return);
-    modal({
-      title: L.isArticle(t) ? 'Kembalikan ' + ({ 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' }[artStage(t)] || 'task') : 'Kembalikan task',
-      body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
-        <label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="rv-reason" rows="3" placeholder="mis. Tambahkan meta description dan 2 internal link"></textarea></label>`,
-      actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rv-send">Kembalikan</button>',
-      onMount: (m, close) => { $('#rv-send', m).onclick = () => { const reason = $('#rv-reason', m).value.trim(); close(); decideReview(t.id, 'return', reason); }; }
-    });
+  $$('[data-return]').forEach((b) => b.onclick = () => returnModal(b.dataset.return));
+}
+
+/** Admin mengembalikan task yang diajukan (dari halaman Review atau panel task). */
+function returnModal(id) {
+  const t = findTask(id); if (!t) return;
+  modal({
+    title: L.isArticle(t) ? 'Kembalikan ' + ({ 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' }[artStage(t)] || 'task') : 'Kembalikan task',
+    body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
+      <label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="rv-reason" rows="3" placeholder="mis. Tambahkan meta description dan 2 internal link"></textarea></label>`,
+    actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rv-send">Kembalikan</button>',
+    onMount: (m, close) => { $('#rv-send', m).onclick = () => { const reason = $('#rv-reason', m).value.trim(); close(); decideReview(t.id, 'return', reason); }; }
   });
 }
 
@@ -1526,7 +1537,7 @@ function renderTaskTable() {
   const allOn = list.length && list.every((t) => !t.id || S.tsel.has(t.id));
   if (!list.length) { $('#tt').innerHTML = '<div class="empty"><b>Tidak ada task</b>Ubah filter atau buat task baru.</div>'; renderBulkBar(list); return; }
   if (matchMedia('(max-width: 760px)').matches) {
-    $('#tt').innerHTML = `<label class="pick-all"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''}> Pilih semua (${list.length})</label>` + list.map((t) => `<div class="task ${S.tsel.has(t.id) ? 'picked' : ''}">
+    $('#tt').innerHTML = `<label class="pick-all"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''}> Pilih semua (${list.length})</label>` + list.map((t) => `<div class="task ${S.tsel.has(t.id) ? 'picked' : ''}" data-tid="${esc(t.id || '')}">
       ${pick(t)}
       <div>
         <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
@@ -1537,7 +1548,7 @@ function renderTaskTable() {
       <div class="task-actions">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</div>
     </div>`).join('');
   } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th class="cm-col" aria-label="Komentar"></th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
-    ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}">
+    ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}" data-tid="${esc(t.id || '')}">
       <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
       <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td class="cm-col">${cmChip(t)}</td><td>${esc(t.ownerName)}</td>
@@ -1710,7 +1721,7 @@ function viewProjects() {
     ${all.projects.map((p) => {
       const ts = all.tasks.filter((t) => t.code && t.code === p.code);
       const d = ts.filter(L.isDone).length, r = ts.length ? d / ts.length : 0;
-      return `<tr><td><span class="chip code">${esc(p.code)}</span></td><td class="clip" title="${esc(p.project)}"><b>${esc(p.project)}</b></td><td class="small">${esc(p.pic)}</td>
+      return `<tr data-pcode="${esc(p.code || '')}"><td><span class="chip code">${esc(p.code)}</span></td><td class="clip" title="${esc(p.project)}"><b>${esc(p.project)}</b></td><td class="small">${esc(p.pic)}</td>
         <td>${fmtIso(p.start, p.startRaw)}</td><td>${fmtIso(p.end, p.endRaw)}</td><td>${priorityChip(p.priority)}</td><td>${statusChip(p.status)}</td>
         <td>${!ts.length && p.code ? `<button class="btn sm" data-pt="${p.row}" title="Buat task dari project ini">+ Jadikan task</button>` : `<div class="row" style="gap:8px"><div class="bar" style="flex:1"><i style="width:${r * 100}%"></i></div><span class="small muted">${d}/${ts.length}</span></div>`}</td>
         <td style="white-space:nowrap"><button class="btn sm" data-pe="${p.row}">Edit</button> <button class="btn sm danger" data-pd="${p.row}">Hapus</button></td></tr>`;
@@ -2129,12 +2140,9 @@ api.on('reviews:refreshed', (tasks) => {
 });
 api.on('data:changed', () => { if (S.user && !S.pending.size) refreshInBackground(50); });
 api.on('nav:view', (v) => { if (S.user && v) go(v); });
-api.on('nav:task', async (id) => {
-  if (!S.user || !S.user.sheetName) return;
-  S.f.mineTab = 'all'; S.f.mineQ = '';
-  go('mine');
-  const el = document.getElementById('task-' + id);
-  if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('flash'); }
+api.on('nav:task', (id) => {
+  if (!S.user) { S.pendingTask = id; return; }
+  openTask(id);
 });
 setInterval(() => { if (S.user && S.view === 'mine' && !$('#modal-root').innerHTML) renderMineList(); }, 60000);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#modal-root').innerHTML = ''; });

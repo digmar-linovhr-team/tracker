@@ -39,6 +39,7 @@ function bellPanel() {
   });
 }
 function bellOpen(n) {
+  if (n.taskId && typeof dpEnabled === 'function' && dpEnabled()) return openTask(n.taskId, { focus: n.type === 'mention' ? 'comments' : '' });
   if (n.type === 'mention' && n.taskId && typeof openComments === 'function') return openComments(n.taskId);
   if (n.view) return go(n.view);
   if (n.taskId) {

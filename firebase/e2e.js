@@ -69,6 +69,13 @@ const server = http.createServer((req, res) => {
   const items = await admin.$$eval('.nb-item', (els) => els.map((e) => e.textContent));
   ok(items.some((t) => /menyebut/i.test(t)) && items.some((t) => /review/i.test(t)), 'panel notifikasi berisi @sebutan & review');
   if (SHOTS) await admin.screenshot({ path: SHOTS + '/e2e-bell.png' });
+  // klik notifikasi @sebutan → langsung ke task yang dituju, bagian komentar
+  await admin.click('.nb-item.unread >> text=menyebut'); await wait(1200);
+  ok(await admin.evaluate((id) => location.hash === '#task/' + id && /mohon dicek/.test(document.querySelector('#cm-thread').innerText), tid), 'klik @sebutan membuka panel task yang dituju beserta komentarnya');
+  if (SHOTS) await admin.screenshot({ path: SHOTS + '/e2e-mention-panel.png' });
+  await admin.keyboard.press('Escape'); await wait(400);
+  ok(await admin.evaluate(() => !document.querySelector('.dp')), 'panel tertutup dengan Esc');
+  await admin.click('#btn-bell'); await wait(300);
   await admin.click('#nb-all'); await wait(800);
   d = await admin.evaluate(() => api.call('notifications').then((r) => r.notifications.filter((n) => !n.read).length));
   ok(d === 0, 'tandai semua dibaca tersimpan');

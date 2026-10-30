@@ -170,7 +170,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 24 });
+  return json_({ ok: true, app: 'project-tracker', version: 25 });
 }
 
 function doPost(e) {
@@ -3473,7 +3473,7 @@ function fbDispatch_(me, ids, appUrl) {
       // email: jenis penting selalu; @sebutan hanya bila push tidak sampai ke perangkat mana pun
       var email = privOf(n.to).email;
       if (email && (n.email || (n.type === 'mention' && !sent))) {
-        var link = base ? base + (base.indexOf('?') < 0 ? '?' : '&') + 'view=' + encodeURIComponent(n.view || (n.type === 'mention' ? 'mine' : 'mine')) : '';
+        var link = !base ? '' : base + (base.indexOf('?') < 0 ? '?' : '&') + (n.taskId ? 'task=' + encodeURIComponent(n.taskId) : 'view=' + encodeURIComponent(n.view || 'mine'));
         MailApp.sendEmail({ to: email, name: 'Project Tracker', subject: title.replace(/^\S+\s/, '') + (n.title ? ': ' + shortTitle_(n.title) : ''),
           htmlBody: emailShell_('Halo ' + esc_(to.name || n.to) + ',', '<p>' + esc_(n.text || '') + '</p>' + (link ? '<p><a href="' + esc_(link) + '">Buka Project Tracker</a></p>' : '')) });
         out.email++;

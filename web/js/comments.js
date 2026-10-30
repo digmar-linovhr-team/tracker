@@ -47,6 +47,7 @@ function cmText(text, people) {
 }
 
 function openComments(taskId) {
+  if (typeof dpEnabled === 'function' && dpEnabled()) return openTask(taskId, { focus: 'comments' });
   const t = cmTask(taskId);
   CM = { taskId, data: null, mentions: new Set(), task: t };
   let root = $('#cm-root');
@@ -83,16 +84,18 @@ function cmRender(d) {
   if (user.length) S.ccount[CM.taskId] = { n: user.length, last, by: user[user.length - 1].author };
   else delete S.ccount[CM.taskId];
   cmMarkSeen(CM.taskId, new Date().toISOString());
-  const el = $('#cm-thread');
+  const el = $('#cm-thread'); if (!el) return;
+  const shown = CM.panel && typeof dpRenderThread === 'function' ? dpRenderThread(d) : d.comments;
+  if (CM.panel && !shown.length) { el.innerHTML = '<div class="cm-empty dp-cmempty"><span>Belum ada komentar. Tanyakan sesuatu atau sebut rekan dengan @nama.</span></div>'; return; }
   if (!d.comments.length) { el.innerHTML = '<div class="cm-empty"><b>Belum ada komentar</b><span>Tanyakan sesuatu, beri masukan, atau sebut rekan dengan @nama. Catatan review & perubahan status juga muncul di sini.</span></div>'; return; }
-  el.innerHTML = d.comments.map((c) => c.kind === 'sys'
+  el.innerHTML = shown.map((c) => c.kind === 'sys'
     ? `<div class="cm-sys ${esc(c.tone || '')}"><span><b>${esc(c.authorName)}</b> ${linkify(c.text)}</span><time>${esc(cmWhen(c.createdAt))}</time></div>`
     : `<div class="cm-msg ${c.author === S.user.username ? 'mine' : ''}" data-cid="${esc(c.id)}">
         <span class="avatar">${initials(c.authorName)}</span>
         <div class="cm-body"><div class="cm-meta"><b>${esc(c.authorName)}</b><time>${esc(cmWhen(c.createdAt))}${c.editedAt ? ' · diedit' : ''}</time>
           ${c.canEdit ? `<button type="button" class="cm-act" data-cmedit="${esc(c.id)}">Ubah</button>` : ''}${c.canDelete ? `<button type="button" class="cm-act" data-cmdel="${esc(c.id)}">Hapus</button>` : ''}</div>
           <div class="cm-txt">${cmText(c.text, d.people)}</div></div></div>`).join('');
-  el.scrollTop = el.scrollHeight;
+  if (!CM.panel) el.scrollTop = el.scrollHeight;
   $$('[data-cmdel]', el).forEach((b) => b.onclick = async () => {
     if (!(await confirmBox('Hapus komentar?', 'Komentar ini akan dihapus dari utas.', 'Hapus'))) return;
     try { cmRender(await busy(b, () => api.call('commentDelete', { id: b.dataset.cmdel }))); } catch (e) { /* busy menampilkan pesan */ }
@@ -158,7 +161,7 @@ function cmBindCompose() {
     try {
       const d = await busy($('#cm-send'), () => api.call('commentAdd', { taskId: CM.taskId, text, mentions }));
       ta.value = ''; CM.mentions.clear(); cmRender(d);
-      if (mentions.length) toast(`Terkirim · ${mentions.length === 1 ? (people.find((p) => p.username === mentions[0]) || {}).name : mentions.length + ' orang'} diberi tahu lewat email`);
+      if (mentions.length) toast(`Terkirim · ${mentions.length === 1 ? (people.find((p) => p.username === mentions[0]) || {}).name : mentions.length + ' orang'} diberi tahu`);
     } catch (err) { /* pesan dari busy */ }
   };
 }
