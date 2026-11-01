@@ -142,7 +142,7 @@
       e.preventDefault(); var t = e.target.token.value.trim(); if (!t) return;
       simpan({ token: t, aktif: true }); e.target.token.value = ''; e.target.token.placeholder = 'Token tersimpan · tempel lagi untuk mengganti'; kartu.querySelector('#aila-on').checked = true;
       var r = await kirim({ jenis: 'info', pesan: 'Project Tracker sudah tersambung ke AILA.' });
-      kabar(r.ok ? 'Tersambung ke AILA' : r.galat, !r.ok); perbaruiLabel();
+      kabar(r.ok ? 'Tersambung ke AILA' : r.galat, !r.ok); perbaruiLabel(); jejakLonceng = ''; sinkronLonceng();
     });
     kartu.querySelector('#aila-on').addEventListener('change', function (e) { simpan({ aktif: e.target.checked }); kabar(e.target.checked ? 'Notifikasi diteruskan ke AILA' : 'Tidak diteruskan ke AILA'); perbaruiLabel(); });
     kartu.querySelector('#aila-sembunyi').addEventListener('change', function (e) { simpan({ sembunyikan: e.target.checked }); });
@@ -161,5 +161,35 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', amati); else amati();
 
-  window.PTAila = { kirim: kirim, simpan: simpan, config: cfg };
+  // ---------- daftar lonceng → AILA (ditampilkan di Beranda AILA) ----------
+  var jejakLonceng = '';
+  async function sinkronLonceng() {
+    if (!siap() || !window.pt || !window.pt.call) return;
+    var daftar;
+    try { daftar = ((await window.pt.call('notifications')) || {}).notifications || []; } catch (e) { return; }
+    var ringkas = daftar.slice(0, 30).map(function (n) {
+      return { id: n.id, jenis: n.type || '', teks: String(n.text || '').slice(0, 300), waktu: n.createdAt || '', dibaca: !!n.read, taskId: n.taskId || '' };
+    });
+    var jejak = JSON.stringify(ringkas);
+    if (jejak === jejakLonceng) return;  // tidak ada perubahan
+    var c = cfg();
+    try {
+      var r = await fetch(ALAMAT + '/lonceng', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-AILA-Token': c.token },
+        body: JSON.stringify({ daftar: ringkas, url: location.origin + location.pathname })
+      });
+      if (r.ok) jejakLonceng = jejak;
+    } catch (e) { /* AILA mati: dicoba lagi nanti */ }
+  }
+  function pasangLonceng() {
+    if (!window.pt || !window.pt.on) return setTimeout(pasangLonceng, 1000);
+    window.pt.on('notif:new', function () { setTimeout(sinkronLonceng, 800); });
+    window.pt.on('data:changed', function () { setTimeout(sinkronLonceng, 800); });
+    setInterval(sinkronLonceng, 60000);
+    setTimeout(sinkronLonceng, 4000);
+  }
+  pasangLonceng();
+
+  window.PTAila = { kirim: kirim, simpan: simpan, config: cfg, sinkronLonceng: sinkronLonceng };
 })();
