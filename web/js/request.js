@@ -1,5 +1,6 @@
 /* Request: brief custom antar anggota (mis. desainer → writer untuk copy landing page).
  * Alur: Konfirmasi (penerima boleh minta klarifikasi) → Dikerjakan → Diajukan → pembuat request Setujui = Selesai.
+ * Setelah Selesai, pembuat request (atau admin) bisa "Minta revisi" → Dikembalikan lagi ke penerima.
  * Memakai fungsi & state dari app.js / brief.js / social.js / briefdoc.js. */
 'use strict';
 
@@ -183,7 +184,8 @@ function linkify(text) {
 
 function reqActionsHtml(b, t, st, isOwner, isCreator, admin) {
   const who = nameOf(b.createdBy), to = t ? t.ownerName : nameOf(b.owner);
-  if (st === 'Selesai') return `<div class="rq-box good"><b>Request selesai</b><span>Hasil disetujui ${esc(who)}.</span></div>`;
+  if (st === 'Selesai') return `<div class="rq-box good"><b>Request selesai</b><span>Hasil disetujui ${esc(who)}.${isCreator || admin ? ' Ada yang masih kurang? Kembalikan ke ' + esc(to) + ' untuk direvisi.' : ''}</span>
+        ${isCreator || admin ? '<button class="btn" id="rq-reopen">Minta revisi</button>' : ''}</div>`;
   if (isOwner) {
     if (st === 'Konfirmasi' || st === 'Klarifikasi') return `<div class="rq-box"><b>${st === 'Klarifikasi' ? 'Menunggu jawaban ' + esc(who) : 'Request untuk Anda'}</b>
         <span>${st === 'Klarifikasi' ? 'Waktu klarifikasi tidak dihitung ke KPI Anda. Anda tetap bisa menerima bila sudah jelas.' : 'Baca kebutuhannya. Bila ada yang belum jelas, tanyakan dulu — waktu klarifikasi tidak dihitung ke KPI.'}</span>
@@ -219,6 +221,25 @@ function bindReqActions(b, t) {
     reqAct(b.id, 'submit', {}, el);
   });
   on('rq-approve', (el) => reqAct(b.id, 'approve', {}, el));
+  on('rq-reopen', () => modal({
+    title: 'Minta revisi',
+    body: `<p class="muted small" style="margin:0 0 10px">Request akan dibuka lagi dan dikembalikan ke ${esc(t ? t.ownerName : nameOf(b.owner))}. Revisi ini tercatat di KPI (“Disetujui tanpa revisi”).</p>
+      <label class="field"><span>Apa yang perlu diperbaiki? *</span><textarea id="rq-rw" rows="3" maxlength="2000" placeholder="mis. CTA di bagian bawah belum ada"></textarea></label>
+      <div class="grid2"><label class="field"><span>Deadline revisi (opsional)</span><input type="date" id="rq-rd"></label><label class="field"><span>Jam</span><input type="time" id="rq-rt" value="${esc((t && t.endTime) || '18:00')}"></label></div>
+      <p class="muted small" style="margin:4px 0 0">Kosongkan bila deadline tetap. Deadline lama yang sudah lewat membuat revisi langsung dihitung terlambat.</p>
+      <div id="rq-rerr"></div>`,
+    actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rq-rok">Kembalikan untuk revisi</button>',
+    onMount: (m, close) => {
+      setTimeout(() => $('#rq-rw', m).focus(), 50);
+      $('#rq-rok', m).onclick = () => {
+        const v = $('#rq-rw', m).value.trim(), nd = $('#rq-rd', m).value, nt = $('#rq-rt', m).value || '18:00';
+        const err = (x) => { $('#rq-rerr', m).innerHTML = `<div class="error">${esc(x)}</div>`; };
+        if (!v) { err('Tuliskan apa yang perlu diperbaiki.'); return $('#rq-rw', m).focus(); }
+        if (nd && L.at(nd, nt) < new Date()) return err('Deadline revisi sudah lewat. Pilih tanggal/jam yang akan datang.');
+        close(); reqAct(b.id, 'reopen', { text: v, endDate: nd, endTime: nt });
+      };
+    }
+  }));
   on('rq-return', () => modal({
     title: 'Kembalikan hasil', body: '<label class="field"><span>Apa yang perlu diperbaiki?</span><textarea id="rq-why" rows="3" maxlength="2000" placeholder="mis. Headline terlalu panjang, maksimal 8 kata"></textarea></label>',
     actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rq-why-ok">Kembalikan</button>',
@@ -228,7 +249,7 @@ function bindReqActions(b, t) {
 
 /** Jalankan aksi request lalu perbarui brief & task di layar. */
 async function reqAct(id, act, payload, btn) {
-  const labels = { accept: 'Request diterima. Selamat mengerjakan!', submit: 'Hasil diajukan.', approve: 'Disetujui — request selesai.', return: 'Dikembalikan ke penerima.', message: 'Pesan terkirim.' };
+  const labels = { accept: 'Request diterima. Selamat mengerjakan!', submit: 'Hasil diajukan.', approve: 'Disetujui — request selesai.', return: 'Dikembalikan ke penerima.', reopen: 'Request dibuka lagi untuk revisi.', message: 'Pesan terkirim.' };
   try {
     const r = await busy(btn || null, () => api.call('requestAction', { briefId: id, act, payload }));
     if (r.task) { patchTask(r.task.id, { status: r.task.status, startedAt: r.task.startedAt, reviewAt: r.task.reviewAt, doneAt: r.task.doneAt, notes: r.task.notes, endDate: r.task.endDate, endTime: r.task.endTime, stageLog: r.task.stageLog }); if (!findTask(r.task.id)) upsertTaskLocal(r.task); }

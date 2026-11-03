@@ -277,6 +277,7 @@
         else if (p.act === 'submit') add(br.createdBy, 'request', myName + ' mengajukan hasil request: ' + title, { taskId: t4.id, view: 'briefs' });
         else if (p.act === 'approve') add(t4.owner, 'approved', 'Hasil request disetujui: ' + title, { taskId: t4.id, view: 'briefs' });
         else if (p.act === 'return') add(t4.owner, 'returned', 'Hasil request dikembalikan: ' + title + (p.payload && p.payload.text ? ' — ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'reopen') add(t4.owner, 'returned', myName + ' meminta revisi request yang sudah selesai: ' + title + (p.payload && p.payload.text ? ' — ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
         break;
       }
       case 'leaveRequest': {

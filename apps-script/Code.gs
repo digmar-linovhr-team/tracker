@@ -173,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 28 });
+  return json_({ ok: true, app: 'project-tracker', version: 29 });
 }
 
 function doPost(e) {
@@ -2400,7 +2400,7 @@ function requestMail_(to, me, brief, task, subj, intro) {
   } catch (e) { Logger.log('Email request: ' + e); }
 }
 
-/** act: message | accept | submit | approve | return. payload: { text, endDate, endTime } */
+/** act: message | accept | submit | approve | return | reopen. payload: { text, endDate, endTime } */
 function requestAction_(me, id, act, payload) {
   payload = payload || {};
   var lock = lock_(20000), out, mail = null;
@@ -2458,6 +2458,22 @@ function requestAction_(me, id, act, payload) {
         reqLog_(sh, row, r, col, me, 'ret', { 'status': 'On-Progress', 'review at': '', 'notes': old ? old + '\n' + line : line });
         mail = [owner, '↩️ Request dikembalikan: ', esc_(me.name) + ' mengembalikan hasil request untuk diperbaiki' + (text ? ':<br><i>' + esc_(text) + '</i>' : '.')];
       }
+    } else if (act === 'reopen') {   // request yang sudah Selesai dibuka lagi untuk revisi
+      need(isCreator || admin, 'Hanya pembuat request (atau admin) yang bisa meminta revisi.');
+      need(st === 'Selesai', 'Request belum selesai — gunakan Kembalikan saat hasil diajukan. Data dimuat ulang.');
+      need(text, 'Tuliskan apa yang perlu diperbaiki.');
+      next = 'Dikembalikan'; say('Request dibuka lagi untuk revisi: ' + text, true);
+      var ch = { 'status': 'On-Progress', 'review at': '', 'done at': '' };
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(payload.endDate || ''))) {
+        var et2 = normTime_(payload.endTime) || t.endTime || '18:00';
+        ch['end date'] = toDateCell_(payload.endDate); ch['end time'] = et2;
+        d.assign = Object.assign({}, d.assign || {}, { endDate: payload.endDate, endTime: et2 });
+        say('Deadline revisi: ' + payload.endDate + ' ' + et2 + '.', true);
+      }
+      var line2 = '[Request dibuka lagi ' + Utilities.formatDate(now, tz_(), 'd MMM HH:mm') + ' oleh ' + me.name + '] ' + text;
+      var old2 = String(r[col['notes']] || '').trim(); ch['notes'] = old2 ? old2 + '\n' + line2 : line2;
+      reqLog_(sh, row, r, col, me, 'ret', ch);
+      mail = [owner, '🔁 Revisi request: ', esc_(me.name) + ' membuka lagi request yang sudah selesai dan meminta perbaikan:<br><i>' + esc_(text) + '</i>'];
     } else throw new Error('Aksi request tidak dikenal');
     d.thread = d.thread.slice(-REQ_MAX_THREAD);
     var bobj = { 'data': cleanBriefData_(d), 'updated at': now, 'updated by': me.username };

@@ -774,6 +774,21 @@ it('Request: buat → klarifikasi (dijeda) → terima → ajukan → pembuat set
   assert.strictEqual(sum.data.nAttach, 1); assert.strictEqual(sum.data.body, undefined);
   // sudah selesai: pembuat tidak bisa ubah
   assert.strictEqual(post({ action: 'saveRequest', token: ari, brief: { id: b.id, data: full.data } }).ok, false);
+  // sudah selesai: pembuat bisa minta revisi (wajib alasan; penerima tidak bisa) → dikembalikan lagi ke penerima
+  assert.strictEqual(post({ action: 'requestAction', token: w, briefId: b.id, act: 'reopen', payload: { text: 'x' } }).ok, false, 'penerima tidak bisa');
+  assert.strictEqual(post({ action: 'requestAction', token: ari, briefId: b.id, act: 'reopen', payload: { text: '' } }).ok, false, 'wajib alasan');
+  mails.length = 0;
+  r = post({ action: 'requestAction', token: ari, briefId: b.id, act: 'reopen', payload: { text: 'CTA bawah belum ada', endDate: '2026-11-10', endTime: '15:00' } });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.data.brief.status, 'Dikembalikan'); assert.strictEqual(r.data.task.status, 'On-Progress');
+  assert.ok(!r.data.task.doneAt, 'doneAt dikosongkan'); assert.strictEqual(r.data.task.endDate, '2026-11-10'); assert.strictEqual(r.data.task.endTime, '15:00');
+  assert.ok(/CTA bawah belum ada/.test(r.data.task.notes));
+  assert.ok(mails.some((m) => m.to === 'wisnu@linovhr.com' && m.subject.startsWith('🔁')), 'penerima diberi tahu');
+  assert.strictEqual(post({ action: 'requestAction', token: ari, briefId: b.id, act: 'reopen', payload: { text: 'lagi' } }).ok, false, 'hanya dari Selesai');
+  post({ action: 'requestAction', token: w, briefId: b.id, act: 'submit' });
+  r = post({ action: 'requestAction', token: ari, briefId: b.id, act: 'approve' });
+  assert.strictEqual(r.data.brief.status, 'Selesai'); assert.strictEqual(r.data.task.status, 'Done');
+  assert.strictEqual(r.data.task.stageLog.filter((x) => x.e === 'ret').length, 2, 'revisi tercatat');
 });
 
 it('Jadwal kerja: pilih Senin/Kamis, kuota min 2, pengecualian, pengajuan ke admin, utang 3 hari, libur', () => {

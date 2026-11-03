@@ -314,6 +314,11 @@ function reqAction(s, me, id, act, p) {
     need(isCreator || admin, 'Hanya pembuat request (atau admin) yang bisa menyetujui hasilnya.'); need(st === 'Diajukan', 'Tidak ada hasil yang menunggu persetujuan. Data dimuat ulang.');
     if (act === 'approve') { next = 'Selesai'; say('Hasil disetujui. Request selesai.', true); reqLog(t, 'done'); t.doneAt = now; }
     else { next = 'Dikembalikan'; say('Dikembalikan untuk diperbaiki' + (text ? ': ' + text : '.'), true); reqLog(t, 'ret'); t.reviewAt = ''; }
+  } else if (act === 'reopen') {
+    need(isCreator || admin, 'Hanya pembuat request (atau admin) yang bisa meminta revisi.'); need(st === 'Selesai', 'Request belum selesai — gunakan Kembalikan saat hasil diajukan. Data dimuat ulang.');
+    need(text, 'Tuliskan apa yang perlu diperbaiki.');
+    next = 'Dikembalikan'; say('Request dibuka lagi untuk revisi: ' + text, true); reqLog(t, 'ret'); t.reviewAt = ''; t.doneAt = '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(p.endDate || ''))) { t.endDate = p.endDate; t.endTime = p.endTime || t.endTime || '18:00'; say('Deadline revisi: ' + p.endDate + ' ' + t.endTime + '.', true); }
   } else throw new Error('Aksi request tidak dikenal');
   if (next !== st) { b.status = next; b.statusAt = now; }
   t.status = REQ_TS[b.status]; b.updatedAt = now; b.updatedBy = me.username;
