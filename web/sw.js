@@ -1,11 +1,14 @@
 /* Service worker: membuat aplikasi bisa dibuka cepat/offline dan menangani klik notifikasi.
  * Naikkan VERSION setiap kali file aplikasi diubah agar semua pengguna mendapat versi baru. */
-const VERSION = 'pt-v2.31.1';
-const SHELL = [
-  './', 'index.html', 'styles.css', 'config.js', 'manifest.webmanifest',
+const VERSION = 'pt-v2.32.0';
+const V = VERSION.match(/[\d.]+$/)[0];
+// File yang disimpan saat pemasangan. tools/build-site.js mengganti daftar ini dengan file hasil bundel.
+const SHELL_FILES = [
+  'styles.css', 'config.js', 'manifest.webmanifest',
   'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/aila.js', 'js/pt-web.js', 'js/app.js', 'js/brief.js', 'js/article.js', 'js/social.js', 'js/org.js', 'js/briefdoc.js', 'js/request.js', 'js/schedule.js', 'js/comments.js', 'js/bell.js', 'js/push.js', 'js/detail.js', 'js/ai.js', 'vendor/chart.umd.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'
 ];
+const SHELL = ['./'].concat(SHELL_FILES.map((f) => f + '?v=' + V));
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
@@ -18,19 +21,30 @@ self.addEventListener('activate', (e) => {
     .then(() => self.clients.claim()));
 });
 
-// File aplikasi: ambil dari jaringan dulu (agar selalu terbaru), pakai cache bila offline.
-// Panggilan ke Apps Script (lintas domain, POST) tidak disentuh.
+/** Ambil dari jaringan lalu simpan salinannya. */
+function fetchPut(req, key) {
+  return fetch(req, { cache: 'no-cache' }).then((res) => {
+    if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(key || req, copy)); }
+    return res;
+  });
+}
+// - Halaman (index.html): jaringan dulu supaya versi baru langsung terpakai; bila lambat (> 3 dtk) atau offline, pakai salinan.
+// - File berversi (?v=…): langsung dari cache — isinya tidak pernah berubah untuk versi yang sama, jadi tidak perlu ke server.
+// - Lainnya: jaringan dulu, cache bila offline. Panggilan ke Firebase/Apps Script (lintas domain) tidak disentuh.
 self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  e.respondWith(
-    fetch(e.request, { cache: 'no-cache' })
-      .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); }
-        return res;
-      })
-      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html')))
-  );
+  const req = e.request, url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (req.mode === 'navigate') {
+    const net = fetchPut(req, './');
+    const cached = new Promise((r) => setTimeout(r, 3000)).then(() => caches.match('./'));
+    e.respondWith(Promise.race([net, cached.then((c) => c || net)]).catch(() => caches.match('./', { ignoreSearch: true }).then((r) => r || net)));
+    return;
+  }
+  if (url.searchParams.has('v')) {
+    e.respondWith(caches.match(req).then((hit) => hit || fetchPut(req)).catch(() => caches.match(req, { ignoreSearch: true })));
+    return;
+  }
+  e.respondWith(fetchPut(req).catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match('./'))));
 });
 
 self.addEventListener('notificationclick', (e) => {

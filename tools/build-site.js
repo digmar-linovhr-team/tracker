@@ -72,6 +72,31 @@ self.addEventListener('activate', (e) => e.waitUntil((async () => {
 })()));\n`);
 }
 
+
+/** Gabungkan script di akhir <body> menjadi 2 file (vendor + aplikasi) supaya browser cukup 2 permintaan, bukan ±25,
+ *  lalu tulis ulang daftar cache service worker sesuai file hasil bundel. Urutan & cakupan global tetap sama. */
+function bundle(dir) {
+  const htmlPath = path.join(dir, 'index.html');
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  const ver = (html.match(/pt-web\.js\?v=([\d.]+)/) || [])[1] || '1';
+  const body = html.indexOf('<div id="toast-root">');
+  const tags = [...html.slice(body).matchAll(/<script src="([^"?]+)\?v=[^"]*"><\/script>\n?\s*/g)];
+  const vendor = [], app = [];
+  tags.forEach((m) => (m[1].startsWith('vendor/') ? vendor : app).push(m[1]));
+  const join = (files) => files.map((f) => '/* ==== ' + f + ' ==== */\n' + fs.readFileSync(path.join(dir, f), 'utf8') + '\n;').join('\n');
+  fs.writeFileSync(path.join(dir, 'vendor/vendor.bundle.js'), join(vendor));
+  fs.writeFileSync(path.join(dir, 'js/app.bundle.js'), join(app));
+  let rest = html.slice(body);
+  tags.forEach((m) => { rest = rest.replace(m[0], ''); });
+  rest = rest.replace('</body>', `<script src="vendor/vendor.bundle.js?v=${ver}"></script>\n  <script src="js/app.bundle.js?v=${ver}"></script>\n</body>`);
+  fs.writeFileSync(htmlPath, html.slice(0, body) + rest);
+  const sw = path.join(dir, 'sw.js');
+  const shell = ['styles.css', 'manifest.webmanifest', 'js/theme.js', 'vendor/vendor.bundle.js', 'js/app.bundle.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'];
+  const src = fs.readFileSync(sw, 'utf8').replace(/const SHELL_FILES = \[[\s\S]*?\];/, 'const SHELL_FILES = ' + JSON.stringify(shell) + ';');
+  fs.writeFileSync(sw, src);
+  return { vendor, app };
+}
+
 fs.rmSync(out, { recursive: true, force: true });
 cp(path.join(root, 'web'), out);
 if (mainFirebase) {
@@ -82,5 +107,7 @@ if (mainFirebase) {
   cp(path.join(root, 'web'), beta);
   buildFirebase(beta, true);
   buildSheets(out);
+  bundle(beta);
 }
+if (!process.argv.includes('--no-bundle')) bundle(out);
 console.log('Situs dibangun di ' + out + (mainFirebase ? ' — versi utama: Firebase' : ' — versi utama: Sheets, Firebase di /beta') + (emulator ? ' (emulator)' : ''));
