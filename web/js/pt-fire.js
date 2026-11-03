@@ -11,7 +11,7 @@
   var DOMAIN = FB.emailDomain || 'linovhr-tracker.firebaseapp.com';   // email sintetis akun: <username>@DOMAIN
   var app = null, auth = null, db = null, FV = null;
   var S = null, me = '', isAdmin = false, unsubs = [], readyP = null, listeners = {}, changeTimer = null, writing = 0;
-  var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1 };
+  var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1, aiCheck: 1, aiFix: 1, aiMark: 1, aiAllow: 1, aiStatus: 1, aiSettings: 1 };
 
   function emit(ch, d) { (listeners[ch] || []).forEach(function (fn) { try { fn(d); } catch (e) { console.error(e); } }); }
   function emailOf(u) { return String(u).trim().toLowerCase() + '@' + DOMAIN; }
@@ -389,6 +389,8 @@
     await ensureReady();
     if (action === 'saveUser' && !S.users.some(function (u) { return u.username === String((payload.user || {}).username || '').toLowerCase(); })) action = 'saveUserNew';
     if (SERVER_ACTIONS[action]) return server('fb:' + action, payload);
+    if (action === 'aiConfig') { var cf = await db.collection('settings').doc('ai').get().then(function (d) { return d.exists ? plain(d.data()) : {}; }, function () { return {}; });
+      return { gate: cf.gate !== false, pass: Object.assign({ brief: 70, draft: 75, live: 80 }, cf.pass || {}) }; }
     if (action === 'notifications') return { notifications: listNotifs() };
     if (action === 'notifRead') return markRead(payload.ids, payload.all);
     var before = S, work = clone(S);

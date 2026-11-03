@@ -580,6 +580,16 @@ function handle(action, b, session) {
       return { task: t, projects: syncProj(s, [t.code]), brief: socMirror(s, t) };
     }
   }
+  switch (action) {
+    // ---------- Penilaian Claude (tiruan untuk mode demo; versi asli di server) ----------
+    case 'aiConfig': return Object.assign({ gate: true, pass: { brief: 70, draft: 75, live: 80 } }, s.aiCfg || {});
+    case 'aiStatus': {
+      const c = Object.assign({ gate: true, cap: 8.5, budget: 9, models: { brief: 'claude-sonnet-5-5', draft: 'claude-sonnet-5-5', live: 'claude-sonnet-5-5', fix: 'claude-haiku-5-5' } }, s.aiCfg || {});
+      return { keySet: true, settings: c, usage: Object.assign({ cost: 0, count: 0, month: iso(new Date()).slice(0, 7) }, s.aiUsage || {}), pass: c.pass || { brief: 70, draft: 75, live: 80 } };
+    }
+    case 'aiSettings': { if (me.role !== 'admin') throw new Error('Hanya admin'); s.aiCfg = Object.assign({}, s.aiCfg || {}, b.settings || {}); return handle('aiStatus', {}, session); }
+    case 'aiCheck': case 'aiFix': case 'aiMark': case 'aiAllow': return demoAi(s, action, b, me);
+  }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {
     case 'getAll': return { comments: cmCountsD(s), tasks: withLv(s, s.tasks), projects: s.projects, users: s.users, notifications: true, briefs: briefSums(s),
@@ -682,6 +692,46 @@ function handle(action, b, session) {
     }
   }
   throw new Error('Aksi tidak dikenal');
+}
+
+// ---------- Penilaian Claude: tiruan deterministik untuk mode demo ----------
+const DEMO_AI = {
+  brief: [['kwMain', 'Keyword utama', 10, 'ai'], ['kwSecondary', 'Keyword turunan', 8, 'ai'], ['intent', 'Maksud pencarian', 12, 'ai'], ['competitors', 'Kompetitor', 12, 'mix'], ['h1', 'H1', 8, 'mix'], ['metaTitle', 'Meta title', 6, 'auto'], ['metaDesc', 'Meta description', 6, 'auto'], ['structure', 'Struktur H2/H3', 15, 'ai'], ['sources', 'Sumber', 6, 'mix'], ['faq', 'FAQ', 5, 'mix'], ['internal', 'Internal link', 5, 'auto'], ['cta', 'CTA', 5, 'ai'], ['wordEst', 'Estimasi kata', 2, 'auto']],
+  draft: [['followsBrief', 'Sesuai brief', 12, 'mix'], ['intent', 'Menjawab maksud pencarian', 12, 'ai'], ['accuracy', 'Kedalaman & akurasi', 15, 'ai'], ['keyword', 'Penempatan keyword', 10, 'mix'], ['kwSecondary', 'Keyword turunan', 6, 'auto'], ['readability', 'Keterbacaan', 10, 'mix'], ['flow', 'Alur', 8, 'ai'], ['claims', 'Sumber & klaim', 8, 'ai'], ['eeat', 'E-E-A-T', 6, 'ai'], ['links', 'Link', 5, 'auto'], ['cta', 'CTA', 4, 'mix'], ['length', 'Panjang', 4, 'auto']],
+  live: [['same', 'Isi sama dengan draft disetujui', 15, 'auto'], ['meta', 'Meta title & description', 10, 'auto'], ['url', 'URL', 6, 'mix'], ['oneH1', 'H1 & heading', 10, 'auto'], ['links', 'Internal link', 10, 'auto'], ['images', 'Gambar', 8, 'mix'], ['format', 'Format tampil', 10, 'ai'], ['opening', 'Paragraf pembuka', 10, 'ai'], ['cta', 'CTA', 8, 'mix'], ['compete', 'Siap bersaing', 13, 'ai']]
+};
+const DEMO_SUG = {
+  brief: [['Meta description', '', 'Meta description baru 128 karakter; tambah ajakan dan perpanjang ke 140–155 karakter.'], ['H2 #3', '', 'Masukkan keyword turunan di judul H2 ketiga.'], ['Kompetitor', '', 'Insight kompetitor ke-2 terlalu umum; tulis celah yang bisa kita isi.'], ['FAQ', '', 'Tambah 2 pertanyaan dari People Also Ask.']],
+  draft: [['Paragraf pembuka', '', 'Jawaban inti baru muncul di paragraf ke-4. Pindahkan definisi singkat ke 100 kata pertama.'], ['H2 #3', '', 'Masukkan keyword turunan di judul H2.'], ['H2 #5', '', 'Rujukan regulasi belum disertai tautan sumber resmi.'], ['Contoh kasus', '', 'Tambahkan contoh perhitungan dengan angka rupiah.'], ['Keterbacaan', '', '6 paragraf lebih dari 5 kalimat; pecah jadi paragraf pendek.'], ['Internal link', '', 'Link ke halaman fitur dari brief belum terpasang.']],
+  live: [['Gambar', '', '3 gambar belum punya alt text.'], ['Meta description', '', 'Meta description di halaman berbeda dari brief.'], ['Format', '', 'Tabel perbandingan tampil tanpa garis di HP.']]
+};
+const DEMO_AI_FIELD = { brief: 'aiBrief', draft: 'aiDraft', live: 'aiLive' };
+function demoAi(s, a, b, me) {
+  const t = s.tasks.find((x) => x.id === b.taskId); if (!t) throw new Error('Task tidak ditemukan');
+  const f = DEMO_AI_FIELD[b.stage]; if (!f) throw new Error('Tahap tidak dikenal');
+  if (a !== 'aiAllow' && me.role !== 'admin' && t.owner !== me.username) throw new Error('Hanya penanggung jawab task dan admin yang bisa menjalankan penilaian ini');
+  const pass = ((s.aiCfg || {}).pass || {})[b.stage] || { brief: 70, draft: 75, live: 80 }[b.stage];
+  let rv = t[f];
+  if (a === 'aiCheck') {
+    if (rv && !rv.allowRecheck) throw new Error('Tahap ini sudah diperiksa. Pakai "Cek perbaikan", atau minta admin mengizinkan cek ulang.');
+    const seed = (t.id + b.stage).split('').reduce((x, c) => x + c.charCodeAt(0), 0);
+    const criteria = DEMO_AI[b.stage].map(([key, name, max, mode], i) => { const sc = Math.max(0, max - ((seed + i * 7) % 4) - (rv ? 0 : i % 3 === 0 ? 2 : 0)); return { key, name, max, mode, score: sc, note: sc === max ? 'Sesuai standar.' : 'Masih bisa ditingkatkan.' }; });
+    const score = criteria.reduce((x, c) => x + c.score, 0);
+    rv = { stage: b.stage, score, pass: score >= pass, passMark: pass, mustFail: [], summary: '(mode demo) Contoh penilaian — di versi asli Claude Sonnet membaca isinya.',
+      criteria, suggestions: DEMO_SUG[b.stage].map(([loc, quote, text], i) => ({ id: 's' + (i + 1), loc, quote, text, check: null, status: 'open', why: '' })),
+      model: 'claude-sonnet-5-5', cost: 0.05, at: new Date().toISOString(), by: me.username, checks: (rv ? rv.checks : 0) + 1, allowRecheck: false, fixAt: '', fixed: 0 };
+    s.aiUsage = { cost: Math.round((((s.aiUsage || {}).cost || 0) + 0.05) * 100) / 100, count: ((s.aiUsage || {}).count || 0) + 1, month: iso(new Date()).slice(0, 7) };
+  } else {
+    if (!rv) throw new Error('Tahap ini belum diperiksa Claude.');
+    rv = JSON.parse(JSON.stringify(rv));
+    if (a === 'aiAllow') { if (me.role !== 'admin') throw new Error('Hanya admin'); rv.allowRecheck = true; }
+    if (a === 'aiFix') { rv.suggestions.forEach((x, i) => { if (x.status === 'na') return; x.status = i % 3 === 2 ? 'no' : i % 4 === 3 ? 'part' : 'ok'; x.why = x.status === 'ok' ? 'Sudah diperbaiki.' : x.status === 'part' ? 'Baru sebagian.' : 'Bagian ini belum berubah.'; }); rv.fixAt = new Date().toISOString(); }
+    if (a === 'aiMark') { const x = rv.suggestions.find((y) => y.id === b.sid); if (!x) throw new Error('Saran tidak ditemukan');
+      if (b.undo) { x.status = 'open'; x.why = ''; } else { if (String(b.reason || '').trim().length < 5) throw new Error('Tulis alasan singkat kenapa saran ini tidak relevan.'); x.status = 'na'; x.why = 'Ditandai tidak relevan oleh ' + me.name + ': "' + String(b.reason).trim() + '"'; } }
+    rv.fixed = rv.suggestions.filter((x) => x.status === 'ok' || x.status === 'na').length;
+  }
+  t[f] = rv;
+  return { review: rv, field: f };
 }
 
 /** Jalankan aksi pada state lain (dipakai versi Firebase: state = salinan data Firestore). */

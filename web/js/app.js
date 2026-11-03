@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.29.3';
+const CSS_VERSION = '2.30.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1369,7 +1369,7 @@ function viewReview() {
       <div class="rv-who"><span class="avatar">${initials(t.ownerName)}</span><div><b>${esc(t.ownerName)}</b>${pos ? `<small>${esc(pos)}</small>` : ''}</div></div>
       <div class="t-main">
         <div class="t-title">${prettyTitle(t.task)}</div>
-        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[artStage(t)] || 'Review')}</span>` : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}${cmChip(t)}</div>
+        <div class="t-sub">${art ? `<span class="rv-kind">${esc(ART_REVIEW_LABEL[artStage(t)] || 'Review')}</span>` : ''}${typeof aiChip === 'function' ? aiChip(t) : ''}${t.code ? `<span class="code-tag">${esc(t.code)}</span>` : ''}${pname && pname !== t.task ? `<span class="t-proj">${esc(pname)}</span>` : ''}${cmChip(t)}</div>
         ${t.notes ? `<div class="rv-note">${esc(t.notes)}</div>` : ''}
         ${art ? artReviewBlock(t) : `<div class="rv-hasil"><div class="rv-res-h">Hasil kerja</div>
           ${t.resultNote ? `<div class="rv-rnote">${esc(t.resultNote)}</div>` : ''}
@@ -2034,6 +2034,7 @@ function viewSettings() {
         <span class="tp-prev tp-${k}"><i></i><i></i><i></i></span><span class="tp-lbl">${ic}${l}</span></button>`).join('')}</div>
     </div></div>
     <div class="card settings-sect"><div class="card-h"><h2>Pasang di perangkat</h2></div><div class="card-b">${install}</div></div>
+    ${S.user.role === 'admin' && typeof aiEnabled === 'function' && aiEnabled() ? '<div id="ai-card"></div>' : ''}
     ${S.user.role === 'admin' ? `<div class="card settings-sect"><div class="card-h"><h2>Laporan tim otomatis</h2></div><div class="card-b">
       <p>Ringkasan KPI tim dikirim ke <b>digmar@linovhr.com</b>: <b>mingguan</b> setiap Senin pagi (minggu sebelumnya) dan <b>bulanan</b> setiap tanggal 1 (bulan sebelumnya). Isinya: tepat waktu, task selesai, overperforming, artikel & request selesai, tabel per orang, siapa yang terlambat, beban penuh, serta cuti/izin.</p>
       <div class="row" style="flex-wrap:wrap"><button class="btn" data-rep="week">Kirim laporan mingguan sekarang</button><button class="btn" data-rep="month">Kirim laporan bulanan sekarang</button></div>
@@ -2072,6 +2073,7 @@ function viewSettings() {
   $('#lo').onclick = async () => { clearCaches(); await api.logout(); S.user = null; resetSession(); S.cfg = await api.config(); showLogin(); };
   $('#guide').onclick = () => guideModal();
   if (api.push) pushCard();
+  if ($('#ai-card') && typeof aiSettingsCard === 'function') aiSettingsCard();
   $$('[data-rep]').forEach((b) => b.onclick = async () => {
     try { const r = await busy(b, () => api.call('sendReport', { kind: b.dataset.rep })); toast(`Laporan ${b.dataset.rep === 'month' ? 'bulanan' : 'mingguan'} (${r.period}) terkirim ke ${r.to}`); }
     catch (e) { /* busy menampilkan pesan */ }

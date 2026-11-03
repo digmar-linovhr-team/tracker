@@ -199,7 +199,8 @@ function dpTaskTop(t) {
       ${links || (note ? '' : '<p class="muted small dp-empty">Belum ada link hasil kerja.</p>')}
       ${canEditResults(t) ? `<button type="button" class="btn sm ghost" data-res="${esc(t.id)}">${list.length || note ? 'Ubah hasil kerja' : '+ Tambah hasil kerja'}</button>` : ''}
     </section>
-    ${brief ? `<section class="dp-sec"><h3>${brief.type === 'Request' ? 'Request' : 'Brief'}</h3><div class="dp-brief">${briefChips(t, true)}</div></section>` : ''}`;
+    ${brief ? `<section class="dp-sec"><h3>${brief.type === 'Request' ? 'Request' : 'Brief'}</h3><div class="dp-brief">${briefChips(t, true)}</div></section>` : ''}
+    ${typeof aiSection === 'function' ? aiSection(t) : ''}`;
 }
 function dpLink(label, url) {
   const k = resKind(url);
@@ -236,6 +237,7 @@ function dpBindTop(t) {
   $$('[data-dpapp]', root).forEach((b) => b.onclick = () => decideReview(b.dataset.dpapp, 'approve'));
   $$('[data-dpret]', root).forEach((b) => b.onclick = () => returnModal(b.dataset.dpret));
   $$('[data-dpedit]', root).forEach((b) => b.onclick = () => { const x = (S.all && S.all.tasks.find((y) => y.id === b.dataset.dpedit)) || t; taskModal(x); });
+  if (typeof aiBind === 'function') aiBind(root, t);
 }
 
 /** Linimasa (catatan sistem) & komentar dipisah saat utas tampil di panel task. */

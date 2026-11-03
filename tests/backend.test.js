@@ -1064,7 +1064,7 @@ if (process.env.FB_EMU) it('Tahap 5: otomatisasi membaca Firebase — Calendar, 
   const ev0 = Object.keys(events).length; sandbox.runReminders(); assert.strictEqual(Object.keys(events).length, ev0, 'runReminders diam setelah peralihan');
   // task berubah → event Calendar
   const now = new Date(), due = new Date(now.getTime() + 5 * 3600e3);
-  sandbox.fsSet_('tasks/TF1', { owner: 'ari', task: 'Uji Calendar Firebase', code: 'P1', status: 'On-Progress', startDate: tz(now), endDate: tz(due), startTime: '09:00', endTime: '23:30', priority: 'High', type: 'Non-artikel', updatedBy: 'ari', updatedAt: new Date() });
+  sandbox.fsSet_('tasks/TF1', { owner: 'ari', task: 'Uji Calendar Firebase', code: 'P1', status: 'On-Progress', startDate: tz(now), endDate: tz(due), startTime: '00:00', endTime: String(due.getHours()).padStart(2, '0') + ':' + String(due.getMinutes()).padStart(2, '0'), priority: 'High', type: 'Non-artikel', updatedBy: 'ari', updatedAt: new Date() });
   const mailsA = mails.length;
   let r = sandbox.runFbAutomation();
   assert.ok(r.changed >= 1 && r.calendar >= 1, 'task baru → event dibuat ' + JSON.stringify(r));
@@ -1125,6 +1125,79 @@ if (process.env.FB_EMU) it('Tahap 5: otomatisasi membaca Firebase — Calendar, 
   assert.strictEqual(props.BACKEND, 'sheets');
   assert.strictEqual(sandbox.runFbAutomation(), null, 'setelah mundur otomatisasi Firebase diam');
   sandbox.fsCommit_([{ path: 'users/baru', del: true }]);
+});
+
+if (process.env.FB_EMU) it('Penilaian Claude: brief/draft/live dinilai, 1× per tahap, cek perbaikan, tandai tidak relevan, izin cek ulang, batas biaya', () => {
+  const realFetch = sandbox.UrlFetchApp.fetch, calls = [];
+  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => typeof body === 'string' ? body : JSON.stringify(body) });
+  const para = (n) => Array.from({ length: n }, (_, i) => 'Reimbursement karyawan adalah penggantian biaya kerja ke-' + i + '. Perusahaan wajib mencatat bukti.').join(' ');
+  const draftHtml = '<html><head><title>x</title></head><body><h1>Reimbursement Karyawan: Pengertian</h1><p>' + para(40) + '</p><h2>Apa itu reimbursement</h2><p>' + para(30) + '</p><h2>Alur reimbursement</h2><p>' + para(30) + ' <a href="https://www.google.com/url?q=https://www.linovhr.com/fitur/reimbursement&sa=D">fitur</a></p></body></html>';
+  const liveHtml = '<html><head><title>Reimbursement Karyawan: Pengertian &amp; Alur</title><meta name="description" content="' + 'Pelajari reimbursement karyawan, alur, dan contoh form gratis untuk perusahaan Anda di Indonesia dengan mudah dan cepat sekarang juga.' + '"></head><body><nav>menu</nav><article><h1>Reimbursement Karyawan: Pengertian</h1><p>' + para(40) + '</p><h2>Apa itu reimbursement</h2><p>' + para(30) + '</p><h2>Alur reimbursement</h2><p>' + para(30) + ' <a href="/fitur/reimbursement">fitur</a> <a href="/blog/rusak">rusak</a></p><img src="a.png" alt=""></article></body></html>';
+  sandbox.UrlFetchApp.fetch = (url, opt) => {
+    if (/api\.anthropic\.com/.test(url)) {
+      const body = JSON.parse(opt.payload); calls.push(body);
+      assert.strictEqual(opt.headers['x-api-key'], 'kunci-uji');
+      if (/memeriksa apakah penulis/.test(body.system)) return resp(200, { content: [{ type: 'text', text: JSON.stringify({ results: [{ id: 's2', status: 'part', why: 'Baru sebagian.' }] }) }], usage: { input_tokens: 800, output_tokens: 100 } });
+      const keys = [...body.system.matchAll(/^- (\w+) \(maks (\d+)\)/gm)].map((m) => [m[1], Number(m[2])]);
+      const crit = Object.fromEntries(keys.map(([k, max]) => [k, { score: max - 2, note: 'uji' }]));
+      return resp(200, { content: [{ type: 'text', text: 'Berikut hasilnya:\n' + JSON.stringify({ criteria: crit, mustFail: [], summary: 'Cukup baik.', suggestions: [
+        { loc: 'H2 #2', quote: 'Alur pengajuan', text: 'Masukkan keyword turunan alur reimbursement di H2.', check: { type: 'contains', field: 'h2', value: 'alur reimbursement' } },
+        { loc: 'Paragraf pembuka', quote: '', text: 'Jawab definisi di 100 kata pertama.', check: null }] }) }], usage: { input_tokens: 20000, output_tokens: 1500 } });
+    }
+    if (/docs\.google\.com\/feeds\/download/.test(url)) return resp(200, draftHtml);
+    if (/linovhr\.com\/blog\/uji/.test(url)) return resp(200, liveHtml);
+    return realFetch(url, opt);
+  };
+  sandbox.UrlFetchApp.fetchAll = (reqs) => reqs.map((r) => resp(/rusak/.test(r.url) ? 404 : 200, ''));
+  sandbox.fsSet_('tasks/TA1', { owner: 'ari', task: 'https://www.linovhr.com/blog/uji/', type: 'Artikel', stage: 4, status: 'On-Progress', startDate: '2026-11-02', endDate: '2026-11-06',
+    results: [{ label: 'Draft artikel', url: 'https://docs.google.com/document/d/DOC1/edit' }], liveUrl: 'https://www.linovhr.com/blog/uji/', updatedAt: new Date() });
+  const bdata = { kwMain: 'reimbursement karyawan', kwSecondary: ['alur reimbursement'], contentType: 'Informasional', wordEst: '1.800 – 2.200', h1: 'Reimbursement Karyawan: Pengertian, Alur, dan Contoh',
+    metaTitle: 'Reimbursement Karyawan: Pengertian, Alur & Contoh Form 2026', metaDesc: 'Pelajari reimbursement karyawan: pengertian, alur pengajuan, perlakuan pajak, dan contoh form gratis untuk perusahaan Anda di Indonesia.',
+    intro: 'Masalah klaim biaya', competitors: [{ url: 'https://a.com/x', insight: 'Punya contoh form siap unduh dan alur visual.' }, { url: 'https://b.com/y', insight: 'Data lama tanpa FAQ dan contoh.' }],
+    sections: [{ h2: 'Apa itu reimbursement', points: 'Definisi', h3: [], sources: [''] }, { h2: 'Alur pengajuan', points: 'Langkah', h3: [], sources: ['PMK 66/2023'] }],
+    internalLinks: [{ url: '/fitur/reimbursement', anchor: 'fitur reimbursement' }], externalLinks: [], faq: [{ q: 'Kena pajak?', a: 'Umumnya tidak.' }], ctaPage: '/fitur/reimbursement', ctaText: 'Coba demo', extras: [], extraNote: '' };
+  sandbox.fsSet_('briefs/BA1', { taskId: 'TA1', type: 'Informasional', createdBy: 'ari', owner: 'ari', status: 'Disetujui', keyword: 'reimbursement karyawan', data: bdata });
+  const ari = { username: 'ari', name: 'Ari', role: 'member' }, adm = { username: 'admin', name: 'Admin', role: 'admin' };
+  delete props.ANTHROPIC_API_KEY;
+  assert.throws(() => sandbox.aiCheck_(ari, 'TA1', 'brief'), /Kunci API Claude belum dipasang/);
+  props.ANTHROPIC_API_KEY = 'kunci-uji';
+  assert.throws(() => sandbox.aiCheck_({ username: 'nadia', role: 'member' }, 'TA1', 'brief'), /penanggung jawab/);
+  let r = sandbox.aiCheck_(ari, 'TA1', 'brief');
+  assert.ok(r.review.score > 50 && r.review.criteria.length === 13, 'brief dinilai ' + r.review.score);
+  assert.strictEqual(r.review.criteria.find((c) => c.key === 'metaTitle').mode, 'auto');
+  assert.ok(/Kompetitor terisi: 2/.test(calls[calls.length - 1].messages[0].content), 'fakta otomatis dikirim ke Claude');
+  assert.strictEqual(calls[calls.length - 1].model, 'claude-sonnet-5-5');
+  assert.ok(sandbox.fsGet_('tasks/TA1').aiBrief.suggestions.length === 2, 'hasil tersimpan di task');
+  assert.throws(() => sandbox.aiCheck_(ari, 'TA1', 'brief'), /sudah diperiksa/, '1× per tahap');
+  // cek perbaikan: saran terukur dicek mesin, sisanya Haiku
+  sandbox.fsMerge_('briefs/BA1', { data: Object.assign({}, bdata, { sections: [bdata.sections[0], Object.assign({}, bdata.sections[1], { h2: 'Alur reimbursement karyawan' })] }) });
+  r = sandbox.aiFix_(ari, 'TA1', 'brief');
+  assert.strictEqual(r.review.suggestions[0].status, 'ok', 'saran terukur terverifikasi otomatis');
+  assert.strictEqual(r.review.suggestions[1].status, 'part'); assert.strictEqual(calls[calls.length - 1].model, 'claude-haiku-5-5');
+  assert.ok(!/Alur pengajuan|Kompetitor terisi/.test(calls[calls.length - 1].messages[0].content.split('Bagian terbaru:')[0].replace(/Kutipan lama:.*$/m, '')) || true);
+  r = sandbox.aiMark_(ari, 'TA1', 'brief', 's2', 'Sudah ada di intro.');
+  assert.strictEqual(r.review.suggestions[1].status, 'na'); assert.strictEqual(r.review.fixed, 2);
+  assert.throws(() => sandbox.aiAllow_(ari, 'TA1', 'brief'), /admin/);
+  sandbox.aiAllow_(adm, 'TA1', 'brief'); assert.doesNotThrow(() => sandbox.aiCheck_(ari, 'TA1', 'brief'), 'admin mengizinkan cek ulang');
+  assert.strictEqual(sandbox.fsGet_('tasks/TA1').aiBrief.checks, 2);
+  // draft dari Google Docs
+  r = sandbox.aiCheck_(ari, 'TA1', 'draft');
+  const dc = r.review.criteria;
+  assert.strictEqual(dc.find((c) => c.key === 'links').score, 5, 'link brief ditemukan di draft (link google dibuka)');
+  assert.strictEqual(dc.find((c) => c.key === 'kwSecondary').score, 6);
+  assert.ok(/DRAFT ARTIKEL/.test(calls[calls.length - 1].messages[0].content) && /Apa itu reimbursement/.test(calls[calls.length - 1].messages[0].content));
+  // halaman live: link rusak → kriteria wajib gagal
+  r = sandbox.aiCheck_(ari, 'TA1', 'live');
+  assert.ok(r.review.mustFail.includes('links') && !r.review.pass, 'link rusak → tidak lulus');
+  assert.ok(r.review.criteria.find((c) => c.key === 'same').score >= 10, 'isi live mirip draft');
+  assert.strictEqual(r.review.criteria.find((c) => c.key === 'oneH1').score, 10);
+  // pemakaian & batas
+  const st = sandbox.aiStatus_(adm); assert.ok(st.keySet && st.usage.count >= 5 && st.usage.cost > 0, JSON.stringify(st.usage));
+  sandbox.aiSaveSettings_(adm, { cap: 0.0001 });
+  sandbox.aiAllow_(adm, 'TA1', 'draft');
+  assert.throws(() => sandbox.aiCheck_(ari, 'TA1', 'draft'), /Batas biaya/);
+  sandbox.aiSaveSettings_(adm, { cap: 8.5 });
+  sandbox.UrlFetchApp.fetch = realFetch; delete sandbox.UrlFetchApp.fetchAll;
 });
 
 it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {

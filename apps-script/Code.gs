@@ -173,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 27 });
+  return json_({ ok: true, app: 'project-tracker', version: 28 });
 }
 
 function doPost(e) {
@@ -3267,6 +3267,12 @@ function fbRoute_(a, b) {
     case 'exportBriefDoc': return fbExportBrief_(me, b.briefId);
     case 'sendReport': needAdmin(); return sendTeamReport_(b.kind === 'month' ? 'month' : 'week', new Date());
     case 'dispatch': return fbDispatch_(me, b.ids, b.appUrl);
+    case 'aiCheck': return aiCheck_(me, b.taskId, b.stage);
+    case 'aiFix': return aiFix_(me, b.taskId, b.stage);
+    case 'aiMark': return aiMark_(me, b.taskId, b.stage, b.sid, b.reason, b.undo);
+    case 'aiAllow': return aiAllow_(me, b.taskId, b.stage);
+    case 'aiStatus': needAdmin(); return aiStatus_(me);
+    case 'aiSettings': return aiSaveSettings_(me, b.settings || {});
     case 'testPush': return { sent: pushTo_(me.username, { title: '🔔 Push uji', body: 'Push notification berjalan di perangkat ini.', tag: 'test-' + Date.now(), view: 'settings' }, '') };
   }
   throw new Error('Aksi tidak dikenal');
@@ -3940,6 +3946,440 @@ function fbRollback() {
   var msg = 'Otomatisasi kembali membaca spreadsheet.' + (count ? '\nData terbaru dari Firebase sudah disalin: ' + JSON.stringify(count) : '\nPERHATIAN: salinan terakhir gagal — cek log eksekusi.');
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { Logger.log(msg); }
   return count;
+}
+
+// ===================== Penilaian Claude (brief, draft, halaman live) =====================
+// Kunci API disimpan di Script Properties: ANTHROPIC_API_KEY. Hasil disimpan di task: aiBrief / aiDraft / aiLive.
+// Standar & bobot = dokumen "Standar SEO Artikel LinovHR". Kriteria 'auto' dihitung aplikasi; 'mix' & 'ai' dinilai Claude.
+var AI_API = 'https://api.anthropic.com/v1/messages';
+var AI_DEFAULTS = { gate: true, cap: 8.5, budget: 9,
+  models: { brief: 'claude-sonnet-5-5', draft: 'claude-sonnet-5-5', live: 'claude-sonnet-5-5', fix: 'claude-haiku-5-5' },
+  // US$ per 1 juta token [masuk, keluar] — perkiraan; dipakai untuk penghitung biaya di aplikasi
+  prices: { 'claude-sonnet-5-5': [2, 10], 'claude-haiku-5-5': [0.1, 0.5] } };
+var AI_FIELD = { brief: 'aiBrief', draft: 'aiDraft', live: 'aiLive' };
+var AI_STAGE_NAME = { brief: 'Brief', draft: 'Draft', live: 'Halaman live' };
+var AI_RUBRIC = {
+  brief: { pass: 70, must: ['kwMain', 'intent', 'competitors'], crit: [
+    ['kwMain', 'Keyword utama', 10, 'ai', 'Satu keyword utama, ada volume pencarian, cocok dengan produk LinovHR'],
+    ['kwSecondary', 'Keyword turunan', 8, 'ai', '3–8 keyword turunan relevan, tidak kanibal dengan artikel lain'],
+    ['intent', 'Maksud pencarian', 12, 'ai', 'Jenis konten (Informasional/Consideration/Conversion) sesuai yang dicari orang untuk keyword itu'],
+    ['competitors', 'Kompetitor', 12, 'mix', 'Minimal 2 kompetitor halaman 1 Google, masing-masing dengan insight yang berguna'],
+    ['h1', 'H1', 8, 'mix', 'Memuat keyword utama, 40–70 karakter, menjanjikan jawaban yang jelas'],
+    ['metaTitle', 'Meta title', 6, 'auto', '50–60 karakter, keyword di depan'],
+    ['metaDesc', 'Meta description', 6, 'auto', '140–155 karakter, memuat keyword, ada ajakan'],
+    ['structure', 'Struktur H2/H3', 15, 'ai', 'Urutan logis, menutup celah kompetitor, keyword turunan tersebar di H2'],
+    ['sources', 'Sumber', 6, 'mix', 'Setiap H2 berisi data/regulasi punya sumber resmi (UU, PP, BPS, Kemnaker)'],
+    ['faq', 'FAQ', 5, 'mix', '3–6 pertanyaan dari People Also Ask, jawaban 40–60 kata'],
+    ['internal', 'Internal link', 5, 'auto', 'Minimal 3 ke artikel/halaman fitur LinovHR yang relevan'],
+    ['cta', 'CTA', 5, 'ai', 'Mengarah ke halaman produk yang cocok dengan topik'],
+    ['wordEst', 'Estimasi kata', 2, 'auto', 'Diisi dan sebanding dengan rata-rata kompetitor']] },
+  draft: { pass: 75, must: ['followsBrief', 'intent', 'accuracy'], crit: [
+    ['followsBrief', 'Sesuai brief', 12, 'mix', 'Semua H2/H3 di brief ada; tambahan boleh bila relevan'],
+    ['intent', 'Menjawab maksud pencarian', 12, 'ai', 'Jawaban inti muncul di 100–150 kata pertama, tidak bertele-tele'],
+    ['accuracy', 'Kedalaman & akurasi', 15, 'ai', 'Penjelasan lengkap, contoh nyata Indonesia, angka dan regulasi benar dan terbaru'],
+    ['keyword', 'Penempatan keyword', 10, 'mix', 'Keyword utama di H1, paragraf pertama, minimal 1 H2, dan kesimpulan; alami, tidak dijejalkan'],
+    ['kwSecondary', 'Keyword turunan', 6, 'auto', 'Tersebar di H2/H3 dan isi sesuai brief'],
+    ['readability', 'Keterbacaan', 10, 'mix', 'Paragraf ≤ 4 kalimat, kalimat ≤ 25 kata, ada daftar/tabel untuk langkah dan perbandingan'],
+    ['flow', 'Alur', 8, 'ai', 'Tidak mengulang, transisi antarbagian jelas, kesimpulan merangkum'],
+    ['claims', 'Sumber & klaim', 8, 'ai', 'Setiap data, regulasi, dan statistik disertai sumber'],
+    ['eeat', 'E-E-A-T', 6, 'ai', 'Ada sudut pandang praktisi HR, contoh kasus, atau langkah praktis'],
+    ['links', 'Link', 5, 'auto', 'Internal link dari brief terpasang; external link ke sumber resmi'],
+    ['cta', 'CTA', 4, 'mix', 'CTA di tengah dan akhir, mengarah ke fitur yang relevan'],
+    ['length', 'Panjang', 4, 'auto', 'Sesuai estimasi brief (±15%)']] },
+  live: { pass: 80, must: ['oneH1', 'links', 'meta'], crit: [
+    ['same', 'Isi sama dengan draft disetujui', 15, 'auto', 'Kemiripan teks ≥ 95%'],
+    ['meta', 'Meta title & description', 10, 'auto', 'Sama dengan brief, panjang sesuai'],
+    ['url', 'URL', 6, 'mix', 'Pendek, huruf kecil, memuat keyword, tanpa tahun kecuali perlu'],
+    ['oneH1', 'H1 & heading', 10, 'auto', 'Hanya satu H1; urutan H2/H3 benar, tidak ada heading kosong'],
+    ['links', 'Internal link', 10, 'auto', 'Semua link brief terpasang, tidak ada link rusak'],
+    ['images', 'Gambar', 8, 'mix', 'Setiap gambar punya alt text deskriptif'],
+    ['format', 'Format tampil', 10, 'ai', 'Tabel, daftar, dan FAQ tampil rapi; tidak ada sisa format Google Docs'],
+    ['opening', 'Paragraf pembuka', 10, 'ai', 'Langsung menjawab, memuat keyword, enak dibaca di HP'],
+    ['cta', 'CTA', 8, 'mix', 'Tombol/link CTA tampil dan menuju halaman benar'],
+    ['compete', 'Siap bersaing', 13, 'ai', 'Dibanding kompetitor di brief, artikel ini lebih lengkap atau lebih jelas']] }
+};
+var AI_STYLE = 'Gaya LinovHR: bahasa Indonesia baku tapi luwes, sapaan "Anda"; istilah yang dicari orang dijelaskan sekali; regulasi disebut nomor & tahunnya (versi terbaru); netral terhadap kompetitor; promosi LinovHR secukupnya di bagian relevan & CTA; tanpa klaim berlebihan tanpa data.';
+
+function aiSettings_() {
+  var s = {}; try { s = fsGet_('settings/ai') || {}; } catch (e) { s = {}; }
+  var out = JSON.parse(JSON.stringify(AI_DEFAULTS));
+  ['gate', 'cap', 'budget'].forEach(function (k) { if (s[k] !== undefined && s[k] !== null) out[k] = s[k]; });
+  if (s.models) Object.keys(s.models).forEach(function (k) { if (s.models[k]) out.models[k] = s.models[k]; });
+  if (s.prices) Object.keys(s.prices).forEach(function (k) { out.prices[k] = s.prices[k]; });
+  if (s.pass) Object.keys(s.pass).forEach(function (k) { if (AI_RUBRIC[k] && Number(s.pass[k])) out['pass_' + k] = Number(s.pass[k]); });
+  return out;
+}
+function aiPass_(stage, st) { return st['pass_' + stage] || AI_RUBRIC[stage].pass; }
+function aiMonth_() { return Utilities.formatDate(new Date(), tz_(), 'yyyy-MM'); }
+function aiUsage_() { return fsGet_('serverMeta/aiUsage_' + aiMonth_()) || { cost: 0, count: 0, inTok: 0, outTok: 0 }; }
+function aiAddUsage_(model, usage, st, kind) {
+  var p = st.prices[model] || [3, 15], inT = Number(usage.input_tokens || 0) + Number(usage.cache_creation_input_tokens || 0) + Number(usage.cache_read_input_tokens || 0), outT = Number(usage.output_tokens || 0);
+  var cost = (inT * p[0] + outT * p[1]) / 1e6, u = aiUsage_();
+  var by = u.byKind || {}; by[kind] = Math.round(((by[kind] || 0) + cost) * 1e5) / 1e5;
+  fsSet_('serverMeta/aiUsage_' + aiMonth_(), { cost: Math.round((Number(u.cost || 0) + cost) * 1e5) / 1e5, count: Number(u.count || 0) + 1,
+    inTok: Number(u.inTok || 0) + inT, outTok: Number(u.outTok || 0) + outT, byKind: by, at: new Date() });
+  return cost;
+}
+
+/** Panggil Claude. Hasil: { json, text, usage, model, cost }. */
+function aiCall_(model, system, user, maxTokens, st, kind) {
+  var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!key) throw new Error('Kunci API Claude belum dipasang (Script Properties → ANTHROPIC_API_KEY).');
+  var used = Number(aiUsage_().cost || 0);
+  if (used >= Number(st.cap)) throw new Error('Batas biaya Penilaian Claude bulan ini sudah tercapai (US$' + used.toFixed(2) + '). Bisa dipakai lagi bulan depan, atau admin menaikkan batas di Pengaturan.');
+  var res = UrlFetchApp.fetch(AI_API, { method: 'post', muteHttpExceptions: true, contentType: 'application/json',
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    payload: JSON.stringify({ model: model, max_tokens: maxTokens || 2500, temperature: 0, system: system, messages: [{ role: 'user', content: user }] }) });
+  var code = res.getResponseCode(), j = {};
+  try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) { j = {}; }
+  if (code >= 300) {
+    var m = (j.error && j.error.message) || res.getContentText().slice(0, 200);
+    if (code === 401) throw new Error('Kunci API Claude ditolak. Periksa ANTHROPIC_API_KEY di Script Properties.');
+    if (code === 429 || code === 529) throw new Error('Claude sedang sibuk. Coba lagi beberapa menit lagi.');
+    if (/credit|billing|balance/i.test(m)) throw new Error('Saldo/batas akun Claude API habis. Cek console.anthropic.com.');
+    throw new Error('Claude API ' + code + ': ' + m);
+  }
+  var text = (j.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('');
+  var cost = aiAddUsage_(model, j.usage || {}, st, kind);
+  return { json: aiJson_(text), text: text, usage: j.usage || {}, model: model, cost: cost };
+}
+function aiJson_(text) {
+  var s = String(text || ''), a = s.indexOf('{'), b = s.lastIndexOf('}');
+  if (a < 0 || b <= a) return null;
+  try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+}
+
+// ---------- isi yang dinilai ----------
+function aiDecode_(s) {
+  return String(s || '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&ldquo;|&rdquo;/g, '"').replace(/&ndash;/g, '–').replace(/&mdash;/g, '—').replace(/&#(\d+);/g, function (m, n) { return String.fromCharCode(Number(n)); });
+}
+function aiStrip_(html) { return aiDecode_(String(html || '').replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d|tr|table|ul|ol)>/gi, '\n').replace(/<[^>]+>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim(); }
+function aiUnwrap_(u) {
+  u = aiDecode_(u);
+  var m = /^https?:\/\/(www\.)?google\.com\/url\?(.*)$/.exec(u);
+  if (m) { var q = /(?:^|&)q=([^&]+)/.exec(m[2]); if (q) try { return decodeURIComponent(q[1]); } catch (e) { return q[1]; } }
+  return u;
+}
+/** HTML (halaman live atau ekspor Google Docs) → model isi. */
+function aiParseHtml_(html, preferArticle) {
+  html = String(html || '');
+  var head = (/<head[\s\S]*?<\/head>/i.exec(html) || [''])[0];
+  var meta = function (name) { var m = new RegExp('<meta[^>]+(?:name|property)=["\']' + name + '["\'][^>]*>', 'i').exec(head); if (!m) return ''; var c = /content=["\']([^"\']*)["\']/i.exec(m[0]); return c ? aiDecode_(c[1]).trim() : ''; };
+  var body = (/<body[\s\S]*<\/body>/i.exec(html) || [html])[0];
+  if (preferArticle) { var art = /<article[\s\S]*?<\/article>/i.exec(body) || /<main[\s\S]*?<\/main>/i.exec(body); if (art) body = art[0]; }
+  var heads = [], re = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, m;
+  while ((m = re.exec(body))) heads.push({ level: Number(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() });
+  var links = [], ra = /<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)<\/a>/gi;
+  while ((m = ra.exec(body))) links.push({ url: aiUnwrap_(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() });
+  var imgs = [], ri = /<img\s[^>]*>/gi;
+  while ((m = ri.exec(body))) { var alt = /alt=["\']([^"\']*)["\']/i.exec(m[0]), src = /src=["\']([^"\']+)["\']/i.exec(m[0]); imgs.push({ src: src ? src[1] : '', alt: alt ? aiDecode_(alt[1]).trim() : '' }); }
+  // teks per bagian (dipotong di setiap heading)
+  var marked = body.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, function (x, l, t) { return '\n§§' + l + '|' + aiStrip_(t).replace(/\s+/g, ' ').trim() + '\n'; });
+  var text = aiStrip_(marked), sections = [], cur = { heading: '', level: 0, text: '' };
+  text.split('\n').forEach(function (line) {
+    var h = /^§§(\d)\|(.*)$/.exec(line.trim());
+    if (h) { if (cur.heading || cur.text.trim()) sections.push(cur); cur = { heading: h[2], level: Number(h[1]), text: '' }; }
+    else cur.text += line + '\n';
+  });
+  if (cur.heading || cur.text.trim()) sections.push(cur);
+  var plain = sections.map(function (s) { return (s.heading ? s.heading + '\n' : '') + s.text; }).join('\n').trim();
+  var title = (/<title[^>]*>([\s\S]*?)<\/title>/i.exec(head) || ['', ''])[1];
+  return { metaTitle: meta('og:title') && !title ? meta('og:title') : aiDecode_(title).trim(), metaDesc: meta('description') || meta('og:description'),
+    h1: heads.filter(function (x) { return x.level === 1; }).map(function (x) { return x.text; }),
+    h2: heads.filter(function (x) { return x.level === 2; }).map(function (x) { return x.text; }),
+    h3: heads.filter(function (x) { return x.level === 3; }).map(function (x) { return x.text; }),
+    heads: heads, links: links, imgs: imgs, sections: sections, text: plain,
+    words: plain ? plain.split(/\s+/).filter(Boolean).length : 0 };
+}
+function aiBriefOf_(taskId) {
+  var b = fsWhere_('briefs', 'taskId', 'EQUAL', taskId).filter(function (x) { return x.type !== 'Request' && x.type !== 'Sosmed'; })[0];
+  if (!b) throw new Error('Brief untuk task ini belum ada.');
+  return b;
+}
+function aiBriefModel_(b) {
+  var d = b.data || {}, secs = (d.sections || []);
+  var sections = [{ heading: 'Intro', level: 2, text: d.intro || '' }].concat(secs.map(function (s) {
+    return { heading: s.h2 || '', level: 2, text: [s.points || ''].concat((s.h3 || []).map(function (h) { return '### ' + (h.title || '') + ': ' + (h.points || ''); }))
+      .concat((s.sources || []).filter(String).length ? ['Sumber: ' + (s.sources || []).filter(String).join('; ')] : []).join('\n') };
+  }));
+  if ((d.faq || []).length) sections.push({ heading: 'FAQ', level: 2, text: d.faq.map(function (f) { return 'T: ' + (f.q || '') + '\nJ: ' + (f.a || ''); }).join('\n') });
+  return { kwMain: d.kwMain || '', kwSecondary: d.kwSecondary || [], h1: [d.h1 || ''], metaTitle: d.metaTitle || '', metaDesc: d.metaDesc || '',
+    h2: secs.map(function (s) { return s.h2 || ''; }), h3: [].concat.apply([], secs.map(function (s) { return (s.h3 || []).map(function (h) { return h.title || ''; }); })),
+    links: (d.internalLinks || []).concat(d.externalLinks || []).filter(function (l) { return l && l.url; }).map(function (l) { return { url: l.url, text: l.anchor || '' }; }),
+    sections: sections, text: sections.map(function (s) { return s.heading + '\n' + s.text; }).join('\n'), data: d };
+}
+function aiDocUrl_(t) {
+  var list = (t.results || []).filter(function (r) { return /docs\.google\.com\/document\/d\//.test(r.url || ''); });
+  var pick = list.filter(function (r) { return /draft|artikel|naskah/i.test(r.label || ''); })[0] || list[list.length - 1];
+  return pick ? pick.url : '';
+}
+function aiDraftModel_(t) {
+  var url = aiDocUrl_(t);
+  if (!url) throw new Error('Link Google Docs draft belum ada di Hasil kerja.');
+  var id = (/\/document\/d\/([\w-]+)/.exec(url) || [])[1];
+  var res = UrlFetchApp.fetch('https://docs.google.com/feeds/download/documents/export/Export?id=' + id + '&exportFormat=html',
+    { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  if (res.getResponseCode() >= 300) throw new Error('Google Docs draft tidak bisa dibuka server (' + res.getResponseCode() + '). Bagikan dokumen ke akun Apps Script atau atur "siapa pun yang punya link".');
+  var m = aiParseHtml_(res.getContentText(), false); m.docUrl = url; return m;
+}
+function aiLiveModel_(t) {
+  var url = String(t.liveUrl || '').trim();
+  if (!/^https?:\/\//.test(url)) throw new Error('URL artikel live belum diisi (tahap Publish).');
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: { 'User-Agent': 'Mozilla/5.0 (Project Tracker LinovHR; pemeriksa artikel)' } });
+  if (res.getResponseCode() >= 300) throw new Error('Halaman live tidak bisa dibuka (' + res.getResponseCode() + ').');
+  var m = aiParseHtml_(res.getContentText(), true); m.url = url; return m;
+}
+
+// ---------- pemeriksaan otomatis ----------
+var aiLow_ = function (s) { return String(s || '').toLowerCase(); };
+function aiHas_(hay, needle) { needle = aiLow_(needle).trim(); return !!needle && aiLow_(hay).indexOf(needle) >= 0; }
+function aiLinkPath_(u) { u = String(u || '').trim(); try { return u.replace(/^https?:\/\/(www\.)?[^\/]+/i, '').replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase() || '/'; } catch (e) { return u; } }
+function aiWordEst_(s) { var n = String(s || '').replace(/\./g, '').match(/\d+/g); if (!n) return 0; n = n.map(Number); return n.length > 1 ? (n[0] + n[1]) / 2 : n[0]; }
+function aiShingles_(text) { var w = aiLow_(text).replace(/[^a-z0-9à-ÿ\s]/g, ' ').split(/\s+/).filter(Boolean), out = {}; for (var i = 0; i + 4 < w.length; i++) out[w.slice(i, i + 5).join(' ')] = 1; return out; }
+function aiSimilar_(a, b) { var A = aiShingles_(a), B = aiShingles_(b), ka = Object.keys(A); if (!ka.length) return 0; var hit = ka.filter(function (k) { return B[k]; }).length; return hit / ka.length; }
+
+/** Skor kriteria 'auto' + fakta untuk kriteria 'mix' yang dikirim ke Claude. */
+function aiAuto_(stage, m, ctx) {
+  var sc = {}, facts = [], note = {}, kw = (ctx.brief && ctx.brief.kwMain) || m.kwMain || '';
+  var lenScore = function (s, lo, hi, max) { var n = fv_(s).length; if (n >= lo && n <= hi) return max; if (n >= lo - 10 && n <= hi + 10) return Math.round(max / 2); return 0; };
+  if (stage === 'brief') {
+    var d = m.data;
+    sc.metaTitle = Math.min(6, lenScore(d.metaTitle, 50, 60, 4) + (aiHas_(d.metaTitle, kw) ? 2 : 0)); note.metaTitle = fv_(d.metaTitle).length + ' karakter' + (aiHas_(d.metaTitle, kw) ? ', memuat keyword' : ', keyword utama tidak ada');
+    sc.metaDesc = Math.min(6, lenScore(d.metaDesc, 140, 155, 4) + (aiHas_(d.metaDesc, kw) ? 2 : 0)); note.metaDesc = fv_(d.metaDesc).length + ' karakter' + (aiHas_(d.metaDesc, kw) ? ', memuat keyword' : ', keyword utama tidak ada');
+    var nIn = (d.internalLinks || []).filter(function (l) { return fv_(l.url); }).length;
+    sc.internal = nIn >= 3 ? 5 : nIn ? 2 : 0; note.internal = nIn + ' internal link';
+    sc.wordEst = fv_(d.wordEst) ? 2 : 0; note.wordEst = fv_(d.wordEst) || 'belum diisi';
+    var comps = (d.competitors || []).filter(function (c) { return fv_(c.url); });
+    facts.push('Kompetitor terisi: ' + comps.length + ' (dengan insight: ' + comps.filter(function (c) { return fv_(c.insight).length > 20; }).length + ')');
+    facts.push('H1: ' + fv_(d.h1).length + ' karakter, ' + (aiHas_(d.h1, kw) ? 'memuat' : 'TIDAK memuat') + ' keyword utama');
+    facts.push('FAQ: ' + (d.faq || []).filter(function (f) { return fv_(f.q); }).length + ' pertanyaan');
+    facts.push('H2 dengan sumber: ' + (d.sections || []).filter(function (s) { return (s.sources || []).some(function (x) { return fv_(x); }); }).length + ' dari ' + (d.sections || []).length);
+  } else if (stage === 'draft') {
+    var b = ctx.brief, all = aiLow_(m.text), heads = m.heads.map(function (h) { return h.text; }).join(' | ');
+    var sec = (b.kwSecondary || []).filter(String), got = sec.filter(function (k) { return aiHas_(all, k); });
+    sc.kwSecondary = sec.length ? Math.round(6 * got.length / sec.length) : 6; note.kwSecondary = got.length + '/' + sec.length + ' keyword turunan muncul' + (sec.length > got.length ? ' (belum: ' + sec.filter(function (k) { return got.indexOf(k) < 0; }).slice(0, 4).join(', ') + ')' : '');
+    var want = (b.data.internalLinks || []).filter(function (l) { return fv_(l.url); }).map(function (l) { return aiLinkPath_(l.url); });
+    var have = m.links.map(function (l) { return aiLinkPath_(l.url); }), okL = want.filter(function (p) { return have.indexOf(p) >= 0; });
+    sc.links = want.length ? Math.round(5 * okL.length / want.length) : 5; note.links = okL.length + '/' + want.length + ' internal link brief terpasang';
+    var est = aiWordEst_(b.data.wordEst), dev = est ? Math.abs(m.words - est) / est : 0;
+    sc.length = !est ? 4 : dev <= 0.15 ? 4 : dev <= 0.3 ? 2 : 0; note.length = m.words + ' kata' + (est ? ' (estimasi ' + est + ')' : '');
+    var miss = b.h2.filter(function (h) { return fv_(h) && !m.h2.concat(m.h3).some(function (x) { return aiSimilar_(h, x) > 0 || aiHas_(x, h) || aiHas_(h, x); }); });
+    facts.push('H2 brief yang tidak ditemukan di draft (perkiraan): ' + (miss.length ? miss.join(' | ') : 'tidak ada'));
+    facts.push('Keyword utama "' + kw + '": H1 ' + (m.h1.some(function (h) { return aiHas_(h, kw); }) ? 'ya' : 'tidak') + ', 150 kata pertama ' + (aiHas_(m.text.split(/\s+/).slice(0, 150).join(' '), kw) ? 'ya' : 'tidak') + ', di H2 ' + m.h2.filter(function (h) { return aiHas_(h, kw); }).length + '×, total ' + (all.split(aiLow_(kw)).length - 1) + '× dalam ' + m.words + ' kata');
+    var paras = m.sections.map(function (s) { return s.text; }).join('\n').split('\n').filter(function (p) { return p.trim().split(/\s+/).length > 8; });
+    var longP = paras.filter(function (p) { return (p.match(/[.!?](\s|$)/g) || []).length > 4; }).length;
+    var sentences = m.text.split(/[.!?]\s/), longS = sentences.filter(function (x) { return x.split(/\s+/).length > 25; }).length;
+    facts.push('Keterbacaan: ' + longP + ' dari ' + paras.length + ' paragraf lebih dari 4 kalimat; ' + longS + ' dari ' + sentences.length + ' kalimat lebih dari 25 kata');
+    facts.push('Heading draft: ' + heads.slice(0, 1500));
+  } else {
+    var b2 = ctx.brief, sim = ctx.draft ? aiSimilar_(ctx.draft.text, m.text) : null;
+    sc.same = sim === null ? 8 : sim >= 0.95 ? 15 : sim >= 0.85 ? 10 : sim >= 0.7 ? 5 : 0; note.same = sim === null ? 'draft tidak bisa dibandingkan' : Math.round(sim * 100) + '% isi draft ditemukan di halaman';
+    var tOk = fv_(m.metaTitle).length >= 30 && fv_(m.metaTitle).length <= 65 && aiHas_(m.metaTitle, kw), dOk = fv_(m.metaDesc).length >= 120 && fv_(m.metaDesc).length <= 160 && aiHas_(m.metaDesc, kw);
+    sc.meta = (tOk ? 5 : 0) + (dOk ? 5 : 0); note.meta = 'title ' + fv_(m.metaTitle).length + ' kar., description ' + fv_(m.metaDesc).length + ' kar.' + (aiHas_(m.metaTitle, kw) ? '' : ', keyword tidak di title');
+    var empty = m.heads.filter(function (h) { return !h.text; }).length;
+    sc.oneH1 = (m.h1.length === 1 ? 5 : 0) + (empty ? 0 : 5); note.oneH1 = m.h1.length + ' H1, ' + empty + ' heading kosong';
+    var want2 = (b2.data.internalLinks || []).filter(function (l) { return fv_(l.url); }).map(function (l) { return aiLinkPath_(l.url); });
+    var have2 = m.links.map(function (l) { return aiLinkPath_(l.url); }), ok2 = want2.filter(function (p) { return have2.indexOf(p) >= 0; });
+    var broken = aiBrokenLinks_(m.links, m.url);
+    sc.links = Math.max(0, (want2.length ? Math.round(10 * ok2.length / want2.length) : 10) - broken.length * 3);
+    note.links = ok2.length + '/' + want2.length + ' link brief terpasang, ' + broken.length + ' link rusak' + (broken.length ? ' (' + broken.slice(0, 3).join(', ') + ')' : '');
+    ctx.broken = broken;
+    var noAlt = m.imgs.filter(function (i) { return !i.alt; }).length;
+    facts.push('Gambar: ' + m.imgs.length + ', tanpa alt: ' + noAlt);
+    facts.push('URL: ' + m.url);
+    facts.push('Heading halaman: ' + m.heads.map(function (h) { return 'H' + h.level + ' ' + h.text; }).join(' | ').slice(0, 1500));
+  }
+  return { scores: sc, notes: note, facts: facts };
+}
+function fv_(v) { return String(v == null ? '' : v).trim(); }
+function aiBrokenLinks_(links, base) {
+  var host = (/^https?:\/\/[^\/]+/.exec(base || '') || [''])[0], seen = {}, reqs = [], urls = [];
+  links.forEach(function (l) {
+    var u = String(l.url || ''); if (/^\//.test(u)) u = host + u;
+    if (!/^https?:\/\//.test(u) || seen[u] || u.indexOf(host) !== 0 || urls.length >= 40) return;
+    seen[u] = 1; urls.push(u); reqs.push({ url: u, method: 'get', muteHttpExceptions: true, followRedirects: true });
+  });
+  if (!reqs.length) return [];
+  var out = [];
+  try { UrlFetchApp.fetchAll(reqs).forEach(function (r, i) { if (r.getResponseCode() >= 400) out.push(aiLinkPath_(urls[i])); }); } catch (e) { Logger.log('Cek link: ' + e); }
+  return out;
+}
+
+// ---------- prompt ----------
+function aiSystem_(stage, st) {
+  var R = AI_RUBRIC[stage];
+  var list = R.crit.filter(function (c) { return c[3] !== 'auto'; }).map(function (c) { return '- ' + c[0] + ' (maks ' + c[2] + '): ' + c[1] + ' — ' + c[4]; }).join('\n');
+  return 'Anda penilai konten SEO untuk blog linovhr.com (software HRIS & payroll Indonesia). Nilai ' + AI_STAGE_NAME[stage].toLowerCase() +
+    ' artikel sesuai Standar SEO Artikel LinovHR. Bersikap tegas, adil, dan spesifik; jangan memberi nilai penuh bila standar tidak terpenuhi.\n\n' +
+    'Kriteria yang Anda nilai (kriteria lain dihitung otomatis oleh aplikasi):\n' + list + '\n\nKriteria wajib: ' + R.must.join(', ') + '.\n' + AI_STYLE + '\n\n' +
+    'Saran perbaikan: maksimal 8, urutkan dari yang paling berdampak. Setiap saran: lokasi (judul bagian/H2 atau elemen), kutipan teks bermasalah apa adanya (≤ 120 karakter, kosong bila tidak ada), dan instruksi perbaikan yang konkret. ' +
+    'Bila perbaikannya bisa dicek mesin, isi "check": {"type":"contains","field":"h1|h2|h3|metaTitle|metaDesc|first150|body","value":"teks yang harus ada"} atau {"type":"maxLen"|"minLen","field":"metaTitle|metaDesc|h1","value":angka} atau {"type":"link","value":"/path-atau-url"}; bila tidak, "check": null.\n\n' +
+    'Jawab HANYA dengan JSON valid, tanpa teks lain:\n{"criteria":{"<kunci>":{"score":angka,"note":"alasan singkat ≤ 20 kata"}},"mustFail":["kunci kriteria wajib yang gagal"],"summary":"ringkasan 1–2 kalimat","suggestions":[{"loc":"","quote":"","text":"","check":null}]}';
+}
+function aiTrim_(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '\n[…dipotong]' : s; }
+function aiUser_(stage, m, ctx, auto) {
+  var b = ctx.brief, parts = [];
+  if (stage === 'brief') {
+    var d = m.data;
+    parts.push('BRIEF\nKeyword utama: ' + d.kwMain + '\nKeyword turunan: ' + (d.kwSecondary || []).join(', ') + '\nJenis konten: ' + (d.contentType || '') + ' · estimasi ' + (d.wordEst || '-') + ' kata\nH1: ' + (d.h1 || '') +
+      '\nMeta title: ' + (d.metaTitle || '') + '\nMeta description: ' + (d.metaDesc || '') + '\nCTA: ' + (d.ctaText || '') + ' → ' + (d.ctaPage || ''));
+    parts.push('KOMPETITOR\n' + (d.competitors || []).filter(function (c) { return fv_(c.url); }).map(function (c, i) { return (i + 1) + '. ' + c.url + ' — ' + (c.insight || ''); }).join('\n'));
+    parts.push('STRUKTUR\n' + m.sections.map(function (s) { return '## ' + s.heading + '\n' + s.text; }).join('\n'));
+    parts.push('LINK\n' + m.links.map(function (l) { return (l.text || '-') + ' → ' + l.url; }).join('\n') + '\nElemen tambahan: ' + (d.extras || []).join(', ') + ' ' + (d.extraNote || ''));
+    if (ctx.siblings) parts.push('KEYWORD UTAMA ARTIKEL LAIN DI BLOG (cek kanibalisasi): ' + ctx.siblings);
+  } else {
+    parts.push('RINGKASAN BRIEF YANG DISETUJUI\nKeyword utama: ' + b.kwMain + '\nKeyword turunan: ' + b.kwSecondary.join(', ') + '\nJenis konten: ' + (b.data.contentType || '') + '\nH1: ' + b.h1[0] +
+      '\nKerangka: ' + b.h2.filter(String).join(' | ') + '\nCTA: ' + (b.data.ctaText || '') + ' → ' + (b.data.ctaPage || '') + '\nKompetitor: ' + (b.data.competitors || []).map(function (c) { return c.url; }).filter(String).join(', '));
+    if (stage === 'live') parts.push('HALAMAN LIVE ' + m.url + '\nMeta title: ' + m.metaTitle + '\nMeta description: ' + m.metaDesc);
+    parts.push((stage === 'draft' ? 'DRAFT ARTIKEL (' : 'ISI HALAMAN (') + m.words + ' kata)\n' + aiTrim_(m.sections.map(function (s) { return (s.heading ? '\n' + '#'.repeat(Math.min(s.level || 2, 4)) + ' ' + s.heading + '\n' : '') + s.text.trim(); }).join('\n'), 90000));
+    parts.push('LINK DI ' + (stage === 'draft' ? 'DRAFT' : 'HALAMAN') + '\n' + m.links.slice(0, 80).map(function (l) { return (l.text || '-') + ' → ' + l.url; }).join('\n'));
+  }
+  parts.push('HASIL PEMERIKSAAN OTOMATIS APLIKASI\n' + auto.facts.concat(Object.keys(auto.notes).map(function (k) { return k + ': ' + auto.notes[k]; })).join('\n'));
+  return parts.join('\n\n');
+}
+
+// ---------- aksi ----------
+function aiLoadTask_(me, taskId) {
+  var t = fsGet_('tasks/' + taskId); if (!t) throw new Error('Task tidak ditemukan');
+  t.id = t._id;
+  if (me.role !== 'admin' && t.owner !== me.username) throw new Error('Hanya penanggung jawab task dan admin yang bisa menjalankan penilaian ini');
+  if (t.type !== 'Artikel') throw new Error('Penilaian Claude hanya untuk task artikel');
+  return t;
+}
+function aiModelFor_(stage, t, ctx) { return stage === 'brief' ? aiBriefModel_(ctx.briefDoc) : stage === 'draft' ? aiDraftModel_(t) : aiLiveModel_(t); }
+function aiContext_(stage, t) {
+  var ctx = {};
+  ctx.briefDoc = aiBriefOf_(t.id); ctx.brief = aiBriefModel_(ctx.briefDoc);
+  if (stage === 'live') { try { ctx.draft = aiDraftModel_(t); } catch (e) { ctx.draft = null; } }
+  if (stage === 'brief') {
+    try { ctx.siblings = fsList_('briefs').filter(function (x) { return x._id !== ctx.briefDoc._id && x.keyword; }).map(function (x) { return x.keyword; }).slice(0, 120).join('; '); } catch (e) { ctx.siblings = ''; }
+  }
+  return ctx;
+}
+/** Cek dengan AI: 1× per tahap (admin bisa mengizinkan cek ulang). */
+function aiCheck_(me, taskId, stage) {
+  if (!AI_RUBRIC[stage]) throw new Error('Tahap tidak dikenal');
+  var t = aiLoadTask_(me, taskId), prev = t[AI_FIELD[stage]];
+  if (prev && prev.score !== undefined && !prev.allowRecheck) throw new Error('Tahap ini sudah diperiksa. Pakai "Cek perbaikan", atau minta admin mengizinkan cek ulang.');
+  var st = aiSettings_(), ctx = aiContext_(stage, t), m = stage === 'brief' ? ctx.brief : aiModelFor_(stage, t, ctx);
+  if (stage !== 'brief' && m.words < 150) throw new Error('Isi ' + (stage === 'draft' ? 'draft' : 'halaman') + ' terlalu sedikit untuk dinilai (' + m.words + ' kata).');
+  var auto = aiAuto_(stage, m, ctx), R = AI_RUBRIC[stage];
+  var r = aiCall_(st.models[stage], aiSystem_(stage, st), aiUser_(stage, m, ctx, auto), 2500, st, stage);
+  if (!r.json || !r.json.criteria) throw new Error('Jawaban Claude tidak bisa dibaca. Coba lagi.');
+  var crit = R.crit.map(function (c) {
+    var a = c[3] === 'auto' ? { score: auto.scores[c[0]], note: auto.notes[c[0]] } : (r.json.criteria[c[0]] || {});
+    var s = Math.max(0, Math.min(c[2], Math.round(Number(a.score) || 0)));
+    return { key: c[0], name: c[1], max: c[2], mode: c[3], score: s, note: String(a.note || auto.notes[c[0]] || '').slice(0, 200) };
+  });
+  var score = crit.reduce(function (x, c) { return x + c.score; }, 0);
+  var mustFail = (r.json.mustFail || []).filter(function (k) { return R.must.indexOf(k) >= 0; });
+  if (stage === 'live') { if (auto.scores.oneH1 < 5) mustFail.push('oneH1'); if ((ctx.broken || []).length) mustFail.push('links'); if (auto.scores.meta < 5) mustFail.push('meta'); }
+  mustFail = mustFail.filter(function (k, i) { return mustFail.indexOf(k) === i; });
+  var sug = (r.json.suggestions || []).slice(0, 8).map(function (x, i) {
+    return { id: 's' + (i + 1), loc: String(x.loc || '').slice(0, 120), quote: String(x.quote || '').slice(0, 160), text: String(x.text || '').slice(0, 500),
+      check: aiCleanCheck_(x.check), status: 'open', why: '' };
+  });
+  var review = { stage: stage, score: score, pass: score >= aiPass_(stage, st) && !mustFail.length, passMark: aiPass_(stage, st), mustFail: mustFail,
+    summary: String(r.json.summary || '').slice(0, 400), criteria: crit, suggestions: sug, model: r.model, cost: Math.round(r.cost * 1e5) / 1e5,
+    at: new Date().toISOString(), by: me.username, checks: Number(prev && prev.checks || 0) + 1, allowRecheck: false, fixAt: '', fixed: 0,
+    source: stage === 'draft' ? m.docUrl : stage === 'live' ? m.url : '' };
+  var patch = {}; patch[AI_FIELD[stage]] = review;
+  fsMerge_('tasks/' + t.id, patch);
+  log_(me, 'ai-check', t.id, stage + ' ' + score);
+  return { review: review, field: AI_FIELD[stage] };
+}
+function aiCleanCheck_(c) {
+  if (!c || typeof c !== 'object') return null;
+  var type = String(c.type || ''), field = String(c.field || 'body');
+  if (['contains', 'maxLen', 'minLen', 'link'].indexOf(type) < 0) return null;
+  if (['h1', 'h2', 'h3', 'metaTitle', 'metaDesc', 'first150', 'body'].indexOf(field) < 0) field = 'body';
+  var v = type === 'maxLen' || type === 'minLen' ? Number(c.value) || 0 : String(c.value || '').slice(0, 200);
+  if (!v) return null;
+  return { type: type, field: field, value: v };
+}
+function aiFieldText_(m, field) {
+  if (field === 'h1') return (m.h1 || []).join(' | ');
+  if (field === 'h2') return (m.h2 || []).join(' | ');
+  if (field === 'h3') return (m.h3 || []).join(' | ');
+  if (field === 'metaTitle') return m.metaTitle || (m.data && m.data.metaTitle) || '';
+  if (field === 'metaDesc') return m.metaDesc || (m.data && m.data.metaDesc) || '';
+  if (field === 'first150') return String(m.text || '').split(/\s+/).slice(0, 150).join(' ');
+  return m.text || '';
+}
+function aiEvalCheck_(c, m) {
+  var s = aiFieldText_(m, c.field);
+  if (c.type === 'contains') return aiHas_(s, c.value);
+  if (c.type === 'maxLen') return fv_(s).length > 0 && fv_(s).length <= c.value;
+  if (c.type === 'minLen') return fv_(s).length >= c.value;
+  if (c.type === 'link') { var p = aiLinkPath_(c.value); return (m.links || []).some(function (l) { return aiLinkPath_(l.url) === p || aiHas_(l.url, c.value); }); }
+  return false;
+}
+/** Bagian isi baru yang paling cocok dengan lokasi/kutipan saran. */
+function aiExcerpt_(m, sug) {
+  var words = aiLow_(sug.loc + ' ' + sug.quote).split(/[^a-z0-9à-ÿ]+/).filter(function (w) { return w.length > 3; });
+  var best = null, bestN = -1;
+  (m.sections || []).forEach(function (s) {
+    var h = aiLow_(s.heading + ' ' + s.text.slice(0, 400)), n = words.filter(function (w) { return h.indexOf(w) >= 0; }).length;
+    if (n > bestN) { bestN = n; best = s; }
+  });
+  if (!best) return aiTrim_(m.text, 2500);
+  return aiTrim_((best.heading ? best.heading + '\n' : '') + best.text, 2500);
+}
+/** Cek perbaikan: verifikasi setiap saran pada versi terbaru (mesin dulu, sisanya Haiku dengan potongan bagian terkait). */
+function aiFix_(me, taskId, stage) {
+  var t = aiLoadTask_(me, taskId), rv = t[AI_FIELD[stage]];
+  if (!rv || !rv.suggestions) throw new Error('Tahap ini belum diperiksa Claude.');
+  var st = aiSettings_(), ctx = aiContext_(stage, t), m = stage === 'brief' ? ctx.brief : aiModelFor_(stage, t, ctx), ask = [];
+  rv.suggestions.forEach(function (s) {
+    if (s.status === 'na') return;
+    if (s.check) { var ok = aiEvalCheck_(s.check, m); s.status = ok ? 'ok' : 'no'; s.why = ok ? 'Terverifikasi otomatis.' : 'Belum terpenuhi: ' + (s.check.type === 'link' ? 'link ' + s.check.value + ' belum ada' : s.check.type === 'contains' ? '"' + s.check.value + '" belum ada di ' + s.check.field : 'panjang ' + s.check.field + ' belum sesuai'); return; }
+    ask.push(s);
+  });
+  if (ask.length) {
+    var user = ask.map(function (s) { return '### ' + s.id + '\nLokasi: ' + s.loc + '\nKutipan lama: ' + (s.quote || '-') + '\nSaran: ' + s.text + '\nBagian terbaru:\n' + aiExcerpt_(m, s); }).join('\n\n');
+    var sys = 'Anda memeriksa apakah penulis sudah menjalankan saran perbaikan pada ' + AI_STAGE_NAME[stage].toLowerCase() + ' artikel blog LinovHR. Untuk setiap saran, bandingkan dengan bagian terbaru. Status: "ok" (sudah diperbaiki), "part" (sebagian), "no" (belum). Alasan ≤ 20 kata, bahasa Indonesia. Jawab HANYA JSON: {"results":[{"id":"s1","status":"ok","why":""}]}';
+    var r = aiCall_(st.models.fix, sys, user, 1200, st, 'fix');
+    var res = (r.json && r.json.results) || [];
+    ask.forEach(function (s) { var x = res.filter(function (y) { return y.id === s.id; })[0]; if (x && /^(ok|part|no)$/.test(x.status)) { s.status = x.status; s.why = String(x.why || '').slice(0, 200); } });
+    rv.fixCost = Math.round((Number(rv.fixCost || 0) + r.cost) * 1e5) / 1e5;
+  }
+  rv.fixAt = new Date().toISOString();
+  rv.fixed = rv.suggestions.filter(function (s) { return s.status === 'ok' || s.status === 'na'; }).length;
+  var patch = {}; patch[AI_FIELD[stage]] = rv;
+  fsMerge_('tasks/' + t.id, patch);
+  return { review: rv, field: AI_FIELD[stage] };
+}
+function aiMark_(me, taskId, stage, sid, reason, undo) {
+  var t = aiLoadTask_(me, taskId), rv = t[AI_FIELD[stage]];
+  if (!rv) throw new Error('Tahap ini belum diperiksa Claude.');
+  var s = (rv.suggestions || []).filter(function (x) { return x.id === sid; })[0]; if (!s) throw new Error('Saran tidak ditemukan');
+  if (undo) { s.status = 'open'; s.why = ''; }
+  else { if (fv_(reason).length < 5) throw new Error('Tulis alasan singkat kenapa saran ini tidak relevan.'); s.status = 'na'; s.why = 'Ditandai tidak relevan oleh ' + (me.name || me.username) + ': "' + fv_(reason).slice(0, 200) + '"'; }
+  rv.fixed = rv.suggestions.filter(function (x) { return x.status === 'ok' || x.status === 'na'; }).length;
+  var patch = {}; patch[AI_FIELD[stage]] = rv; fsMerge_('tasks/' + t.id, patch);
+  return { review: rv, field: AI_FIELD[stage] };
+}
+function aiAllow_(me, taskId, stage) {
+  if (me.role !== 'admin') throw new Error('Hanya admin');
+  var t = fsGet_('tasks/' + taskId), rv = t && t[AI_FIELD[stage]]; if (!rv) throw new Error('Tahap ini belum diperiksa');
+  rv.allowRecheck = true; var patch = {}; patch[AI_FIELD[stage]] = rv; fsMerge_('tasks/' + taskId, patch);
+  return { review: rv, field: AI_FIELD[stage] };
+}
+function aiStatus_(me) {
+  var st = aiSettings_(), u = aiUsage_();
+  return { keySet: !!PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY'), settings: st, usage: { cost: Number(u.cost || 0), count: Number(u.count || 0), byKind: u.byKind || {}, month: aiMonth_() },
+    pass: { brief: aiPass_('brief', st), draft: aiPass_('draft', st), live: aiPass_('live', st) } };
+}
+function aiSaveSettings_(me, s) {
+  if (me.role !== 'admin') throw new Error('Hanya admin');
+  var cur = fsGet_('settings/ai') || {}, out = {};
+  if (s.gate !== undefined) out.gate = !!s.gate;
+  if (s.cap !== undefined) out.cap = Math.max(0, Math.min(100, Number(s.cap) || 0));
+  if (s.models) { out.models = Object.assign({}, cur.models || {}); Object.keys(s.models).forEach(function (k) { if (/^claude-[\w.-]+$/.test(String(s.models[k]))) out.models[k] = s.models[k]; }); }
+  if (s.pass) { out.pass = Object.assign({}, cur.pass || {}); Object.keys(s.pass).forEach(function (k) { if (AI_RUBRIC[k]) out.pass[k] = Math.max(0, Math.min(100, Number(s.pass[k]) || AI_RUBRIC[k].pass)); }); }
+  fsMerge_('settings/ai', out);
+  return aiStatus_(me);
 }
 
 // ===== LOGIKA BERSAMA (salinan otomatis web/js/logic.js — jangan diedit di sini) =====
