@@ -680,8 +680,9 @@ function resultsModal(t, opts) {
       (opts.focusUrl || opts.then ? url : $('#res-note', m)).focus();
       $('#res-save', m).onclick = () => {
         if (url.value.trim() && add() === null) return;   // link yang masih di kolom ikut disimpan
+        // sebelum mengajukan: cukup ada link ATAU keterangan; bila kosong, jendela tetap terbuka
+        if (opts.then && !items.length && !$('#res-note', m).value.trim()) { err('Isi keterangan hasil atau tambahkan minimal 1 link.'); url.focus(); return; }
         close();
-        if (opts.then && !items.length && !url.value.trim()) { err('Tambahkan minimal 1 link.'); return; }
         saveResults(t.id, items.map((x) => ({ label: x.label.trim(), url: x.url })), $('#res-note', m).value.trim(), opts.then || opts.thenReview);
       };
     }
