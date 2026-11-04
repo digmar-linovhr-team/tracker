@@ -34,6 +34,7 @@ const aiCanRun = (t) => S.user.role === 'admin' || t.owner === S.user.username;
 function aiProgress(rv) { const n = (rv.suggestions || []).length; return n ? (rv.fixed || 0) / n : 1; }
 /** Boleh mengajukan? Lulus skor, atau ≥ 80% saran beres. */
 function aiGateState(t, stage) {
+  if (stage === 'brief') { const why = window.PTDemo.aiBriefGateMsg(t); return why ? { ok: false, msg: why } : { ok: true }; }
   const rv = t[aiField(stage)];
   if (!rv) return { ok: false, msg: `Jalankan "Cek dengan AI" untuk ${aiName(stage).toLowerCase()} dulu.` };
   if (rv.pass) return { ok: true };
@@ -81,7 +82,8 @@ function aiCard(t, stage) {
       ${admin && !rv.allowRecheck ? `<button class="btn ghost" data-aiallow="${stage}">Izinkan cek ulang</button>` : ''}
       ${rv.allowRecheck ? '<span class="muted small">Admin mengizinkan cek ulang.</span>' : ''}
     </div>
-    ${!rv.pass && n ? `<div class="ai-note">Bisa diajukan bila skor ≥ ${rv.passMark}, atau ≥ 80% saran sudah diperbaiki / ditandai tidak relevan (sekarang ${Math.round(aiProgress(rv) * 100)}%).</div>` : ''}
+    ${stage === 'brief' && n ? `<div class="ai-note">Brief bisa diajukan setelah <b>semua</b> saran beres — diperbaiki (lalu klik "Cek perbaikan") atau ditandai tidak relevan dengan alasan. Sekarang ${rv.fixed || 0} dari ${n}.</div>`
+      : !rv.pass && n ? `<div class="ai-note">Bisa diajukan bila skor ≥ ${rv.passMark}, atau ≥ 80% saran sudah diperbaiki / ditandai tidak relevan (sekarang ${Math.round(aiProgress(rv) * 100)}%).</div>` : ''}
   </div>`;
 }
 function aiBind(root, t) {
@@ -118,7 +120,7 @@ if (typeof artStep === 'function') {
   // eslint-disable-next-line no-global-assign
   artStep = async function (id, step) {
     const stage = AI_STEP_STAGE[step], t = findTask(id);
-    if (!stage || !t || !aiEnabled()) return artStepOrig(id, step);
+    if (!stage || !t || !aiEnabled() || (step === 'submitBrief' && !briefOf(id))) return artStepOrig(id, step);
     const cfg = await aiConfig();
     if (cfg.gate && S.user.role !== 'admin') {
       const g = aiGateState(t, stage);

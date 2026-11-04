@@ -401,6 +401,13 @@ function syncProj(s, codes) {
   return out;
 }
 
+/** Syarat ajukan brief: sudah diperiksa AI dan semua saran beres (diperbaiki / ditandai tidak relevan). '' = boleh. */
+function aiBriefGateMsg(t) {
+  const rv = t && t.aiBrief;
+  if (!rv || rv.score === undefined) return 'Brief wajib diperiksa AI dulu: buka task → Penilaian Claude → "Cek dengan AI".';
+  const sug = rv.suggestions || [], open = sug.filter((x) => x.status !== 'ok' && x.status !== 'na').length;
+  return open ? `Masih ada ${open} dari ${sug.length} saran AI yang belum beres. Perbaiki brief lalu klik "Cek perbaikan", atau tandai "Tidak relevan" dengan alasan.` : '';
+}
 function handle(action, b, session) {
   const s = state();
   const me = session && s.users.find((u) => u.username === session.username);
@@ -560,6 +567,7 @@ function handle(action, b, session) {
         if ((d.competitors || []).filter((c) => c && c.url).length < 2) miss.push('minimal 2 link kompetitor');
         if (!(d.sections || []).some((x) => x && String(x.h2 || '').trim())) miss.push('minimal 1 H2');
         if (miss.length) throw new Error('Lengkapi brief dulu: ' + miss.join(', ') + '.');
+        if (me.role !== 'admin' && (s.aiCfg || {}).gate !== false) { const why = aiBriefGateMsg(t); if (why) throw new Error(why); }
         br.status = 'Diajukan';
       }
       if (b.step === 'submitArticle' && !(t.results || []).length) throw new Error('Tambahkan link Docs artikel di "Hasil kerja" sebelum mengajukan review.');
@@ -741,5 +749,5 @@ function demoAi(s, a, b, me) {
 
 /** Jalankan aksi pada state lain (dipakai versi Firebase: state = salinan data Firestore). */
 function handleWith(st, action, b, session) { const prev = db; db = st; try { return handle(action, b, session); } finally { db = prev; } }
-root.PTDemo = { handle, handleWith, setIdGen: (fn) => { idGen = fn; }, briefSums, iso, seed: () => build() };
+root.PTDemo = { handle, handleWith, aiBriefGateMsg, setIdGen: (fn) => { idGen = fn; }, briefSums, iso, seed: () => build() };
 })(typeof self !== 'undefined' ? self : this);

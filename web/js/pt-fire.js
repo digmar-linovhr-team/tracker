@@ -385,16 +385,22 @@
   }
 
   // ---------- antarmuka ----------
+  var aiDocP = null, aiDocAt = 0;
+  function aiSettingsDoc() {   // setelan Penilai AI (di-cache 5 menit)
+    if (!aiDocP || Date.now() - aiDocAt > 300000) { aiDocAt = Date.now(); aiDocP = db.collection('settings').doc('ai').get().then(function (d) { return d.exists ? plain(d.data()) : {}; }, function () { aiDocP = null; return {}; }); }
+    return aiDocP;
+  }
   async function call(action, payload) {
     payload = payload || {};
     await ensureReady();
     if (action === 'saveUser' && !S.users.some(function (u) { return u.username === String((payload.user || {}).username || '').toLowerCase(); })) action = 'saveUserNew';
     if (SERVER_ACTIONS[action]) return server('fb:' + action, payload);
-    if (action === 'aiConfig') { var cf = await db.collection('settings').doc('ai').get().then(function (d) { return d.exists ? plain(d.data()) : {}; }, function () { return {}; });
+    if (action === 'aiConfig') { var cf = await aiSettingsDoc();
       return { gate: cf.gate !== false, pass: Object.assign({ brief: 70, draft: 75, live: 80 }, cf.pass || {}) }; }
     if (action === 'notifications') return { notifications: listNotifs() };
     if (action === 'notifRead') return markRead(payload.ids, payload.all);
     var before = S, work = clone(S);
+    if (action === 'advanceStage') work.aiCfg = { gate: (await aiSettingsDoc()).gate !== false };   // syarat AI ikut setelan admin
     var result = window.PTDemo.handleWith(work, action, payload, { username: me });
     result = clone(result === undefined ? null : result);
     var ops = prepare(diff(before, work));
