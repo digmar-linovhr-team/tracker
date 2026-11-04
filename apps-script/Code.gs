@@ -173,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 30 });
+  return json_({ ok: true, app: 'project-tracker', version: 31 });
 }
 
 function doPost(e) {
@@ -4037,33 +4037,69 @@ function aiAddUsage_(model, usage, st, kind) {
   return cost;
 }
 
-/** Panggil Claude. Hasil: { json, text, usage, model, cost }. */
-function aiCall_(model, system, user, maxTokens, st, kind) {
+/** Panggil Claude. Hasil: { json, text, usage, model, cost, stop }.
+ *  schema (opsional): Claude diwajibkan menjawab lewat tool "jawab" dengan bentuk JSON ini, jadi jawabannya selalu bisa dibaca.
+ *  Bila jawaban terpotong (max_tokens) atau tidak bisa dibaca, dicoba sekali lagi dengan batas token 2×. */
+function aiCall_(model, system, user, maxTokens, st, kind, schema) {
   var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!key) throw new Error('Kunci API Claude belum dipasang (Script Properties → ANTHROPIC_API_KEY).');
   var used = Number(aiUsage_().cost || 0);
   if (used >= Number(st.cap)) throw new Error('Batas biaya Penilaian Claude bulan ini sudah tercapai (US$' + used.toFixed(2) + '). Bisa dipakai lagi bulan depan, atau admin menaikkan batas di Pengaturan.');
-  var res = UrlFetchApp.fetch(AI_API, { method: 'post', muteHttpExceptions: true, contentType: 'application/json',
-    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    payload: JSON.stringify({ model: model, max_tokens: maxTokens || 2500, system: system, messages: [{ role: 'user', content: user }] }) });
-  var code = res.getResponseCode(), j = {};
-  try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) { j = {}; }
-  if (code >= 300) {
-    var m = (j.error && j.error.message) || res.getContentText().slice(0, 200);
-    if (code === 401) throw new Error('Kunci API Claude ditolak. Periksa ANTHROPIC_API_KEY di Script Properties.');
-    if (code === 429 || code === 529) throw new Error('Claude sedang sibuk. Coba lagi beberapa menit lagi.');
-    if (/credit|billing|balance/i.test(m)) throw new Error('Saldo/batas akun Claude API habis. Cek console.anthropic.com.');
-    throw new Error('Claude API ' + code + ': ' + m);
+  var tokens = maxTokens || 4000, cost = 0, out = null;
+  for (var attempt = 0; attempt < 2; attempt++) {
+    var body = { model: model, max_tokens: tokens, system: system, messages: [{ role: 'user', content: user }] };
+    if (schema) { body.tools = [{ name: 'jawab', description: 'Kirim hasil penilaian dalam bentuk terstruktur.', input_schema: schema }]; body.tool_choice = { type: 'tool', name: 'jawab' }; }
+    var res = UrlFetchApp.fetch(AI_API, { method: 'post', muteHttpExceptions: true, contentType: 'application/json',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, payload: JSON.stringify(body) });
+    var code = res.getResponseCode(), j = {};
+    try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) { j = {}; }
+    if (code >= 300) {
+      var m = (j.error && j.error.message) || res.getContentText().slice(0, 200);
+      if (code === 401) throw new Error('Kunci API Claude ditolak. Periksa ANTHROPIC_API_KEY di Script Properties.');
+      if (code === 429 || code === 529) throw new Error('Claude sedang sibuk. Coba lagi beberapa menit lagi.');
+      if (/credit|billing|balance/i.test(m)) throw new Error('Saldo/batas akun Claude API habis. Cek console.anthropic.com.');
+      throw new Error('Claude API ' + code + ': ' + m);
+    }
+    cost += aiAddUsage_(model, j.usage || {}, st, kind);
+    var blocks = j.content || [];
+    var tool = blocks.filter(function (c) { return c.type === 'tool_use' && c.input && typeof c.input === 'object'; })[0];
+    var text = blocks.filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('');
+    out = { json: tool ? tool.input : aiJson_(text), text: text, usage: j.usage || {}, model: model, stop: j.stop_reason || '' };
+    if (out.json && out.stop !== 'max_tokens') break;
+    Logger.log('Jawaban Claude belum lengkap (stop_reason=' + out.stop + '): ' + String(text || JSON.stringify(blocks)).slice(0, 500));
+    tokens = Math.min(tokens * 2, 16000);
   }
-  var text = (j.content || []).filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('');
-  var cost = aiAddUsage_(model, j.usage || {}, st, kind);
-  return { json: aiJson_(text), text: text, usage: j.usage || {}, model: model, cost: cost };
+  out.cost = cost;
+  return out;
 }
+/** Ambil objek JSON dari teks jawaban (boleh dibungkus ``` atau diawali kalimat). */
 function aiJson_(text) {
-  var s = String(text || ''), a = s.indexOf('{'), b = s.lastIndexOf('}');
+  var s = String(text || '').replace(/```(?:json)?/gi, ''), a = s.indexOf('{'), b = s.lastIndexOf('}');
   if (a < 0 || b <= a) return null;
-  try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
+  var body = s.slice(a, b + 1);
+  try { return JSON.parse(body); } catch (e) { /* coba rapikan */ }
+  try { return JSON.parse(body.replace(/,\s*([}\]])/g, '$1').replace(/[\u201c\u201d]/g, '"')); } catch (e) { return null; }
 }
+/** Pesan error yang jelas bila jawaban tetap tidak bisa dibaca. */
+function aiUnreadable_(r) {
+  return new Error(r && r.stop === 'max_tokens' ? 'Jawaban Claude terpotong karena terlalu panjang. Coba lagi; bila terus terjadi, hubungi admin.' : 'Jawaban Claude tidak bisa dibaca. Coba lagi.');
+}
+/** Bentuk JSON hasil penilaian (untuk tool "jawab"). */
+function aiCheckSchema_(stage) {
+  var R = AI_RUBRIC[stage], props = {};
+  R.crit.filter(function (c) { return c[3] !== 'auto'; }).forEach(function (c) {
+    props[c[0]] = { type: 'object', properties: { score: { type: 'number', description: '0–' + c[2] }, note: { type: 'string' } }, required: ['score', 'note'] };
+  });
+  return { type: 'object', required: ['criteria', 'mustFail', 'summary', 'suggestions'], properties: {
+    criteria: { type: 'object', properties: props, required: Object.keys(props) },
+    mustFail: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string' },
+    suggestions: { type: 'array', maxItems: 8, items: { type: 'object', required: ['loc', 'quote', 'text'], properties: {
+      loc: { type: 'string' }, quote: { type: 'string' }, text: { type: 'string' },
+      check: { description: 'Pemeriksaan otomatis atau null', anyOf: [{ type: 'null' }, { type: 'object', properties: { type: { type: 'string' }, field: { type: 'string' }, value: { type: ['string', 'number'] } }, required: ['type', 'value'] }] } } } } } };
+}
+var AI_FIX_SCHEMA = { type: 'object', required: ['results'], properties: { results: { type: 'array', items: { type: 'object', required: ['id', 'status', 'why'],
+  properties: { id: { type: 'string' }, status: { type: 'string', enum: ['ok', 'part', 'no'] }, why: { type: 'string' } } } } } };
 
 // ---------- isi yang dinilai ----------
 function aiDecode_(s) {
@@ -4231,7 +4267,7 @@ function aiSystem_(stage, st) {
     'Kriteria yang Anda nilai (kriteria lain dihitung otomatis oleh aplikasi):\n' + list + '\n\nKriteria wajib: ' + R.must.join(', ') + '.\n' + AI_STYLE + '\n\n' +
     'Saran perbaikan: maksimal 8, urutkan dari yang paling berdampak. Setiap saran: lokasi (judul bagian/H2 atau elemen), kutipan teks bermasalah apa adanya (≤ 120 karakter, kosong bila tidak ada), dan instruksi perbaikan yang konkret. ' +
     'Bila perbaikannya bisa dicek mesin, isi "check": {"type":"contains","field":"h1|h2|h3|metaTitle|metaDesc|first150|body","value":"teks yang harus ada"} atau {"type":"maxLen"|"minLen","field":"metaTitle|metaDesc|h1","value":angka} atau {"type":"link","value":"/path-atau-url"}; bila tidak, "check": null.\n\n' +
-    'Jawab HANYA dengan JSON valid, tanpa teks lain:\n{"criteria":{"<kunci>":{"score":angka,"note":"alasan singkat ≤ 20 kata"}},"mustFail":["kunci kriteria wajib yang gagal"],"summary":"ringkasan 1–2 kalimat","suggestions":[{"loc":"","quote":"","text":"","check":null}]}';
+    'Kirim hasilnya lewat tool "jawab" dengan bentuk:\n{"criteria":{"<kunci>":{"score":angka,"note":"alasan singkat ≤ 20 kata"}},"mustFail":["kunci kriteria wajib yang gagal"],"summary":"ringkasan 1–2 kalimat","suggestions":[{"loc":"","quote":"","text":"","check":null}]}';
 }
 function aiTrim_(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '\n[…dipotong]' : s; }
 function aiUser_(stage, m, ctx, auto) {
@@ -4281,8 +4317,8 @@ function aiCheck_(me, taskId, stage) {
   var st = aiSettings_(), ctx = aiContext_(stage, t), m = stage === 'brief' ? ctx.brief : aiModelFor_(stage, t, ctx);
   if (stage !== 'brief' && m.words < 150) throw new Error('Isi ' + (stage === 'draft' ? 'draft' : 'halaman') + ' terlalu sedikit untuk dinilai (' + m.words + ' kata).');
   var auto = aiAuto_(stage, m, ctx), R = AI_RUBRIC[stage];
-  var r = aiCall_(st.models[stage], aiSystem_(stage, st), aiUser_(stage, m, ctx, auto), 2500, st, stage);
-  if (!r.json || !r.json.criteria) throw new Error('Jawaban Claude tidak bisa dibaca. Coba lagi.');
+  var r = aiCall_(st.models[stage], aiSystem_(stage, st), aiUser_(stage, m, ctx, auto), 6000, st, stage, aiCheckSchema_(stage));
+  if (!r.json || !r.json.criteria) throw aiUnreadable_(r);
   var crit = R.crit.map(function (c) {
     var a = c[3] === 'auto' ? { score: auto.scores[c[0]], note: auto.notes[c[0]] } : (r.json.criteria[c[0]] || {});
     var s = Math.max(0, Math.min(c[2], Math.round(Number(a.score) || 0)));
@@ -4354,8 +4390,8 @@ function aiFix_(me, taskId, stage) {
   });
   if (ask.length) {
     var user = ask.map(function (s) { return '### ' + s.id + '\nLokasi: ' + s.loc + '\nKutipan lama: ' + (s.quote || '-') + '\nSaran: ' + s.text + '\nBagian terbaru:\n' + aiExcerpt_(m, s); }).join('\n\n');
-    var sys = 'Anda memeriksa apakah penulis sudah menjalankan saran perbaikan pada ' + AI_STAGE_NAME[stage].toLowerCase() + ' artikel blog LinovHR. Untuk setiap saran, bandingkan dengan bagian terbaru. Status: "ok" (sudah diperbaiki), "part" (sebagian), "no" (belum). Alasan ≤ 20 kata, bahasa Indonesia. Jawab HANYA JSON: {"results":[{"id":"s1","status":"ok","why":""}]}';
-    var r = aiCall_(st.models.fix, sys, user, 1200, st, 'fix');
+    var sys = 'Anda memeriksa apakah penulis sudah menjalankan saran perbaikan pada ' + AI_STAGE_NAME[stage].toLowerCase() + ' artikel blog LinovHR. Untuk setiap saran, bandingkan dengan bagian terbaru. Status: "ok" (sudah diperbaiki), "part" (sebagian), "no" (belum). Alasan ≤ 20 kata, bahasa Indonesia. Kirim lewat tool "jawab": {"results":[{"id":"s1","status":"ok","why":""}]}';
+    var r = aiCall_(st.models.fix, sys, user, 2500, st, 'fix', AI_FIX_SCHEMA);
     var res = (r.json && r.json.results) || [];
     ask.forEach(function (s) { var x = res.filter(function (y) { return y.id === s.id; })[0]; if (x && /^(ok|part|no)$/.test(x.status)) { s.status = x.status; s.why = String(x.why || '').slice(0, 200); } });
     rv.fixCost = Math.round((Number(rv.fixCost || 0) + r.cost) * 1e5) / 1e5;
