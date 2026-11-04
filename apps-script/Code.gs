@@ -173,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 29 });
+  return json_({ ok: true, app: 'project-tracker', version: 30 });
 }
 
 function doPost(e) {
@@ -4045,7 +4045,7 @@ function aiCall_(model, system, user, maxTokens, st, kind) {
   if (used >= Number(st.cap)) throw new Error('Batas biaya Penilaian Claude bulan ini sudah tercapai (US$' + used.toFixed(2) + '). Bisa dipakai lagi bulan depan, atau admin menaikkan batas di Pengaturan.');
   var res = UrlFetchApp.fetch(AI_API, { method: 'post', muteHttpExceptions: true, contentType: 'application/json',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    payload: JSON.stringify({ model: model, max_tokens: maxTokens || 2500, temperature: 0, system: system, messages: [{ role: 'user', content: user }] }) });
+    payload: JSON.stringify({ model: model, max_tokens: maxTokens || 2500, system: system, messages: [{ role: 'user', content: user }] }) });
   var code = res.getResponseCode(), j = {};
   try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) { j = {}; }
   if (code >= 300) {
