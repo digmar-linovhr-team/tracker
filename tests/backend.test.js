@@ -1239,4 +1239,10 @@ it('Cek live: URL diberi parameter anti-cache tanpa merusak query & anchor', () 
   assert.match(sandbox.aiBust_('https://x.com/a?utm=1#faq'), /^https:\/\/x\.com\/a\?utm=1&_ptcheck=\d+#faq$/);
 });
 
+it('Cek live: URL live diganti terdeteksi (abaikan https/www/slash/query)', () => {
+  assert.strictEqual(sandbox.aiUrlMoved_('https://www.linovhr.com/blog/talent-management-strategy/', 'https://www.linovhr.com/blog/talent-management/'), true);
+  assert.strictEqual(sandbox.aiUrlMoved_('https://www.linovhr.com/blog/talent-management/', 'http://linovhr.com/blog/talent-management?utm=1'), false);
+  assert.strictEqual(sandbox.aiUrlMoved_('', 'https://x.com/a'), false);
+});
+
 console.log(`\n${n} uji backend lulus`);

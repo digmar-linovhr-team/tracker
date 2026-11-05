@@ -77,7 +77,8 @@ function urlModal(t, step, title, label, ph, hint) {
   modal({
     title,
     body: `<p class="muted small" style="margin:0 0 10px">${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</p>
-      <label class="field"><span>${esc(label)}</span><input type="url" id="art-url" placeholder="${esc(ph)}" value="${esc(step === 'publish' ? (t.liveUrl || (isUrl(t.task) ? t.task.trim() : '')) : (t.aiCheckUrl || ''))}"></label>
+      <label class="field"><span>${esc(label)}</span><input type="url" id="art-url" placeholder="${esc(ph)}" value="${esc(step === 'publish' ? (t.liveUrl || '') : (t.aiCheckUrl || ''))}"></label>
+      ${step === 'publish' && !t.liveUrl && isUrl(t.task) ? `<p class="muted small" style="margin:-4px 0 8px">URL di judul task: <button type="button" class="linkbtn" id="art-use-task">${esc(t.task.trim())}</button> — pakai hanya bila artikel memang tayang di alamat itu.</p>` : ''}
       <p class="muted small" style="margin:0">${esc(hint)}</p><div id="art-err"></div>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="art-ok">${esc(title)}</button>`,
     onMount: (m, close) => {
@@ -87,6 +88,7 @@ function urlModal(t, step, title, label, ph, hint) {
         close(); advanceStage(t.id, step, u);
       };
       $('#art-ok', m).onclick = go2;
+      const useTask = $('#art-use-task', m); if (useTask) useTask.onclick = () => { $('#art-url', m).value = t.task.trim(); $('#art-url', m).focus(); };
       $('#art-url', m).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go2(); } });
     }
   });

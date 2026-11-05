@@ -68,17 +68,20 @@ function aiCard(t, stage) {
       ${(mine || admin) && s.status !== 'ok' ? (s.status === 'na' ? `<button type="button" class="linkbtn ai-mk" data-aiundo="${esc(s.id)}">Batalkan</button>` : `<button type="button" class="linkbtn ai-mk" data-aina="${esc(s.id)}">Tidak relevan</button>`) : ''}</div>`).join('');
   const mf = (rv.mustFail || []).map((k) => ((rv.criteria || []).find((c) => c.key === k) || {}).name || k);
   const when = rv.at ? cmWhen(rv.at) : '';
+  // URL live diganti setelah pemeriksaan → hasil ini milik halaman lain; boleh cek ulang tanpa izin admin.
+  const moved = stage === 'live' && aiUrlMoved(rv.source, t.liveUrl);
   return `<div class="ai-card">
     <div class="ai-h"><div class="ai-ring ${rv.pass ? 'good' : ''}" style="--p:${p}"><span>${rv.score}</span></div>
       <div class="ai-ht"><b>${esc(aiName(stage))} ${rv.pass ? 'lulus' : 'belum lulus'} <span class="ai-tag ${rv.pass ? 'good' : ''}">ambang ${rv.passMark}</span></b>
       <small>Diperiksa ${esc(aiModelName(rv.model))} · ${esc(when)} · ${rv.checks || 1}× pengecekan${rv.source ? ` · <a href="${esc(rv.source)}" target="_blank" rel="noopener">sumber</a>` : ''}</small></div></div>
+    ${moved ? `<div class="ai-must">Penilaian ini untuk URL lama (<a href="${esc(rv.source)}" target="_blank" rel="noopener">${esc(String(rv.source).replace(/^https?:\/\/(www\.)?/, ''))}</a>). URL live sekarang <b>${esc(String(t.liveUrl).replace(/^https?:\/\/(www\.)?/, ''))}</b> — jalankan cek ulang agar skor sesuai halaman yang benar.</div>` : ''}
     ${rv.summary ? `<p class="ai-sum">${esc(rv.summary)}</p>` : ''}
     ${mf.length ? `<div class="ai-must">Kriteria wajib belum terpenuhi: <b>${esc(mf.join(', '))}</b></div>` : ''}
     <div class="ai-crit">${crit}</div>
     ${n ? `<div class="ai-sh">Saran perbaikan <span class="ai-prog">· ${rv.fixAt ? `${rv.fixed || 0} dari ${n} sudah beres (Cek perbaikan ${esc(cmWhen(rv.fixAt))})` : `${n} saran`}</span></div>${sug}` : '<p class="muted small">Tidak ada saran perbaikan.</p>'}
     <div class="ai-act">
-      ${(mine || admin) && n ? `<button class="btn" data-aifix="${stage}" ${busy ? 'disabled' : ''}>${busy ? 'Memeriksa…' : 'Cek perbaikan'}</button>` : ''}
-      ${rv.allowRecheck && (mine || admin) ? `<button class="btn primary" data-aicheck="${stage}" ${busy ? 'disabled' : ''}>Cek ulang dengan AI</button>` : ''}
+      ${(mine || admin) && n && !moved ? `<button class="btn" data-aifix="${stage}" ${busy ? 'disabled' : ''}>${busy ? 'Memeriksa…' : 'Cek perbaikan'}</button>` : ''}
+      ${(rv.allowRecheck || moved) && (mine || admin) ? `<button class="btn primary" data-aicheck="${stage}" ${busy ? 'disabled' : ''}>${busy ? 'Claude sedang membaca…' : moved ? 'Cek ulang URL baru' : 'Cek ulang dengan AI'}</button>` : ''}
       ${admin && !rv.allowRecheck ? `<button class="btn ghost" data-aiallow="${stage}">Izinkan cek ulang</button>` : ''}
       ${rv.allowRecheck ? '<span class="muted small">Admin mengizinkan cek ulang.</span>' : ''}
     </div>
@@ -86,6 +89,9 @@ function aiCard(t, stage) {
       : !rv.pass && n ? `<div class="ai-note">Bisa diajukan bila skor ≥ ${rv.passMark}, atau ≥ 80% saran sudah diperbaiki / ditandai tidak relevan (sekarang ${Math.round(aiProgress(rv) * 100)}%).</div>` : ''}
   </div>`;
 }
+/** Dua URL dianggap sama bila hanya beda http/https, www, garis miring akhir, query, atau anchor. */
+function aiUrlKey(u) { return String(u || '').trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '').replace(/\/+$/, ''); }
+function aiUrlMoved(src, cur) { return !!(src && cur) && aiUrlKey(src) !== aiUrlKey(cur); }
 function aiBind(root, t) {
   if (!root || !t) return;
   const rerender = () => { if (typeof dpRefresh === 'function') dpRefresh(); };
