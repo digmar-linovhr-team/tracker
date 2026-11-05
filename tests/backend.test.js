@@ -1266,4 +1266,16 @@ it('Cek live: meta description berisi apostrof & link di luar <article> tetap te
   assert.ok(!m.links.some((l) => /time-attendance/.test(l.url)));
 });
 
+it('Claude menerima brief lengkap & artikel berstruktur (tabel, daftar, gambar)', () => {
+  const md = sandbox.aiMarkdown_('<h2>Apa Itu?</h2><p>Teks <b>penting</b>.</p><ul><li>Satu</li><li>Dua</li></ul><table><tr><td><p>Fitur</p></td><td><p>Harga</p></td></tr><tr><td>Absensi</td><td>Rp10.000</td></tr></table><img src="a.png" alt="Dashboard absensi"><img src="b.png">');
+  assert.match(md, /^## Apa Itu\?/m); assert.match(md, /^- Satu$/m); assert.match(md, /\| Fitur \| Harga \|/); assert.match(md, /\[gambar: Dashboard absensi\]/); assert.match(md, /\[gambar tanpa alt\]/); assert.match(md, /\*\*penting\*\*/);
+  const full = sandbox.aiBriefFull_({ data: { kwMain: 'aplikasi absensi', intro: 'Buka dengan masalah absensi manual', h1: 'H', sections: [{ h2: 'Manfaat', points: 'hemat waktu\nakurat', h3: [{ title: 'Untuk HR', points: 'rekap otomatis' }], sources: ['UU 13/2003'] }],
+    faq: [{ q: 'Apa itu?', a: 'definisi singkat' }], internalLinks: [{ anchor: 'payroll', url: '/hris/payroll/' }], ctaText: 'Coba gratis', ctaPage: '/demo/', competitors: [{ url: 'https://x.com', insight: 'tidak ada tabel harga' }] } });
+  ['Buka dengan masalah absensi manual', 'Poin bahasan: hemat waktu; akurat', 'H3: Untuk HR — rekap otomatis', 'UU 13/2003', 'arah jawaban: definisi singkat', 'payroll → /hris/payroll/', 'Coba gratis → /demo/', 'tidak ada tabel harga']
+    .forEach((x) => assert.ok(full.includes(x), x));
+  const sch = sandbox.aiCheckSchema_('draft');
+  assert.ok(sch.properties.coverage && sch.required.includes('coverage'));
+  assert.ok(!sandbox.aiCheckSchema_('brief').properties.coverage && !sandbox.aiCheckSchema_('brief').required.includes('coverage'));
+});
+
 console.log(`\n${n} uji backend lulus`);

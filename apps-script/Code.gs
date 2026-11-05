@@ -4096,8 +4096,9 @@ function aiUnreadable_(r) {
   return new Error(r && r.stop === 'max_tokens' ? 'Jawaban Claude terpotong karena terlalu panjang. Coba lagi; bila terus terjadi, hubungi admin.' : 'Jawaban Claude tidak bisa dibaca. Coba lagi.');
 }
 /** Bentuk JSON hasil penilaian (Structured Outputs: semua objek additionalProperties:false, semua kolom wajib). */
+var AI_MAX_SUG = 15;
 function aiCheckSchema_(stage) {
-  var R = AI_RUBRIC[stage], props = {}, obj = function (p) { return { type: 'object', properties: p, required: Object.keys(p), additionalProperties: false }; };
+  var R = AI_RUBRIC[stage], props = {}, obj = function (p) { Object.keys(p).forEach(function (k) { if (p[k] === undefined) delete p[k]; }); return { type: 'object', properties: p, required: Object.keys(p), additionalProperties: false }; };
   R.crit.filter(function (c) { return c[3] !== 'auto'; }).forEach(function (c) {
     props[c[0]] = obj({ score: { type: 'number', description: 'Skor 0 sampai ' + c[2] }, note: { type: 'string', description: 'Alasan singkat, maks 20 kata' } });
   });
@@ -4105,12 +4106,17 @@ function aiCheckSchema_(stage) {
     criteria: obj(props),
     mustFail: { type: 'array', items: { type: 'string' }, description: 'Kunci kriteria wajib yang gagal' },
     summary: { type: 'string', description: 'Ringkasan 1–2 kalimat' },
-    suggestions: { type: 'array', description: 'Maksimal 8 saran, paling berdampak dulu', items: obj({
+    suggestions: { type: 'array', description: 'Maksimal ' + AI_MAX_SUG + ' saran, yang wajib dulu', items: obj({
+      prio: { type: 'string', enum: ['wajib', 'sebaiknya', 'opsional'] },
       loc: { type: 'string' }, quote: { type: 'string' }, text: { type: 'string' },
       check: { description: 'Pemeriksaan otomatis, atau null bila tidak bisa dicek mesin', anyOf: [{ type: 'null' }, obj({
         type: { type: 'string', enum: ['contains', 'maxLen', 'minLen', 'link'] },
         field: { type: 'string', enum: ['h1', 'h2', 'h3', 'metaTitle', 'metaDesc', 'first150', 'body'] },
-        value: { type: 'string', description: 'Teks yang harus ada, angka panjang, atau path/URL link' } })] } }) } });
+        value: { type: 'string', description: 'Teks yang harus ada, angka panjang, atau path/URL link' } })] } }) },
+    coverage: stage === 'brief' ? undefined : { type: 'array', description: 'Satu baris per bagian brief (Pembuka, tiap H2, FAQ, CTA), urut sesuai brief', items: obj({
+      part: { type: 'string', description: 'Nama bagian di brief' },
+      status: { type: 'string', enum: ['lengkap', 'sebagian', 'tidak ada', 'menyimpang'] },
+      note: { type: 'string', description: 'Poin brief yang kurang/menyimpang, maks 25 kata' } }) } });
 }
 var AI_FIX_SCHEMA = { type: 'object', additionalProperties: false, required: ['results'], properties: { results: { type: 'array', items: { type: 'object', additionalProperties: false,
   required: ['id', 'status', 'why'], properties: { id: { type: 'string' }, status: { type: 'string', enum: ['ok', 'part', 'no'] }, why: { type: 'string' } } } } } };
@@ -4121,6 +4127,18 @@ function aiDecode_(s) {
     .replace(/&ldquo;|&rdquo;/g, '"').replace(/&ndash;/g, '–').replace(/&mdash;/g, '—').replace(/&#(\d+);/g, function (m, n) { return String.fromCharCode(Number(n)); });
 }
 function aiStrip_(html) { return aiDecode_(String(html || '').replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d|tr|table|ul|ol)>/gi, '\n').replace(/<[^>]+>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim(); }
+/** HTML → markdown ringan: heading, daftar, tabel, gambar, cetak tebal. Hanya untuk dibaca Claude. */
+function aiMarkdown_(html) {
+  var h = String(html || '').replace(/<(script|style|noscript|svg|form|iframe)[\s\S]*?<\/\1>/gi, ' ');
+  h = h.replace(/<t([dh])[^>]*>([\s\S]*?)<\/t\1>/gi, function (x, k, inner) { return ' ' + aiStrip_(inner).replace(/\s+/g, ' ').trim() + ' |'; });
+  h = h.replace(/<tr[^>]*>/gi, '\n|').replace(/<\/tr>/gi, '').replace(/<\/?(table|thead|tbody)[^>]*>/gi, '\n');
+  h = h.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, function (x, l, inner) { return '\n\n' + '#'.repeat(Number(l)) + ' ' + aiStrip_(inner).replace(/\s+/g, ' ').trim() + '\n'; });
+  h = h.replace(/<img\s[^>]*>/gi, function (tag) { var a = /alt\s*=\s*(["\'])([\s\S]*?)\1/i.exec(tag); a = a ? aiDecode_(a[2]).trim() : ''; return '\n[gambar' + (a ? ': ' + a : ' tanpa alt') + ']\n'; });
+  h = h.replace(/<li[^>]*>/gi, '\n- ').replace(/<\/(ul|ol)>/gi, '\n');
+  h = h.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, function (x, t, inner) { var v = aiStrip_(inner).trim(); return v ? ' **' + v + '** ' : ' '; });
+  h = h.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|section|blockquote)>/gi, '\n\n').replace(/<[^>]+>/g, ' ');
+  return aiDecode_(h).split('\n').map(function (l) { return l.replace(/[ \t]+/g, ' ').trim(); }).join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\|\s*$/gm, '').trim();
+}
 function aiUnwrap_(u) {
   u = aiDecode_(u);
   var m = /^https?:\/\/(www\.)?google\.com\/url\?(.*)$/.exec(u);
@@ -4169,7 +4187,7 @@ function aiParseHtml_(html, preferArticle) {
     h1: heads.filter(function (x) { return x.level === 1; }).map(function (x) { return x.text; }),
     h2: heads.filter(function (x) { return x.level === 2; }).map(function (x) { return x.text; }),
     h3: heads.filter(function (x) { return x.level === 3; }).map(function (x) { return x.text; }),
-    heads: heads, links: links, allLinks: allLinks, imgs: imgs, sections: sections, text: plain,
+    heads: heads, links: links, allLinks: allLinks, imgs: imgs, md: aiMarkdown_(body), sections: sections, text: plain,
     words: plain ? plain.split(/\s+/).filter(Boolean).length : 0 };
 }
 function aiBriefOf_(taskId) {
@@ -4188,6 +4206,32 @@ function aiBriefModel_(b) {
     h2: secs.map(function (s) { return s.h2 || ''; }), h3: [].concat.apply([], secs.map(function (s) { return (s.h3 || []).map(function (h) { return h.title || ''; }); })),
     links: (d.internalLinks || []).concat(d.externalLinks || []).filter(function (l) { return l && l.url; }).map(function (l) { return { url: l.url, text: l.anchor || '' }; }),
     sections: sections, text: sections.map(function (s) { return s.heading + '\n' + s.text; }).join('\n'), data: d };
+}
+/** Brief lengkap untuk tahap draft & live: arahan per bagian, sumber, FAQ, link, CTA, kompetitor. */
+function aiBriefFull_(b) {
+  var d = b.data || {}, L = [], f = function (x) { return fv_(x); };
+  L.push('Keyword utama: ' + f(d.kwMain) + (d.kwSecondary && d.kwSecondary.length ? '\nKeyword turunan: ' + d.kwSecondary.join(', ') : ''));
+  L.push('Jenis konten: ' + f(d.contentType) + (f(d.wordEst) ? ' · target ' + f(d.wordEst) + ' kata' : ''));
+  L.push('H1: ' + f(d.h1) + '\nMeta title: ' + f(d.metaTitle) + '\nMeta description: ' + f(d.metaDesc));
+  if (f(d.intro)) L.push('ARAHAN PARAGRAF PEMBUKA:\n' + f(d.intro));
+  var secs = (d.sections || []).filter(function (x) { return x && f(x.h2); });
+  if (secs.length) L.push('KERANGKA & ARAHAN PEMBAHASAN (urutan ini adalah alur yang diminta):\n' + secs.map(function (x, i) {
+    var out = (i + 1) + '. H2: ' + f(x.h2) + (f(x.points) ? '\n   Poin bahasan: ' + f(x.points).replace(/\n+/g, '; ') : '');
+    (x.h3 || []).filter(function (h) { return h && f(h.title); }).forEach(function (h) { out += '\n   - H3: ' + f(h.title) + (f(h.points) ? ' — ' + f(h.points).replace(/\n+/g, '; ') : ''); });
+    var src = (x.sources || []).filter(function (y) { return f(y); });
+    if (src.length) out += '\n   Sumber yang harus dipakai: ' + src.join('; ');
+    return out;
+  }).join('\n'));
+  var faq = (d.faq || []).filter(function (x) { return x && f(typeof x === 'string' ? x : x.q); });
+  if (faq.length) L.push('FAQ yang diminta:\n' + faq.map(function (x, i) { return (i + 1) + '. ' + (typeof x === 'string' ? x : f(x.q) + (f(x.a) ? ' — arah jawaban: ' + f(x.a) : '')); }).join('\n'));
+  var li = (d.internalLinks || []).filter(function (l) { return l && f(l.url); }), le = (d.externalLinks || []).filter(function (l) { return l && f(l.url); });
+  if (li.length) L.push('Internal link wajib (anchor → URL):\n' + li.map(function (l) { return '- ' + (f(l.anchor) || '-') + ' → ' + f(l.url); }).join('\n'));
+  if (le.length) L.push('External link / sumber:\n' + le.map(function (l) { return '- ' + (f(l.anchor) || '-') + ' → ' + f(l.url); }).join('\n'));
+  if (f(d.ctaText) || f(d.ctaPage)) L.push('CTA: ' + f(d.ctaText) + (f(d.ctaPage) ? ' → ' + f(d.ctaPage) : ''));
+  if ((d.extras || []).length || f(d.extraNote)) L.push('Elemen tambahan yang diminta: ' + (d.extras || []).join(', ') + (f(d.extraNote) ? ' — ' + f(d.extraNote) : ''));
+  var comp = (d.competitors || []).filter(function (c) { return c && f(c.url); });
+  if (comp.length) L.push('Kompetitor & celah yang harus ditutup:\n' + comp.map(function (c) { return '- ' + f(c.url) + (f(c.insight) ? ' — ' + f(c.insight) : ''); }).join('\n'));
+  return aiTrim_(L.join('\n\n'), 20000);
 }
 function aiDocUrl_(t) {
   var list = (t.results || []).filter(function (r) { return /docs\.google\.com\/document\/d\//.test(r.url || ''); });
@@ -4314,9 +4358,17 @@ function aiSystem_(stage, st) {
   return 'Anda penilai konten SEO untuk blog linovhr.com (software HRIS & payroll Indonesia). Nilai ' + AI_STAGE_NAME[stage].toLowerCase() +
     ' artikel sesuai Standar SEO Artikel LinovHR. Bersikap tegas, adil, dan spesifik; jangan memberi nilai penuh bila standar tidak terpenuhi.\n\n' +
     'Kriteria yang Anda nilai (kriteria lain dihitung otomatis oleh aplikasi):\n' + list + '\n\nKriteria wajib: ' + R.must.join(', ') + '.\n' + AI_STYLE + '\n\n' +
-    'Saran perbaikan: maksimal 8, urutkan dari yang paling berdampak. Setiap saran: lokasi (judul bagian/H2 atau elemen), kutipan teks bermasalah apa adanya (≤ 120 karakter, kosong bila tidak ada), dan instruksi perbaikan yang konkret. ' +
+    (stage === 'brief' ? '' :
+    'CARA MEMBACA BRIEF: brief adalah kontrak penulisan. Bandingkan ' + (stage === 'draft' ? 'draft' : 'halaman') + ' dengan brief bagian per bagian, mengikuti urutan kerangka:\n' +
+    '1. Pembuka: apakah mengikuti arahan paragraf pembuka dan langsung menjawab maksud pencarian.\n' +
+    '2. Setiap H2/H3: apakah ada, apakah urutannya sesuai alur brief, dan apakah SEMUA "poin bahasan" benar-benar dibahas (bukan hanya judulnya). Sebut poin yang terlewat secara spesifik.\n' +
+    '3. Pembahasan: apakah isinya mendalam dan akurat, memakai sumber yang diminta, punya contoh/konteks Indonesia, dan tidak melebar ke topik di luar brief.\n' +
+    '4. Tulisan: alur antarbagian, pengulangan, kalimat rancu, ejaan sesuai KBBI (mis. praktik, karier, efektif), konsistensi istilah, dan format (daftar/tabel bila brief atau isinya membutuhkan).\n' +
+    '5. FAQ, internal link beserta anchor-nya, CTA, dan elemen tambahan sesuai brief; cek apakah celah kompetitor sudah ditutup.\n' +
+    'Isi "coverage" dengan satu baris per bagian brief (Pembuka, tiap H2, FAQ, CTA): lengkap / sebagian / tidak ada / menyimpang, plus poin yang kurang.\n\n') +
+    'Saran perbaikan: maksimal ' + AI_MAX_SUG + '. Beri "prio": "wajib" (melanggar brief/standar atau salah fakta), "sebaiknya" (menaikkan kualitas jelas), atau "opsional" (pemolesan). Urutkan wajib → sebaiknya → opsional. Kelompokkan masalah sejenis (mis. semua salah ejaan) dalam satu saran dengan daftar contohnya. Setiap saran: lokasi (judul bagian/H2 atau elemen), kutipan teks bermasalah apa adanya (≤ 120 karakter, kosong bila tidak ada), dan instruksi perbaikan yang konkret. ' +
     'Bila perbaikannya bisa dicek mesin, isi "check": {"type":"contains","field":"h1|h2|h3|metaTitle|metaDesc|first150|body","value":"teks yang harus ada"} atau {"type":"maxLen"|"minLen","field":"metaTitle|metaDesc|h1","value":"angka"} atau {"type":"link","field":"body","value":"/path-atau-url"}; bila tidak, "check": null.\n\n' +
-    'Jawab HANYA dengan JSON valid, tanpa teks lain:\n{"criteria":{"<kunci>":{"score":angka,"note":"alasan singkat ≤ 20 kata"}},"mustFail":["kunci kriteria wajib yang gagal"],"summary":"ringkasan 1–2 kalimat","suggestions":[{"loc":"","quote":"","text":"","check":null}]}';
+    'Jawab HANYA dengan JSON valid, tanpa teks lain:\n{"criteria":{"<kunci>":{"score":angka,"note":"alasan singkat ≤ 20 kata"}},"mustFail":["kunci kriteria wajib yang gagal"],"summary":"ringkasan 1–2 kalimat","suggestions":[{"prio":"wajib","loc":"","quote":"","text":"","check":null}]' + (stage === 'brief' ? '' : ',"coverage":[{"part":"","status":"lengkap","note":""}]') + '}';
 }
 function aiTrim_(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '\n[…dipotong]' : s; }
 function aiUser_(stage, m, ctx, auto) {
@@ -4330,10 +4382,10 @@ function aiUser_(stage, m, ctx, auto) {
     parts.push('LINK\n' + m.links.map(function (l) { return (l.text || '-') + ' → ' + l.url; }).join('\n') + '\nElemen tambahan: ' + (d.extras || []).join(', ') + ' ' + (d.extraNote || ''));
     if (ctx.siblings) parts.push('KEYWORD UTAMA ARTIKEL LAIN DI BLOG (cek kanibalisasi): ' + ctx.siblings);
   } else {
-    parts.push('RINGKASAN BRIEF YANG DISETUJUI\nKeyword utama: ' + b.kwMain + '\nKeyword turunan: ' + b.kwSecondary.join(', ') + '\nJenis konten: ' + (b.data.contentType || '') + '\nH1: ' + b.h1[0] +
-      '\nKerangka: ' + b.h2.filter(String).join(' | ') + '\nCTA: ' + (b.data.ctaText || '') + ' → ' + (b.data.ctaPage || '') + '\nKompetitor: ' + (b.data.competitors || []).map(function (c) { return c.url; }).filter(String).join(', '));
+    parts.push('BRIEF YANG DISETUJUI (acuan utama penilaian)\n' + aiBriefFull_(b));
     if (stage === 'live') parts.push('HALAMAN LIVE ' + m.url + '\nMeta title: ' + m.metaTitle + '\nMeta description: ' + m.metaDesc);
-    parts.push((stage === 'draft' ? 'DRAFT ARTIKEL (' : 'ISI HALAMAN (') + m.words + ' kata)\n' + aiTrim_(m.sections.map(function (s) { return (s.heading ? '\n' + '#'.repeat(Math.min(s.level || 2, 4)) + ' ' + s.heading + '\n' : '') + s.text.trim(); }).join('\n'), 90000));
+    parts.push((stage === 'draft' ? 'DRAFT ARTIKEL (' : 'ISI HALAMAN (') + m.words + ' kata; markdown: # heading, - daftar, | tabel |, [gambar: alt])\n' +
+      aiTrim_(m.md || m.sections.map(function (s) { return (s.heading ? '\n' + '#'.repeat(Math.min(s.level || 2, 4)) + ' ' + s.heading + '\n' : '') + s.text.trim(); }).join('\n'), 110000));
     parts.push('LINK DI ' + (stage === 'draft' ? 'DRAFT' : 'HALAMAN') + '\n' + m.links.slice(0, 80).map(function (l) { return (l.text || '-') + ' → ' + l.url; }).join('\n'));
   }
   parts.push('HASIL PEMERIKSAAN OTOMATIS APLIKASI\n' + auto.facts.concat(Object.keys(auto.notes).map(function (k) { return k + ': ' + auto.notes[k]; })).join('\n'));
@@ -4366,7 +4418,7 @@ function aiCheck_(me, taskId, stage) {
   var st = aiSettings_(), ctx = aiContext_(stage, t), m = stage === 'brief' ? ctx.brief : aiModelFor_(stage, t, ctx);
   if (stage !== 'brief' && m.words < 150) throw new Error('Isi ' + (stage === 'draft' ? 'draft' : 'halaman') + ' terlalu sedikit untuk dinilai (' + m.words + ' kata).');
   var auto = aiAuto_(stage, m, ctx), R = AI_RUBRIC[stage];
-  var r = aiCall_(st.models[stage], aiSystem_(stage, st), aiUser_(stage, m, ctx, auto), 6000, st, stage, aiCheckSchema_(stage));
+  var r = aiCall_(st.models[stage], aiSystem_(stage, st), aiUser_(stage, m, ctx, auto), stage === 'brief' ? 6000 : 10000, st, stage, aiCheckSchema_(stage));
   if (!r.json || !r.json.criteria) throw aiUnreadable_(r);
   var crit = R.crit.map(function (c) {
     var a = c[3] === 'auto' ? { score: auto.scores[c[0]], note: auto.notes[c[0]] } : (r.json.criteria[c[0]] || {});
@@ -4382,12 +4434,15 @@ function aiCheck_(me, taskId, stage) {
     if (auto.scores.meta < 6) mustFail.push('meta');
   }
   mustFail = mustFail.filter(function (k, i) { return mustFail.indexOf(k) === i; });
-  var sug = (r.json.suggestions || []).slice(0, 8).map(function (x, i) {
-    return { id: 's' + (i + 1), loc: String(x.loc || '').slice(0, 120), quote: String(x.quote || '').slice(0, 160), text: String(x.text || '').slice(0, 500),
+  var PR = { wajib: 0, sebaiknya: 1, opsional: 2 };
+  var sug = (r.json.suggestions || []).slice(0, AI_MAX_SUG).map(function (x) { var p = String(x.prio || '').toLowerCase(); x.prio = PR[p] === undefined ? 'sebaiknya' : p; return x; })
+    .sort(function (a, b) { return PR[a.prio] - PR[b.prio]; }).map(function (x, i) {
+    return { id: 's' + (i + 1), prio: x.prio, loc: String(x.loc || '').slice(0, 120), quote: String(x.quote || '').slice(0, 160), text: String(x.text || '').slice(0, 500),
       check: aiCleanCheck_(x.check), status: 'open', why: '' };
   });
   var review = { stage: stage, score: score, pass: score >= aiPass_(stage, st) && !mustFail.length, passMark: aiPass_(stage, st), mustFail: mustFail,
-    summary: String(r.json.summary || '').slice(0, 400), criteria: crit, suggestions: sug, model: r.model, cost: Math.round(r.cost * 1e5) / 1e5,
+    summary: String(r.json.summary || '').slice(0, 500), criteria: crit, suggestions: sug,
+    coverage: (r.json.coverage || []).slice(0, 25).map(function (c) { return { part: String(c.part || '').slice(0, 120), status: ['lengkap', 'sebagian', 'tidak ada', 'menyimpang'].indexOf(c.status) >= 0 ? c.status : 'sebagian', note: String(c.note || '').slice(0, 220) }; }), model: r.model, cost: Math.round(r.cost * 1e5) / 1e5,
     at: new Date().toISOString(), by: me.username, checks: Number(prev && prev.checks || 0) + 1, allowRecheck: false, fixAt: '', fixed: 0,
     source: stage === 'draft' ? m.docUrl : stage === 'live' ? m.url : '' };
   var patch = {}; patch[AI_FIELD[stage]] = review;

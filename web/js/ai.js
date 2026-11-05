@@ -31,7 +31,13 @@ function aiBlocked(t, stage) {
   return t.liveUrl ? '' : 'Isi URL artikel live dulu (tombol Sudah publish).';
 }
 const aiCanRun = (t) => S.user.role === 'admin' || t.owner === S.user.username;
-function aiProgress(rv) { const n = (rv.suggestions || []).length; return n ? (rv.fixed || 0) / n : 1; }
+// Saran "opsional" tidak menahan pengajuan; progres dihitung dari saran wajib & sebaiknya.
+function aiProgress(rv) {
+  const all = rv.suggestions || [], core = all.filter((s) => s.prio !== 'opsional'), list = core.length ? core : all;
+  if (!list.length) return 1;
+  if (!all.some((s) => s.prio)) return (rv.fixed || 0) / all.length;   // hasil lama tanpa prioritas
+  return list.filter((s) => s.status === 'ok' || s.status === 'na').length / list.length;
+}
 /** Boleh mengajukan? Lulus skor, atau ≥ 80% saran beres. */
 function aiGateState(t, stage) {
   if (stage === 'brief') { const why = window.PTDemo.aiBriefGateMsg(t); return why ? { ok: false, msg: why } : { ok: true }; }
@@ -64,8 +70,11 @@ function aiCard(t, stage) {
   const crit = (rv.criteria || []).map((c) => { const r = c.max ? c.score / c.max : 1; return `<span title="${esc(c.note || '')}">${esc(c.name)}${c.mode === 'auto' ? '<span class="ai-auto">otomatis</span>' : ''}</span><span class="ai-bar"><i class="${r < 0.5 ? 'low' : r < 0.75 ? 'mid' : ''}" style="width:${r * 100}%"></i></span><span class="ai-n">${c.score}/${c.max}</span>${c.mode === 'auto' && c.note && c.score < c.max ? `<span class="ai-cnote">${esc(c.note)}</span>` : ''}`; }).join('');
   const sug = (rv.suggestions || []).map((s) => `<div class="ai-s">
       <span class="ai-st st-${esc(s.status)}" title="${esc(AI_ST_LBL[s.status] || '')}">${AI_ST_ICON[s.status] || '•'}</span>
-      <span class="ai-t"><em>${esc(s.loc || '')}</em>${esc(s.text)}${s.quote ? `<q>${esc(s.quote)}</q>` : ''}${s.why ? `<span class="ai-why">${esc(s.why)}</span>` : ''}</span>
+      <span class="ai-t"><em>${s.prio ? `<span class="ai-pr pr-${esc(s.prio)}">${esc(s.prio)}</span>` : ''}${esc(s.loc || '')}</em>${esc(s.text)}${s.quote ? `<q>${esc(s.quote)}</q>` : ''}${s.why ? `<span class="ai-why">${esc(s.why)}</span>` : ''}</span>
       ${(mine || admin) && s.status !== 'ok' ? (s.status === 'na' ? `<button type="button" class="linkbtn ai-mk" data-aiundo="${esc(s.id)}">Batalkan</button>` : `<button type="button" class="linkbtn ai-mk" data-aina="${esc(s.id)}">Tidak relevan</button>`) : ''}</div>`).join('');
+  const COV = { lengkap: '✓', sebagian: '◐', 'tidak ada': '✕', menyimpang: '!' };
+  const cov = (rv.coverage || []).map((c) => `<div class="ai-cv cv-${esc(c.status.replace(' ', '-'))}"><span class="ai-cvi">${COV[c.status] || '•'}</span><span><b>${esc(c.part)}</b> <span class="ai-cvs">${esc(c.status)}</span>${c.note ? `<small>${esc(c.note)}</small>` : ''}</span></div>`).join('');
+  const covOk = (rv.coverage || []).filter((c) => c.status === 'lengkap').length;
   const mf = (rv.mustFail || []).map((k) => ((rv.criteria || []).find((c) => c.key === k) || {}).name || k);
   const when = rv.at ? cmWhen(rv.at) : '';
   return `<div class="ai-card">
@@ -75,6 +84,7 @@ function aiCard(t, stage) {
     ${rv.summary ? `<p class="ai-sum">${esc(rv.summary)}</p>` : ''}
     ${mf.length ? `<div class="ai-must">Kriteria wajib belum terpenuhi: <b>${esc(mf.join(', '))}</b></div>` : ''}
     <div class="ai-crit">${crit}</div>
+    ${cov ? `<details class="ai-cov" ${covOk < (rv.coverage || []).length ? 'open' : ''}><summary>Kesesuaian dengan brief <span class="ai-prog">· ${covOk} dari ${(rv.coverage || []).length} bagian lengkap</span></summary>${cov}</details>` : ''}
     ${n ? `<div class="ai-sh">Saran perbaikan <span class="ai-prog">· ${rv.fixAt ? `${rv.fixed || 0} dari ${n} sudah beres (Cek perbaikan ${esc(cmWhen(rv.fixAt))})` : `${n} saran`}</span></div>${sug}` : '<p class="muted small">Tidak ada saran perbaikan.</p>'}
     <div class="ai-act">
       ${(mine || admin) && n ? `<button class="btn" data-aifix="${stage}" ${busy ? 'disabled' : ''}>${busy ? 'Memeriksa…' : 'Cek perbaikan'}</button>` : ''}
@@ -83,7 +93,7 @@ function aiCard(t, stage) {
       ${rv.allowRecheck ? '<span class="muted small">Admin mengizinkan cek ulang.</span>' : ''}
     </div>
     ${stage === 'brief' && n ? `<div class="ai-note">Brief bisa diajukan setelah <b>semua</b> saran beres — diperbaiki (lalu klik "Cek perbaikan") atau ditandai tidak relevan dengan alasan. Sekarang ${rv.fixed || 0} dari ${n}.</div>`
-      : !rv.pass && n ? `<div class="ai-note">Bisa diajukan bila skor ≥ ${rv.passMark}, atau ≥ 80% saran sudah diperbaiki / ditandai tidak relevan (sekarang ${Math.round(aiProgress(rv) * 100)}%).</div>` : ''}
+      : !rv.pass && n ? `<div class="ai-note">Bisa diajukan bila skor ≥ ${rv.passMark}, atau ≥ 80% saran ${(rv.suggestions || []).some((s) => s.prio) ? '<b>wajib & sebaiknya</b> ' : ''}sudah diperbaiki / ditandai tidak relevan (sekarang ${Math.round(aiProgress(rv) * 100)}%).</div>` : ''}
   </div>`;
 }
 function aiBind(root, t) {
