@@ -4131,7 +4131,7 @@ function aiUnwrap_(u) {
 function aiParseHtml_(html, preferArticle) {
   html = String(html || '');
   var head = (/<head[\s\S]*?<\/head>/i.exec(html) || [''])[0];
-  var meta = function (name) { var m = new RegExp('<meta[^>]+(?:name|property)=["\']' + name + '["\'][^>]*>', 'i').exec(head); if (!m) return ''; var c = /content=["\']([^"\']*)["\']/i.exec(m[0]); return c ? aiDecode_(c[1]).trim() : ''; };
+  var meta = function (name) { var m = new RegExp('<meta[^>]+(?:name|property)=["\']' + name + '["\'][^>]*>', 'i').exec(head); if (!m) return ''; var c = /content\s*=\s*(["\'])([\s\S]*?)\1/i.exec(m[0]); return c ? aiDecode_(c[2]).replace(/\s+/g, ' ').trim() : ''; };
   var body = (/<body[\s\S]*<\/body>/i.exec(html) || [html])[0], fullBody = body;
   if (preferArticle) { var art = /<article[\s\S]*?<\/article>/i.exec(body) || /<main[\s\S]*?<\/main>/i.exec(body); if (art) body = art[0]; }
   // Export HTML Google Docs: paragraf ber-style "Title" keluar sebagai <p class="... title">, bukan <h1>.
@@ -4150,6 +4150,8 @@ function aiParseHtml_(html, preferArticle) {
   }
   var links = [], ra = /<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)<\/a>/gi;
   while ((m = ra.exec(body))) links.push({ url: aiUnwrap_(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() });
+  var allLinks = links;
+  if (body !== fullBody) { allLinks = []; var ra2 = /<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)<\/a>/gi; while ((m = ra2.exec(fullBody))) allLinks.push({ url: aiUnwrap_(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() }); }
   var imgs = [], ri = /<img\s[^>]*>/gi;
   while ((m = ri.exec(body))) { var alt = /alt=["\']([^"\']*)["\']/i.exec(m[0]), src = /src=["\']([^"\']+)["\']/i.exec(m[0]); imgs.push({ src: src ? src[1] : '', alt: alt ? aiDecode_(alt[1]).trim() : '' }); }
   // teks per bagian (dipotong di setiap heading)
@@ -4167,7 +4169,7 @@ function aiParseHtml_(html, preferArticle) {
     h1: heads.filter(function (x) { return x.level === 1; }).map(function (x) { return x.text; }),
     h2: heads.filter(function (x) { return x.level === 2; }).map(function (x) { return x.text; }),
     h3: heads.filter(function (x) { return x.level === 3; }).map(function (x) { return x.text; }),
-    heads: heads, links: links, imgs: imgs, sections: sections, text: plain,
+    heads: heads, links: links, allLinks: allLinks, imgs: imgs, sections: sections, text: plain,
     words: plain ? plain.split(/\s+/).filter(Boolean).length : 0 };
 }
 function aiBriefOf_(taskId) {
@@ -4261,16 +4263,29 @@ function aiAuto_(stage, m, ctx) {
   } else {
     var b2 = ctx.brief, sim = ctx.draft ? aiSimilar_(ctx.draft.text, m.text) : null;
     sc.same = sim === null ? 8 : sim >= 0.95 ? 15 : sim >= 0.85 ? 10 : sim >= 0.7 ? 5 : 0; note.same = sim === null ? 'draft tidak bisa dibandingkan' : Math.round(sim * 100) + '% isi draft ditemukan di halaman';
-    var tOk = fv_(m.metaTitle).length >= 30 && fv_(m.metaTitle).length <= 65 && aiHas_(m.metaTitle, kw), dOk = fv_(m.metaDesc).length >= 120 && fv_(m.metaDesc).length <= 160 && aiHas_(m.metaDesc, kw);
-    sc.meta = (tOk ? 5 : 0) + (dOk ? 5 : 0); note.meta = 'title ' + fv_(m.metaTitle).length + ' kar., description ' + fv_(m.metaDesc).length + ' kar.' + (aiHas_(m.metaTitle, kw) ? '' : ', keyword tidak di title');
+    var tl = fv_(m.metaTitle).length, dl = fv_(m.metaDesc).length, tKw = aiHas_(m.metaTitle, kw), dKw = aiHas_(m.metaDesc, kw);
+    var tLen = tl >= 30 && tl <= 65, dLen = dl >= 120 && dl <= 160;
+    sc.meta = (tLen ? 3 : 0) + (tl && tKw ? 2 : 0) + (dLen ? 3 : 0) + (dl && dKw ? 2 : 0);
+    var mp = [];
+    mp.push(!tl ? 'meta title tidak ditemukan' : 'title ' + tl + ' kar.' + (tLen ? '' : tl > 65 ? ' (maks 65)' : ' (min 30)') + (tKw ? '' : ', tanpa keyword "' + kw + '"'));
+    mp.push(!dl ? 'meta description tidak ditemukan' : 'description ' + dl + ' kar.' + (dLen ? '' : dl > 160 ? ' (maks 160)' : ' (min 120)') + (dKw ? '' : ', tanpa keyword'));
+    note.meta = mp.join('; ');
+    facts.push('Meta title terbaca (' + tl + ' kar.): ' + (m.metaTitle || '-'));
+    facts.push('Meta description terbaca (' + dl + ' kar.): ' + (m.metaDesc || '-'));
     var empty = m.heads.filter(function (h) { return !h.text; }).length;
     sc.oneH1 = (m.h1.length === 1 ? 5 : 0) + (empty ? 0 : 5); note.oneH1 = m.h1.length + ' H1, ' + empty + ' heading kosong';
+    var host2 = (/^https?:\/\/(www\.)?([^\/]+)/i.exec(m.url || '') || [])[2] || '';
+    var internal = function (u) { u = fv_(u); var h = (/^https?:\/\/(www\.)?([^\/]+)/i.exec(u) || [])[2]; return /^\//.test(u) || (h && h.toLowerCase() === host2.toLowerCase()); };
     var want2 = (b2.data.internalLinks || []).filter(function (l) { return fv_(l.url); }).map(function (l) { return aiLinkPath_(l.url); });
-    var have2 = m.links.map(function (l) { return aiLinkPath_(l.url); }), ok2 = want2.filter(function (p) { return have2.indexOf(p) >= 0; });
+    var cta2 = internal(b2.data.ctaPage) ? aiLinkPath_(b2.data.ctaPage) : '';
+    if (cta2 && want2.indexOf(cta2) < 0) want2.push(cta2);
+    var have2 = (m.allLinks || m.links).map(function (l) { return aiLinkPath_(l.url); });
+    var ok2 = want2.filter(function (p) { return have2.indexOf(p) >= 0; }), miss2 = want2.filter(function (p) { return have2.indexOf(p) < 0; });
     var broken = aiBrokenLinks_(m.links, m.url);
     sc.links = Math.max(0, (want2.length ? Math.round(10 * ok2.length / want2.length) : 10) - broken.length * 3);
-    note.links = ok2.length + '/' + want2.length + ' link brief terpasang, ' + broken.length + ' link rusak' + (broken.length ? ' (' + broken.slice(0, 3).join(', ') + ')' : '');
-    ctx.broken = broken;
+    note.links = ok2.length + '/' + want2.length + ' link brief' + (cta2 ? ' (termasuk CTA)' : '') + ' terpasang' + (miss2.length ? ', belum ada: ' + miss2.slice(0, 3).join(', ') : '') + ', ' + broken.length + ' link rusak' + (broken.length ? ' (' + broken.slice(0, 3).join(', ') + ')' : '');
+    facts.push('Link brief di halaman (dicek aplikasi): ' + note.links + (cta2 ? '; link CTA ' + cta2 + ' ' + (have2.indexOf(cta2) >= 0 ? 'TERPASANG' : 'TIDAK ditemukan') : ''));
+    ctx.broken = broken; ctx.linkMiss = miss2;
     var noAlt = m.imgs.filter(function (i) { return !i.alt; }).length;
     facts.push('Gambar: ' + m.imgs.length + ', tanpa alt: ' + noAlt);
     facts.push('URL: ' + m.url);
@@ -4360,7 +4375,12 @@ function aiCheck_(me, taskId, stage) {
   });
   var score = crit.reduce(function (x, c) { return x + c.score; }, 0);
   var mustFail = (r.json.mustFail || []).filter(function (k) { return R.must.indexOf(k) >= 0; });
-  if (stage === 'live') { if (auto.scores.oneH1 < 5) mustFail.push('oneH1'); if ((ctx.broken || []).length) mustFail.push('links'); if (auto.scores.meta < 5) mustFail.push('meta'); }
+  if (stage === 'live') {
+    mustFail = mustFail.filter(function (k) { return ['oneH1', 'links', 'meta'].indexOf(k) < 0; });   // dihitung aplikasi dari HTML, bukan dinilai AI
+    if (auto.scores.oneH1 < 5) mustFail.push('oneH1');
+    if ((ctx.broken || []).length || (ctx.linkMiss || []).length) mustFail.push('links');
+    if (auto.scores.meta < 6) mustFail.push('meta');
+  }
   mustFail = mustFail.filter(function (k, i) { return mustFail.indexOf(k) === i; });
   var sug = (r.json.suggestions || []).slice(0, 8).map(function (x, i) {
     return { id: 's' + (i + 1), loc: String(x.loc || '').slice(0, 120), quote: String(x.quote || '').slice(0, 160), text: String(x.text || '').slice(0, 500),

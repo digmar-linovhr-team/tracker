@@ -1255,4 +1255,15 @@ it('Pengecekan heading toleran: ≥ 90% mirip dianggap sesuai', () => {
   assert.ok(!sandbox.aiEvalCheck_({ type: 'contains', field: 'body', value: 'Strateginya' }, m));
 });
 
+it('Cek live: meta description berisi apostrof & link di luar <article> tetap terbaca', () => {
+  const html = '<html><head><title>Aplikasi Absensi Karyawan Terbaik 2026 | LinovHR</title>' +
+    '<meta content="Rekomendasi aplikasi absensi karyawan terbaik, lengkap dengan fitur & harga. Ini cara memilih yang pas untuk bisnis Anda\'s di 2026 ini ya." name="description" /></head>' +
+    '<body><header><h1>Aplikasi Absensi Karyawan</h1></header><article><p>Isi</p><a href="/blog/a/">a</a></article>' +
+    '<section class="cta"><a href="https://www.linovhr.com/hris/time-attendance/">Coba gratis</a></section></body></html>';
+  const m = sandbox.aiParseHtml_(html, true);
+  assert.ok(m.metaDesc.length > 120, m.metaDesc);
+  assert.ok(m.allLinks.some((l) => /time-attendance/.test(l.url)));
+  assert.ok(!m.links.some((l) => /time-attendance/.test(l.url)));
+});
+
 console.log(`\n${n} uji backend lulus`);
