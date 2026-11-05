@@ -4393,8 +4393,26 @@ function aiFieldText_(m, field) {
   if (field === 'first150') return String(m.text || '').split(/\s+/).slice(0, 150).join(' ');
   return m.text || '';
 }
+/** Kemiripan dua teks pendek (0–1) berbasis jarak edit, setelah dinormalkan & tanda baca diabaikan. */
+function aiRatio_(a, b) {
+  var clean = function (x) { return aiNorm_(x).replace(/[^a-z0-9à-ÿ ]+/g, ' ').replace(/\s+/g, ' ').trim(); };
+  a = clean(a); b = clean(b);
+  if (!a || !b) return 0; if (a === b) return 1;
+  var prev = [], cur, i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++) {
+    cur = [i];
+    for (j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+var AI_HEAD_TOLERANCE = 0.9;   // heading dianggap sesuai bila ≥ 90% mirip (mis. "Strategi" vs "Strateginya")
 function aiEvalCheck_(c, m) {
   var s = aiFieldText_(m, c.field);
+  if (c.type === 'contains' && /^h[123]$/.test(c.field)) {
+    return aiHas_(s, c.value) || (m[c.field] || []).some(function (h) { return aiRatio_(h, c.value) >= AI_HEAD_TOLERANCE; });
+  }
   if (c.type === 'contains') return aiHas_(s, c.value);
   if (c.type === 'maxLen') return fv_(s).length > 0 && fv_(s).length <= c.value;
   if (c.type === 'minLen') return fv_(s).length >= c.value;

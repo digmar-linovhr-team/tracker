@@ -1247,4 +1247,12 @@ it('Cek live: H1 di header tema (di luar <article>) tetap terbaca', () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(m.h2)), ['Apa Itu Talent Management?']);
 });
 
+it('Pengecekan heading toleran: ≥ 90% mirip dianggap sesuai', () => {
+  const m = { h1: ['Talent Management: Pengertian, Pilar, Proses, dan Strategi'], h2: ['Apa Itu Talent Management?'], h3: [], text: '' };
+  assert.ok(sandbox.aiEvalCheck_({ type: 'contains', field: 'h1', value: 'Talent Management: Pengertian, Pilar, Proses, dan Strateginya' }, m));
+  assert.ok(!sandbox.aiEvalCheck_({ type: 'contains', field: 'h1', value: 'Talent Management: Pengertian dan Manfaatnya' }, m));
+  assert.ok(sandbox.aiEvalCheck_({ type: 'contains', field: 'h2', value: 'Apa itu Talent Management' }, m));
+  assert.ok(!sandbox.aiEvalCheck_({ type: 'contains', field: 'body', value: 'Strateginya' }, m));
+});
+
 console.log(`\n${n} uji backend lulus`);
