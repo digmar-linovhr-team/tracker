@@ -4129,6 +4129,12 @@ function aiParseHtml_(html, preferArticle) {
   var meta = function (name) { var m = new RegExp('<meta[^>]+(?:name|property)=["\']' + name + '["\'][^>]*>', 'i').exec(head); if (!m) return ''; var c = /content=["\']([^"\']*)["\']/i.exec(m[0]); return c ? aiDecode_(c[1]).trim() : ''; };
   var body = (/<body[\s\S]*<\/body>/i.exec(html) || [html])[0];
   if (preferArticle) { var art = /<article[\s\S]*?<\/article>/i.exec(body) || /<main[\s\S]*?<\/main>/i.exec(body); if (art) body = art[0]; }
+  // Export HTML Google Docs: paragraf ber-style "Title" keluar sebagai <p class="... title">, bukan <h1>.
+  // Di WordPress judul itu menjadi H1, jadi diperlakukan sebagai H1.
+  if (!preferArticle) body = body.replace(/<p\b([^>]*)>([\s\S]*?)<\/p>/gi, function (x, attrs, inner) {
+    var cls = (/\bclass=["']([^"']*)["']/i.exec(attrs) || ['', ''])[1].split(/\s+/);
+    return cls.indexOf('title') >= 0 ? '<h1' + attrs + '>' + inner + '</h1>' : x;
+  });
   var heads = [], re = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, m;
   while ((m = re.exec(body))) heads.push({ level: Number(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() });
   var links = [], ra = /<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -4194,7 +4200,9 @@ function aiLiveModel_(t) {
 
 // ---------- pemeriksaan otomatis ----------
 var aiLow_ = function (s) { return String(s || '').toLowerCase(); };
-function aiHas_(hay, needle) { needle = aiLow_(needle).trim(); return !!needle && aiLow_(hay).indexOf(needle) >= 0; }
+/** Samakan spasi (termasuk non-breaking), tanda kutip miring, dan tanda pisah supaya "contains" tidak gagal karena format. */
+function aiNorm_(s) { return aiLow_(s).replace(/[   ]/g, ' ').replace(/[‘’‚′]/g, "'").replace(/[“”„″]/g, '"').replace(/[–—−]/g, '-').replace(/\s+/g, ' ').trim(); }
+function aiHas_(hay, needle) { needle = aiNorm_(needle).replace(/[.\s]+$/, ''); return !!needle && aiNorm_(hay).indexOf(needle) >= 0; }
 function aiLinkPath_(u) { u = String(u || '').trim(); try { return u.replace(/^https?:\/\/(www\.)?[^\/]+/i, '').replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase() || '/'; } catch (e) { return u; } }
 function aiWordEst_(s) { var n = String(s || '').replace(/\./g, '').match(/\d+/g); if (!n) return 0; n = n.map(Number); return n.length > 1 ? (n[0] + n[1]) / 2 : n[0]; }
 function aiShingles_(text) { var w = aiLow_(text).replace(/[^a-z0-9à-ÿ\s]/g, ' ').split(/\s+/).filter(Boolean), out = {}; for (var i = 0; i + 4 < w.length; i++) out[w.slice(i, i + 5).join(' ')] = 1; return out; }

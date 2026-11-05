@@ -1220,4 +1220,18 @@ it('Result: isian manual di sheet dengan format bebas tetap terbaca', () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(list)), [{ label: 'Brief', url: 'https://docs.google.com/a' }, { label: '', url: 'https://drive.google.com/x' }, { label: 'Draft', url: 'https://canva.com/d' }]);
 });
 
+it('Draft Google Docs: judul ber-style Title terbaca sebagai H1, subtitle tidak', () => {
+  const html = '<html><head><title>Talent Management Pengertian | LinovHR</title></head><body>' +
+    '<p class="c4 title" id="h.abc"><span class="c2">Talent Management:&nbsp;Pengertian, Pilar, Proses, dan Strateginya</span></p>' +
+    '<p class="c4 subtitle"><span>Bukan H1</span></p><p class="c1"><span>Paragraf pembuka.</span></p>' +
+    '<h2 class="c5"><span>Apa Itu Talent Management?</span></h2></body></html>';
+  const m = sandbox.aiParseHtml_(html, false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(m.h1)), ['Talent Management: Pengertian, Pilar, Proses, dan Strateginya']);
+  assert.ok(sandbox.aiEvalCheck_({ type: 'contains', field: 'h1', value: 'Talent Management: Pengertian, Pilar, Proses, dan Strateginya' }, m));
+  assert.ok(sandbox.aiEvalCheck_({ type: 'contains', field: 'h1', value: 'talent management:  pengertian, pilar, proses, dan strateginya.' }, m));
+  // Halaman live: <p class="title"> milik tema tidak dihitung sebagai H1
+  const live = sandbox.aiParseHtml_('<body><article><p class="title">x</p><h1>Judul</h1></article></body>', true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(live.h1)), ['Judul']);
+});
+
 console.log(`\n${n} uji backend lulus`);
