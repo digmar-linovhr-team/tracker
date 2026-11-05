@@ -301,6 +301,8 @@ async function loadData(quiet) {
     const fresh = (mine && mine.me) || (all && all.users.find((u) => u.username === S.user.username));
     if (fresh) { S.user = Object.assign(S.user, fresh); renderMe(); }
     if (all) { S.all = all; if (!S.user.sheetName) S.mine.projects = all.projects; }
+    // Anggota: data tim (dipakai halaman Tim, Request, Brief) ikut disegarkan supaya hasil kerja orang lain tidak usang.
+    if (!all && S.team) { try { const tm = await api.call('teamTasks'); if (tm && tm.tasks) { S.team = tm; S.teamAt = Date.now(); if (tm.comments) S.ccount = tm.comments; } } catch (e) { /* tetap pakai salinan lama */ } }
     const br = (all && all.briefs) || (mine && mine.briefs);
     if (br) S.briefs = br;
     else if (!S.user.sheetName && S.user.role !== 'admin') { try { S.briefs = (await api.call('briefs')).briefs || []; } catch (e) { /* abaikan */ } }
