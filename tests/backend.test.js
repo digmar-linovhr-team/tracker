@@ -1234,4 +1234,9 @@ it('Draft Google Docs: judul ber-style Title terbaca sebagai H1, subtitle tidak'
   assert.deepStrictEqual(JSON.parse(JSON.stringify(live.h1)), ['Judul']);
 });
 
+it('Cek live: URL diberi parameter anti-cache tanpa merusak query & anchor', () => {
+  assert.match(sandbox.aiBust_('https://www.linovhr.com/blog/a/'), /^https:\/\/www\.linovhr\.com\/blog\/a\/\?_ptcheck=\d+$/);
+  assert.match(sandbox.aiBust_('https://x.com/a?utm=1#faq'), /^https:\/\/x\.com\/a\?utm=1&_ptcheck=\d+#faq$/);
+});
+
 console.log(`\n${n} uji backend lulus`);

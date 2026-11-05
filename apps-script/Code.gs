@@ -4193,9 +4193,15 @@ function aiDraftModel_(t) {
 function aiLiveModel_(t) {
   var url = String(t.liveUrl || '').trim();
   if (!/^https?:\/\//.test(url)) throw new Error('URL artikel live belum diisi (tahap Publish).');
-  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: { 'User-Agent': 'Mozilla/5.0 (Project Tracker LinovHR; pemeriksa artikel)' } });
+  var res = UrlFetchApp.fetch(aiBust_(url), { muteHttpExceptions: true, followRedirects: true,
+    headers: { 'User-Agent': 'Mozilla/5.0 (Project Tracker LinovHR; pemeriksa artikel)', 'Cache-Control': 'no-cache, no-store, max-age=0', 'Pragma': 'no-cache' } });
   if (res.getResponseCode() >= 300) throw new Error('Halaman live tidak bisa dibuka (' + res.getResponseCode() + ').');
   var m = aiParseHtml_(res.getContentText(), true); m.url = url; return m;
+}
+/** Tambah parameter unik supaya cache WordPress/CDN (dan cache UrlFetchApp) tidak mengirim versi lama halaman. */
+function aiBust_(url) {
+  var hash = '', i = url.indexOf('#'); if (i >= 0) { hash = url.slice(i); url = url.slice(0, i); }
+  return url + (url.indexOf('?') >= 0 ? '&' : '?') + '_ptcheck=' + Date.now() + hash;
 }
 
 // ---------- pemeriksaan otomatis ----------
