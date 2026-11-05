@@ -182,10 +182,12 @@ function dpTaskTop(t) {
   const list = resultsOf(t), note = String(t.resultNote || '').trim();
   const links = list.map((x) => dpLink(x.label, x.url)).join('') + (t.liveUrl ? dpLink('Artikel live', t.liveUrl) : '') + (t.aiCheckUrl ? dpLink('Hasil cek AI', t.aiCheckUrl) : '');
   const brief = typeof briefOf === 'function' ? briefOf(t.id) : null;
+  // Link di bawah judul: URL live artikel bila sudah diisi, selain itu URL di nama task.
+  const headUrl = /^https?:\/\/\S+$/i.test(String(t.liveUrl || '').trim()) ? String(t.liveUrl).trim() : isUrl(t.task) ? t.task.trim() : '';
   return `
     <h1 class="dp-title">${esc(String(t.task).replace(/^https?:\/\/(www\.)?/, ''))}</h1>
     <div class="dp-chips">${art ? '' : statusChip(t.status)}${typeChip}${prio ? priorityChip(prio) : ''}${t.repeat ? `<span class="chip">↻ ${esc(repeatLabel(t.repeat, t.startDate))}</span>` : ''}${t.leaveDays && !done ? `<span class="chip warn">Deadline +${t.leaveDays} hari kerja (cuti)</span>` : ''}</div>
-    ${isUrl(t.task) ? `<a class="dp-url" href="${esc(t.task)}" target="_blank" rel="noopener noreferrer">${esc(t.task)} ↗</a>` : ''}
+    ${headUrl ? `<a class="dp-url" href="${esc(headUrl)}" target="_blank" rel="noopener noreferrer">${esc(headUrl)} ↗</a>` : ''}
     <div class="dp-meta">
       <div><span class="k">Penanggung jawab</span><span class="v"><span class="avatar dp-av">${initials(t.ownerName || t.owner)}</span><span class="dp-vt">${esc(t.ownerName || t.owner || '–')}${pos ? `<small>${esc(pos)}</small>` : ''}</span></span></div>
       <div><span class="k">Deadline</span><span class="v"><span class="dp-vt">${esc(dpWhen(sc.end))}<small class="w-${wcls}">${esc(w.main)}</small></span></span></div>
