@@ -1605,6 +1605,8 @@ function taskModal(t, prefill) {
       <div class="field"><span>Jenis task</span><div class="seg seg-pick" id="tf-type" role="radiogroup" aria-label="Jenis task">
         ${['Non-artikel', 'Artikel', 'Sosmed'].map((k) => `<button type="button" role="radio" data-type="${k}" class="${taskType(t) === k ? 'on' : ''}" aria-checked="${taskType(t) === k}">${k}</button>`).join('')}</div>
         <small class="muted" id="tf-type-hint" style="display:block;margin-top:5px">${TYPE_HINT[taskType(t)]}</small></div>
+      <label class="field ${taskType(t) === 'Artikel' ? '' : 'hidden'}" id="tf-live"><span>URL live artikel</span><input type="url" name="liveUrl" value="${esc(t.liveUrl || '')}" placeholder="https://www.linovhr.com/blog/…">
+        <small class="muted" style="display:block;margin-top:5px">Alamat artikel yang tayang sekarang. Dipakai untuk "Cek dengan AI" halaman live — isi bila berbeda dari URL di nama task.</small></label>
       <div class="grid4">
         <label class="field"><span>Tanggal mulai</span><input type="date" name="startDate" value="${esc(t.startDate || '')}"></label>
         <label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="${esc(t.startTime || '09:00')}"></label>
@@ -1646,6 +1648,7 @@ function taskModal(t, prefill) {
         $('#tf-status', m).classList.toggle('hidden', type === 'Artikel');
         $('#tf-stage', m).classList.toggle('hidden', !(type === 'Artikel' && edit && L.isArticle(t)));
         $('#tf-type-hint', m).textContent = TYPE_HINT[type];
+        $('#tf-live', m).classList.toggle('hidden', type !== 'Artikel');
       });
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
@@ -1654,6 +1657,9 @@ function taskModal(t, prefill) {
         if (data.repeat && type === 'Artikel') { $('#terr', m).innerHTML = '<div class="error">Task artikel tidak bisa diulang otomatis — tiap artikel punya brief sendiri.</div>'; return; }
         const s = L.at(data.startDate, data.startTime), e = L.at(data.endDate, data.endTime);
         if (s && e && e < s) { $('#terr', m).innerHTML = '<div class="error">Deadline tidak boleh sebelum waktu mulai.</div>'; return; }
+        data.liveUrl = String(data.liveUrl || '').trim();
+        if (type !== 'Artikel') delete data.liveUrl;
+        else if (data.liveUrl && !isHttp(data.liveUrl)) { $('#terr', m).innerHTML = '<div class="error">URL live harus diawali http:// atau https://</div>'; return; }
         if (edit) data.id = t.id;
         data.type = type;
         if (type === 'Artikel') { delete data.status; if (!(edit && L.isArticle(t))) delete data.stage; else data.stage = Number(data.stage); }

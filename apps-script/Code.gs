@@ -918,6 +918,11 @@ function saveTask_(me, t) {
       'notes': t.notes || ''
     };
     if (Array.isArray(t.results)) obj['result'] = serializeResults_(t.results);
+    if (t.liveUrl !== undefined) {
+      var lu = String(t.liveUrl || '').trim();
+      if (lu && !/^https?:\/\/\S+$/i.test(lu)) throw new Error('URL live harus diawali http:// atau https://');
+      obj['live url'] = lu.slice(0, 500);
+    }
     if (t.repeat !== undefined) obj['repeat'] = normRepeat_(t.repeat);
     if (t.repeatOf) obj['repeat of'] = String(t.repeatOf);
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
@@ -4198,9 +4203,6 @@ function aiLiveModel_(t) {
   if (res.getResponseCode() >= 300) throw new Error('Halaman live tidak bisa dibuka (' + res.getResponseCode() + ').');
   var m = aiParseHtml_(res.getContentText(), true); m.url = url; return m;
 }
-/** Dua URL dianggap sama bila hanya beda http/https, www, garis miring akhir, query, atau anchor. */
-function aiUrlKey_(u) { return String(u || '').trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '').replace(/\/+$/, ''); }
-function aiUrlMoved_(src, cur) { return !!(src && cur) && aiUrlKey_(src) !== aiUrlKey_(cur); }
 /** Tambah parameter unik supaya cache WordPress/CDN (dan cache UrlFetchApp) tidak mengirim versi lama halaman. */
 function aiBust_(url) {
   var hash = '', i = url.indexOf('#'); if (i >= 0) { hash = url.slice(i); url = url.slice(0, i); }
@@ -4339,8 +4341,7 @@ function aiContext_(stage, t) {
 function aiCheck_(me, taskId, stage) {
   if (!AI_RUBRIC[stage]) throw new Error('Tahap tidak dikenal');
   var t = aiLoadTask_(me, taskId), prev = t[AI_FIELD[stage]];
-  var moved = stage === 'live' && prev && aiUrlMoved_(prev.source, t.liveUrl);   // URL live diganti → hasil lama milik halaman lain
-  if (prev && prev.score !== undefined && !prev.allowRecheck && !moved) throw new Error('Tahap ini sudah diperiksa. Pakai "Cek perbaikan", atau minta admin mengizinkan cek ulang.');
+  if (prev && prev.score !== undefined && !prev.allowRecheck) throw new Error('Tahap ini sudah diperiksa. Pakai "Cek perbaikan", atau minta admin mengizinkan cek ulang.');
   var st = aiSettings_(), ctx = aiContext_(stage, t), m = stage === 'brief' ? ctx.brief : aiModelFor_(stage, t, ctx);
   if (stage !== 'brief' && m.words < 150) throw new Error('Isi ' + (stage === 'draft' ? 'draft' : 'halaman') + ' terlalu sedikit untuk dinilai (' + m.words + ' kata).');
   var auto = aiAuto_(stage, m, ctx), R = AI_RUBRIC[stage];
@@ -4409,7 +4410,6 @@ function aiExcerpt_(m, sug) {
 function aiFix_(me, taskId, stage) {
   var t = aiLoadTask_(me, taskId), rv = t[AI_FIELD[stage]];
   if (!rv || !rv.suggestions) throw new Error('Tahap ini belum diperiksa Claude.');
-  if (stage === 'live' && aiUrlMoved_(rv.source, t.liveUrl)) throw new Error('URL live sudah diganti sejak pemeriksaan terakhir. Jalankan "Cek ulang URL baru" dulu.');
   var st = aiSettings_(), ctx = aiContext_(stage, t), m = stage === 'brief' ? ctx.brief : aiModelFor_(stage, t, ctx), ask = [];
   rv.suggestions.forEach(function (s) {
     if (s.status === 'na') return;
