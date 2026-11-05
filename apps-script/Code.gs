@@ -4132,7 +4132,7 @@ function aiParseHtml_(html, preferArticle) {
   html = String(html || '');
   var head = (/<head[\s\S]*?<\/head>/i.exec(html) || [''])[0];
   var meta = function (name) { var m = new RegExp('<meta[^>]+(?:name|property)=["\']' + name + '["\'][^>]*>', 'i').exec(head); if (!m) return ''; var c = /content=["\']([^"\']*)["\']/i.exec(m[0]); return c ? aiDecode_(c[1]).trim() : ''; };
-  var body = (/<body[\s\S]*<\/body>/i.exec(html) || [html])[0];
+  var body = (/<body[\s\S]*<\/body>/i.exec(html) || [html])[0], fullBody = body;
   if (preferArticle) { var art = /<article[\s\S]*?<\/article>/i.exec(body) || /<main[\s\S]*?<\/main>/i.exec(body); if (art) body = art[0]; }
   // Export HTML Google Docs: paragraf ber-style "Title" keluar sebagai <p class="... title">, bukan <h1>.
   // Di WordPress judul itu menjadi H1, jadi diperlakukan sebagai H1.
@@ -4142,6 +4142,12 @@ function aiParseHtml_(html, preferArticle) {
   });
   var heads = [], re = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, m;
   while ((m = re.exec(body))) heads.push({ level: Number(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() });
+  // H1 dinilai per halaman: di tema linovhr.com H1 ada di blok header, di luar <article>/<main> yang diambil sebagai isi.
+  if (body !== fullBody && !heads.some(function (h) { return h.level === 1; })) {
+    var r1 = /<h1[^>]*>([\s\S]*?)<\/h1>/gi, top = [];
+    while ((m = r1.exec(fullBody))) top.push({ level: 1, text: aiStrip_(m[1]).replace(/\s+/g, ' ').trim() });
+    heads = top.concat(heads);
+  }
   var links = [], ra = /<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>([\s\S]*?)<\/a>/gi;
   while ((m = ra.exec(body))) links.push({ url: aiUnwrap_(m[1]), text: aiStrip_(m[2]).replace(/\s+/g, ' ').trim() });
   var imgs = [], ri = /<img\s[^>]*>/gi;

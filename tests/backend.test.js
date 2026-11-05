@@ -1239,4 +1239,12 @@ it('Cek live: URL diberi parameter anti-cache tanpa merusak query & anchor', () 
   assert.match(sandbox.aiBust_('https://x.com/a?utm=1#faq'), /^https:\/\/x\.com\/a\?utm=1&_ptcheck=\d+#faq$/);
 });
 
+it('Cek live: H1 di header tema (di luar <article>) tetap terbaca', () => {
+  const html = '<html><head><title>T</title></head><body><header class="entry-header"><h1 class="entry-title">Talent Management: Pengertian, Pilar, Proses, dan Strategi</h1></header>' +
+    '<article><p>Isi.</p><h2>Apa Itu Talent Management?</h2><p>Teks.</p></article><footer><h2>Artikel Terbaru</h2></footer></body></html>';
+  const m = sandbox.aiParseHtml_(html, true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(m.h1)), ['Talent Management: Pengertian, Pilar, Proses, dan Strategi']);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(m.h2)), ['Apa Itu Talent Management?']);
+});
+
 console.log(`\n${n} uji backend lulus`);
