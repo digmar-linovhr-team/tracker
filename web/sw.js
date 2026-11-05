@@ -1,6 +1,6 @@
 /* Service worker: membuat aplikasi bisa dibuka cepat/offline dan menangani klik notifikasi.
  * Naikkan VERSION setiap kali file aplikasi diubah agar semua pengguna mendapat versi baru. */
-const VERSION = 'pt-v2.33.0';
+const VERSION = 'pt-v2.33.1';
 const V = VERSION.match(/[\d.]+$/)[0];
 // File yang disimpan saat pemasangan. tools/build-site.js mengganti daftar ini dengan file hasil bundel.
 const SHELL_FILES = [
