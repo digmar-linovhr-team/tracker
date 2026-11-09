@@ -1,0 +1,47 @@
+name: Deploy aturan Firestore
+
+# Setiap firebase/firestore.rules berubah di main, aturan diuji di emulator lalu dipasang ke proyek linovhr-tracker.
+# Butuh secret FIREBASE_SERVICE_ACCOUNT (isi file JSON kunci service account dengan peran "Firebase Rules Admin").
+# Tanpa secret itu, workflow hanya menguji dan melewati langkah pemasangan.
+on:
+  push:
+    branches: [main]
+    paths: ['firebase/firestore.rules', 'firebase/rules.test.js', '.github/workflows/firestore-rules.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firestore-rules
+  cancel-in-progress: false
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: firebase
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci --no-audit --no-fund
+      - name: Uji aturan di emulator
+        run: npx firebase emulators:exec --only firestore --project demo-tracker "node rules.test.js"
+      - name: Pasang aturan ke linovhr-tracker
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::warning::Secret FIREBASE_SERVICE_ACCOUNT belum ada — aturan tidak dipasang. Pasang manual lewat Firebase Console atau tambahkan secret-nya."
+            exit 0
+          fi
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json" npx firebase deploy --only firestore:rules --project linovhr-tracker --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"
