@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.30.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.35.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1489,3 +1489,22 @@ body.dp-rows tr[data-tid]:hover td, body.dp-rows tr[data-pcode]:hover td { backg
 .ai-grid > div { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; } .ai-grid b { display: block; font-size: 14px; margin-bottom: 2px; }
 .ai-grid select { margin-top: 6px; width: 100%; } .ai-num { width: 56px; padding: 2px 6px; }
 @media (max-width: 760px) { .ai-grid { grid-template-columns: 1fr; } .ai-crit { grid-template-columns: minmax(0, 1fr) 70px 40px; } }
+
+/* ---------- pilih beberapa orang (form task) ---------- */
+.pp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pp-chip { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text); cursor: pointer; font: inherit; text-align: left; min-width: 0; }
+.pp-chip b { font-weight: 600; font-size: 13.5px; }
+.pp-chip small { font-size: 11.5px; color: var(--muted); }
+.pp-chip small.ld-full { color: var(--bad); }
+.pp-chip:hover { background: var(--hover-2); }
+.pp-chip.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.pp-chip.on b::before { content: "✓ "; color: var(--accent); }
+.pp-chip:disabled { opacity: .45; cursor: not-allowed; }
+.pp-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* anggota pendukung di panel task */
+.mem-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mem-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); font-size: 12.5px; color: var(--text-2); }
+.mem-tag.lead { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.t-team { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--info-soft); color: var(--info); white-space: nowrap; }
+.t-team.sup { background: var(--review-soft); color: var(--review); }

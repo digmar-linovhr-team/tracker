@@ -173,7 +173,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 32 });
+  return json_({ ok: true, app: 'project-tracker', version: 33 });
 }
 
 function doPost(e) {
@@ -3352,7 +3352,7 @@ function fbExportBrief_(me, id) {
   b.id = b._id; delete b._id;
   if (b.type === 'Sosmed' || b.type === 'Request') throw new Error('Google Doc hanya untuk brief artikel.');
   var t = b.taskId ? fsGet_('tasks/' + b.taskId) : null;
-  if (me.role !== 'admin' && !(t && t.owner === me.username) && b.createdBy !== me.username) throw new Error('Hanya admin dan penulisnya yang bisa mengekspor brief ini.');
+  if (me.role !== 'admin' && !PTLogic.isOn(t, me.username) && b.createdBy !== me.username) throw new Error('Hanya admin dan penulisnya yang bisa mengekspor brief ini.');
   var task = t ? Object.assign({ id: b.taskId, ownerName: ((fsGet_('users/' + t.owner) || {}).name) || t.owner }, t) : null;
   var name = 'Brief — ' + (b.keyword || b.title || b.id) + (task && task.code ? ' [' + task.code + ']' : '');
   var doc = null;
@@ -3562,7 +3562,7 @@ function runPushDeadlines(now, preTasks) {
     var data = kind === 'overdue'
       ? { title: '⚠ Deadline terlewat', body: t.task + ' — deadline ' + hhmm + ' sudah lewat.', tag: key, taskId: t.id, view: 'mine' }
       : { title: '⏰ Deadline 2 jam lagi', body: t.task + ' — deadline pukul ' + hhmm + '.', tag: key, taskId: t.id, view: 'mine' };
-    try { if (pushTo_(t.owner, data, 'deadline')) count++; } catch (e) { Logger.log('push deadline ' + t.id + ': ' + e); }
+    [t.owner].concat(L.members(t)).forEach(function (u) { if (!active[u]) return; try { if (pushTo_(u, data, 'deadline')) count++; } catch (e) { Logger.log('push deadline ' + t.id + ' ' + u + ': ' + e); } });
   });
   // simpan penanda: yang masih relevan saja (penanda lama terhapus sendiri)
   Object.keys(sent).forEach(function (k) { if (!(k in keep) && nowMs - sent[k] < 3 * 864e5) keep[k] = sent[k]; });
@@ -3739,8 +3739,8 @@ function fbEmailReviews_(tasks) {
 function fbEmailReminders_(tasks, byU, now) {
   var meta = fsGetMany_('serverMeta', tasks.map(function (t) { return t.id; })), w = [], n = 0;
   tasks.forEach(function (t) {
-    var user = byU[t.owner];
-    if (!user || !user.email || !user.active) return;
+    var users = [t.owner].concat(PTLogic.members(t)).map(function (u) { return byU[u]; }).filter(function (u) { return u && u.email && u.active; });
+    if (!users.length) return;
     var end = PTLogic.schedule(t).end || taskTimes_(t).end;
     if (!end) return;
     var endKey = Utilities.formatDate(end, tz_(), "yyyy-MM-dd'T'HH:mm"), left = end.getTime() - now.getTime(), key = null, subject = null, intro = null;
@@ -3754,10 +3754,14 @@ function fbEmailReminders_(tasks, byU, now) {
     if (!key) return;
     var sent = String((meta[t.id] || {}).reminded || '').split(',').filter(String);
     if (sent.indexOf(key) >= 0) return;
-    try {
-      MailApp.sendEmail({ to: user.email, subject: subject, name: 'Project Tracker', htmlBody: emailShell_('Halo ' + esc_(user.name) + ',', intro + taskTableHtml_([t])) });
-      n++;
-    } catch (e) { Logger.log('Email pengingat ' + t.id + ': ' + e); return; }
+    var okAny = false;
+    users.forEach(function (user) {
+      try {
+        MailApp.sendEmail({ to: user.email, subject: subject, name: 'Project Tracker', htmlBody: emailShell_('Halo ' + esc_(user.name) + ',', intro + taskTableHtml_([t])) });
+        n++; okAny = true;
+      } catch (e) { Logger.log('Email pengingat ' + t.id + ' ' + user.username + ': ' + e); }
+    });
+    if (!okAny) return;
     sent.push(key);
     w.push({ path: 'serverMeta/' + t.id, merge: { reminded: sent.slice(-6).join(',') } });
   });
@@ -3788,7 +3792,7 @@ function fbDailyDigest_() {
   var open = srcWithLeaves_(fsWhere_('tasks', 'status', 'NOT_IN', ['Done', 'Recurring', 'Hold', 'Review'])
     .map(function (d) { return fbTaskOf_(d, byU); }).filter(function (t) { return t.task && t.owner && wantsReminders_(t); }));
   fbUsers_().filter(function (u) { return u.active && u.hasTasks && !u.orgOnly; }).forEach(function (u) {
-    var mine = open.filter(function (t) { return t.owner === u.username; });
+    var mine = open.filter(function (t) { return PTLogic.isOn(t, u.username); });
     var overdue = mine.filter(function (t) { var e = PTLogic.schedule(t).end; return e && e < now; });
     var dueToday = mine.filter(function (t) { return t.endDate === today && overdue.indexOf(t) < 0; });
     var startToday = mine.filter(function (t) { return t.startDate === today && t.endDate !== today && t.status !== 'On-Progress'; });
@@ -3824,7 +3828,7 @@ function fbRecurring_(today) {
       var span = /^\d{4}-\d{2}-\d{2}$/.test(String(t.endDate)) && /^\d{4}-\d{2}-\d{2}$/.test(String(t.startDate)) ? Math.max(0, Math.round((ymdUtc_(t.endDate) - ymdUtc_(t.startDate)) / 864e5)) : 0;
       if (t.repeat === 'daily') span = 0;
       var art = t.type === 'Artikel', id = newId_(), nowIso = new Date().toISOString();
-      w.push({ path: 'tasks/' + id, data: { owner: t.owner, code: t.code || '', task: t.task, startDate: today, endDate: addDaysIso_(today, span),
+      w.push({ path: 'tasks/' + id, data: { owner: t.owner, members: PTLogic.members(t), code: t.code || '', task: t.task, startDate: today, endDate: addDaysIso_(today, span),
         startTime: t.startTime || '', endTime: t.endTime || '', status: 'Backlog', priority: t.priority || 'Medium', notes: t.notes || '',
         type: t.type || 'Non-artikel', stage: art ? 1 : 0, stageLog: art ? [{ s: 1, t: nowIso, by: 'otomatis' }] : [],
         startedAt: '', doneAt: '', reviewAt: '', results: [], resultNote: '', liveUrl: '', aiCheckUrl: '', repeat: '', repeatOf: t.id,
@@ -4396,7 +4400,7 @@ function aiUser_(stage, m, ctx, auto) {
 function aiLoadTask_(me, taskId) {
   var t = fsGet_('tasks/' + taskId); if (!t) throw new Error('Task tidak ditemukan');
   t.id = t._id;
-  if (me.role !== 'admin' && t.owner !== me.username) throw new Error('Hanya penanggung jawab task dan admin yang bisa menjalankan penilaian ini');
+  if (me.role !== 'admin' && !PTLogic.isOn(t, me.username)) throw new Error('Hanya penanggung jawab task, anggota pendukung, dan admin yang bisa menjalankan penilaian ini');
   if (t.type !== 'Artikel') throw new Error('Penilaian Claude hanya untuk task artikel');
   return t;
 }
@@ -4581,6 +4585,10 @@ function aiSaveSettings_(me, s) {
 
   function isArticle(t) { return String(t && t.type || '').toLowerCase() === 'artikel'; }
   function isRequest(t) { return String(t && t.type || '').toLowerCase() === 'request'; }
+  /** Anggota pendukung task (selain penanggung jawab). KPI tetap dihitung untuk penanggung jawab (owner). */
+  function members(t) { return t && Array.isArray(t.members) ? t.members.filter(function (u, i, a) { return u && u !== t.owner && a.indexOf(u) === i; }) : []; }
+  /** Apakah username ini ikut mengerjakan task (penanggung jawab atau anggota pendukung)? */
+  function isOn(t, u) { return !!(t && u) && (t.owner === u || members(t).indexOf(u) >= 0); }
   /** KPI request: waktu klarifikasi (pertanyaan penerima → jawaban/terima) dijeda dan menggeser deadline.
    *  Tepat waktu bila pengajuan terakhir ≤ deadline + jeda. Waktu respon = dibuat → terima/klarifikasi pertama. */
   function requestKpi(task, now) {
@@ -4934,7 +4942,7 @@ function aiSaveSettings_(me, s) {
   }
   return {
     WORK: WORK, GRACE_MS: GRACE_MS, STAGES: STAGES, REVIEW_STAGES: REVIEW_STAGES, STAGE_STATUS: STAGE_STATUS,
-    isArticle: isArticle, isRequest: isRequest, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
+    isArticle: isArticle, isRequest: isRequest, members: members, isOn: isOn, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
     DEFAULT_START: DEFAULT_START, DEFAULT_END: DEFAULT_END, OVERPERFORM_RATIO: OVERPERFORM_RATIO,
     at: at, schedule: schedule, evaluate: evaluate, bucket: bucket, isDone: isDone,
     dueNotifications: dueNotifications, summarize: summarize, byPerson: byPerson,

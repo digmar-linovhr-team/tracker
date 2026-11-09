@@ -23,7 +23,7 @@ function briefDocMode(b) {
   if (E && E.readMode) return true;
   const t = briefTask(b);
   if (t && L.isArticle(t) && artStage(t) >= 3) return true;
-  return S.user.role === 'admin' && !!t && t.owner !== S.user.username;
+  return S.user.role === 'admin' && !!t && !L.isOn(t, S.user.username);
 }
 function socialDocMode(b) {
   const E = S.bEdit;

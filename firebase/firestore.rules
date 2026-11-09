@@ -55,8 +55,10 @@ service cloud.firestore {
         (old().get('stage', 0) == 4 && d().stage == 5) || (old().get('stage', 0) == 6 && d().stage == 7) ||
         (old().get('stage', 0) == 7 && d().stage == 8));
     }
+    // penanggung jawab atau anggota pendukung (members) — keduanya boleh mengerjakan; daftar anggota hanya diubah admin
+    function onTask(t) { return t.owner == uname() || uname() in t.get('members', []); }
     function ownerWorkOk() {
-      return old().owner == uname() && onlyChanges(workKeys()) && stamped()
+      return onTask(old()) && onlyChanges(workKeys()) && stamped()
         && d().status != 'Done' && old().status != 'Done' && stageOk()
         // task artikel & request mengikuti alurnya; status tidak boleh diubah bebas
         && (old().get('type', '') != 'Artikel' || unchanged('status') || changed().hasAny(['stage']));
@@ -80,10 +82,16 @@ service cloud.firestore {
     }
 
     // ---------- brief (artikel, sosmed, request) ----------
+    // anggota pendukung task boleh mengubah brief task tersebut
+    function briefMember() {
+      return old().get('taskId', '') is string && old().get('taskId', '') != ''
+        && exists(/databases/$(database)/documents/tasks/$(old().taskId))
+        && uname() in get(/databases/$(database)/documents/tasks/$(old().taskId)).data.get('members', []);
+    }
     match /briefs/{id} {
       allow read: if active();
       allow create: if active() && d().createdBy == uname();
-      allow update: if admin() || (active() && (old().createdBy == uname() || old().get('owner', '') == uname())
+      allow update: if admin() || (active() && (old().createdBy == uname() || old().get('owner', '') == uname() || briefMember())
         && unchanged('createdBy'));
       allow delete: if admin() || (active() && old().createdBy == uname() && old().get('type', '') in ['Sosmed', 'Request']);
     }

@@ -382,7 +382,7 @@ function socRefreshStatus() {
 }
 function taskLists() { return [S.mine.tasks, S.all && S.all.tasks, S.team && S.team.tasks].filter(Boolean); }
 function upsertTaskLocal(t) {
-  if (S.mine.tasks) S.mine.tasks = S.mine.tasks.filter((x) => x.id !== t.id).concat(t.owner === S.user.username ? [t] : []);
+  if (S.mine.tasks) S.mine.tasks = S.mine.tasks.filter((x) => x.id !== t.id).concat(L.isOn(t, S.user.username) ? [t] : []);
   if (S.all) S.all.tasks = S.all.tasks.filter((x) => x.id !== t.id).concat(t);
   if (S.team) S.team.tasks = S.team.tasks.filter((x) => x.id !== t.id).concat(t);
 }

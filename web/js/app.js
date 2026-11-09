@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.30.0';
+const CSS_VERSION = '2.35.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -289,7 +289,7 @@ async function loadData(quiet) {
     if (S.user.role === 'admin') {
       // admin: satu panggilan getAll sudah mencakup task milik sendiri
       all = await api.call('getAll');
-      mine = { tasks: all.tasks.filter((t) => t.owner === S.user.username), projects: all.projects };
+      mine = { tasks: all.tasks.filter((t) => L.isOn(t, S.user.username)), projects: all.projects };
       if (S.user.sheetName) api.feedTasks(mine.tasks);
       api.feedReviews(all.tasks.filter((t) => t.status === 'Review' && !L.isRequest(t)));
     } else {
@@ -632,7 +632,7 @@ function resChip(x, compact) {
 function resultsOf(t) { return Array.isArray(t.results) ? t.results : []; }
 function canEditResults(t) {
   if (!t || !t.id) return false;
-  return S.user.role === 'admin' || (t.owner === S.user.username && !L.isDone(t));
+  return S.user.role === 'admin' || (L.isOn(t, S.user.username) && !L.isDone(t));
 }
 
 /** Kelola link hasil kerja satu task. opts.thenReview: setelah simpan langsung ajukan review. */
@@ -769,6 +769,7 @@ function taskRow(t, opts) {
         ${art ? artStageHtml(t) : ''}
         ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
+        ${teamTag(t)}
         ${t.repeat ? `<span class="t-rep" title="Task berulang — salinan baru dibuat otomatis pukul 06.00">↻ ${esc(repeatLabel(t.repeat, t.startDate))}</span>` : t.repeatOf ? '<span class="t-rep muted" title="Dibuat otomatis dari task berulang">↻ otomatis</span>' : ''}
         ${typeof cmChip === 'function' ? cmChip(t) : ''}
         ${t.leaveDays && !done ? `<span class="t-leave" title="Deadline mundur karena cuti/izin yang disetujui">Deadline +${t.leaveDays} hari kerja (cuti)</span>` : ''}
@@ -788,6 +789,20 @@ function taskRow(t, opts) {
   </div>`;
 }
 
+/** Nama tampilan dari username (daftar admin, data tim, atau struktur organisasi). */
+function userName(u) {
+  for (const l of [S.all && S.all.users, S.team && S.team.users, S.team && S.team.org]) { const x = Array.isArray(l) && l.find((y) => y.username === u); if (x && x.name) return x.name; }
+  return u;
+}
+/** Penanda task bersama di baris task: "Bersama Budi" (untuk PJ) atau "Pendukung · PJ Budi" (untuk anggota pendukung). */
+function teamTag(t) {
+  const ms = L.members(t); if (!ms.length || !S.user) return '';
+  const nm = (u) => firstName(u === t.owner && t.ownerName ? t.ownerName : userName(u));
+  const all = [t.owner].concat(ms).filter((u) => u !== S.user.username).map(nm);
+  const full = 'Penanggung jawab: ' + (t.ownerName || t.owner) + ' · Anggota pendukung: ' + ms.map(nm).join(', ');
+  if (t.owner !== S.user.username && ms.includes(S.user.username)) return `<span class="t-team sup" title="${esc(full)}">Pendukung · PJ ${esc(nm(t.owner))}</span>`;
+  return `<span class="t-team" title="${esc(full)}">Bersama ${esc(all.slice(0, 2).join(', '))}${all.length > 2 ? ' +' + (all.length - 2) : ''}</span>`;
+}
 function bindTaskRows(root) {
   $$('[data-ext]', root).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
   $$('[data-st]', root).forEach((b) => b.onclick = () => b.dataset.st === 'Review' ? askReview(b.dataset.id) : setStatus(b.dataset.id, b.dataset.st));
@@ -1544,7 +1559,7 @@ function renderTaskTable() {
     $('#tt').innerHTML = `<label class="pick-all"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''}> Pilih semua (${list.length})</label>` + list.map((t) => `<div class="task ${S.tsel.has(t.id) ? 'picked' : ''}" data-tid="${esc(t.id || '')}">
       ${pick(t)}
       <div>
-        <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b></div>
+        <div class="task-proj">${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}<b style="color:var(--text-2)">${esc(t.ownerName)}</b>${L.members(t).length ? `<span class="muted small" title="Anggota pendukung"> +${L.members(t).length}</span>` : ''}</div>
         <div class="task-title">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</div>
         <div class="task-meta">${cmChip(t)}${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}${priorityChip(t.priority)}<span>🗓 ${scheduleText(t)}</span><span>${L.isDone(t) ? outcomeChip(t) : timing(t)}</span></div>
         ${resultsLine(t, true)}
@@ -1555,7 +1570,7 @@ function renderTaskTable() {
     ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}" data-tid="${esc(t.id || '')}">
       <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
-      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td class="cm-col">${cmChip(t)}</td><td>${esc(t.ownerName)}</td>
+      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td class="cm-col">${cmChip(t)}</td><td>${esc(t.ownerName)}${L.members(t).length ? `<span class="muted small" title="Anggota pendukung"> +${L.members(t).length}</span>` : ''}</td>
       <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
       <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
       <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</td></tr>`; }).join('')}
@@ -1599,10 +1614,18 @@ function taskModal(t, prefill) {
   modal({
     title: edit ? 'Edit task' : 'Task baru', wide: true,
     body: `<form id="tf">
+      ${edit ? '' : `<div class="field"><span>Ditugaskan ke * <small class="muted">— boleh pilih lebih dari satu</small></span>${peopleChips(people, wl, t.owner ? [t.owner] : [], 'tf-who')}</div>
+      ${`<div class="field hidden" id="tf-split"><span>Cara membagi</span><div class="seg seg-pick" id="tf-mode" role="radiogroup" aria-label="Cara membagi">
+          <button type="button" role="radio" data-mode="each" class="on" aria-checked="true">Masing-masing dapat task sendiri</button><button type="button" role="radio" data-mode="together" aria-checked="false">Dikerjakan bersama</button></div>
+          <small class="muted" id="tf-mode-hint" style="display:block;margin-top:5px"></small>
+          <label class="field hidden" id="tf-lead" style="margin-top:10px"><span>Penanggung jawab utama</span><select name="lead" data-pick="plain"></select></label></div>`}`}
       <div class="grid2">
-        <label class="field"><span>Penanggung jawab *</span><select name="owner" required data-pick="person"><option value="">Pilih…</option>${people.map((u) => { const w = wl[u.username], txt = workloadText(w); return `<option value="${esc(u.username)}" ${u.username === t.owner ? 'selected' : ''} data-sub="${esc(txt)}" data-load="${w ? w.level : 'light'}">${esc(u.name)}</option>`; }).join('')}</select></label>
+        ${edit ? `<label class="field"><span>Penanggung jawab *</span><select name="owner" required data-pick="person"><option value="">Pilih…</option>${people.map((u) => { const w = wl[u.username], txt = workloadText(w); return `<option value="${esc(u.username)}" ${u.username === t.owner ? 'selected' : ''} data-sub="${esc(txt)}" data-load="${w ? w.level : 'light'}">${esc(u.name)}</option>`; }).join('')}</select></label>`
+          : ''}
         <label class="field"><span>Project</span><select name="code" data-pick="project"><option value="">— tanpa project —</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
       </div>
+      ${edit ? `<div class="field ${t.type === 'Request' ? 'hidden' : ''}" id="tf-mem"><span>Anggota pendukung <small class="muted">— ikut mengerjakan & menerima notifikasi; KPI tetap milik penanggung jawab</small></span>${peopleChips(people, wl, L.members(t), 'tf-members')}</div>`
+        : ''}
       <label class="field"><span>Nama task / URL *</span><textarea name="task" rows="2" required>${esc(t.task || '')}</textarea></label>
       <div class="field"><span>Jenis task</span><div class="seg seg-pick" id="tf-type" role="radiogroup" aria-label="Jenis task">
         ${['Non-artikel', 'Artikel', 'Sosmed'].map((k) => `<button type="button" role="radio" data-type="${k}" class="${taskType(t) === k ? 'on' : ''}" aria-checked="${taskType(t) === k}">${k}</button>`).join('')}</div>
@@ -1643,6 +1666,35 @@ function taskModal(t, prefill) {
         el.textContent = `${repeatLabel(r, f.startDate.value)} pukul 06.00 dibuat salinan task ini (status Backlog${r !== 'daily' && span ? `, deadline +${span} hari` : ', deadline di hari yang sama'}). Ubah status jadi Hold untuk menjeda.`;
       };
       f.repeat.addEventListener('change', repHint); f.startDate.addEventListener('change', repHint); f.endDate.addEventListener('change', repHint); repHint();
+      // pilihan orang (task baru: ditugaskan ke; edit: anggota pendukung)
+      const picked = { who: edit ? [] : (t.owner ? [t.owner] : []), mem: edit ? L.members(t) : [] };
+      let mode = 'each';
+      const nameOf = (u) => (people.find((x) => x.username === u) || {}).name || u;
+      const syncSplit = () => {
+        if (edit) { $$('#tf-members [data-u]', m).forEach((b) => { const own = b.dataset.u === f.owner.value; b.disabled = own; if (own) { b.classList.remove('on'); picked.mem = picked.mem.filter((x) => x !== b.dataset.u); } }); return; }
+        const n = picked.who.length;
+        $('#tf-split', m).classList.toggle('hidden', n < 2);
+        $('#tf-lead', m).classList.toggle('hidden', mode !== 'together');
+        const lead = f.lead, cur = lead.value;
+        lead.innerHTML = picked.who.map((u) => `<option value="${esc(u)}">${esc(nameOf(u))}</option>`).join('');
+        lead.value = picked.who.includes(cur) ? cur : (picked.who[0] || '');
+        $('#tf-mode-hint', m).textContent = mode === 'each'
+          ? `Dibuat ${n} task terpisah — tiap orang punya status, hasil kerja, dan KPI sendiri.`
+          : `Satu task. ${nameOf(lead.value)} jadi penanggung jawab utama (KPI); ${n - 1} orang lainnya anggota pendukung yang ikut mengerjakan dan menerima notifikasi.`;
+        $('#save', m).textContent = n > 1 && mode === 'each' ? `Buat ${n} task` : 'Buat task';
+      };
+      const bindChips = (id, key) => $$(`#${id} [data-u]`, m).forEach((b) => b.onclick = () => {
+        const u = b.dataset.u, on = !picked[key].includes(u);
+        picked[key] = on ? picked[key].concat(u) : picked[key].filter((x) => x !== u);
+        b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); syncSplit();
+      });
+      if (edit) { bindChips('tf-members', 'mem'); f.owner.addEventListener('change', syncSplit); }
+      else {
+        bindChips('tf-who', 'who');
+        $$('#tf-mode button', m).forEach((b) => b.onclick = () => { mode = b.dataset.mode; $$('#tf-mode button', m).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); }); syncSplit(); });
+        f.lead.addEventListener('change', syncSplit);
+      }
+      syncSplit();
       let type = taskType(t);
       $$('#tf-type button', m).forEach((b) => b.onclick = () => {
         type = b.dataset.type;
@@ -1654,7 +1706,9 @@ function taskModal(t, prefill) {
       });
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
+        if (!edit && !picked.who.length) { $('#terr', m).innerHTML = '<div class="error">Pilih minimal satu orang yang ditugaskan.</div>'; return; }
         const data = Object.fromEntries(new FormData(f).entries());
+        delete data.lead;
         if (data.repeat && !data.startDate) { $('#terr', m).innerHTML = '<div class="error">Task berulang butuh tanggal mulai.</div>'; return; }
         if (data.repeat && type === 'Artikel') { $('#terr', m).innerHTML = '<div class="error">Task artikel tidak bisa diulang otomatis — tiap artikel punya brief sendiri.</div>'; return; }
         const s = L.at(data.startDate, data.startTime), e = L.at(data.endDate, data.endTime);
@@ -1669,6 +1723,15 @@ function taskModal(t, prefill) {
         const parsed = parseResultsText(data.results || '');
         if (parsed.error) { $('#terr', m).innerHTML = `<div class="error">${esc(parsed.error)}</div>`; return; }
         data.results = parsed.list;
+        if (edit) { if (t.type !== 'Request') data.members = picked.mem.filter((u) => u !== data.owner); }
+        else if (picked.who.length > 1 && mode === 'each') {
+          close();
+          picked.who.forEach((u, i) => setTimeout(() => saveTaskOptimistic(Object.assign({}, data, { owner: u, results: data.results.slice() }), null, picked.who.length), i * 120));
+          return;
+        } else {
+          data.owner = picked.who.length > 1 ? f.lead.value : picked.who[0];
+          data.members = picked.who.filter((u) => u !== data.owner);
+        }
         close();
         saveTaskOptimistic(data, edit ? t : null);
       };
@@ -1690,7 +1753,12 @@ function parseResultsText(txt) {
 }
 
 /** Simpan task: tampilan langsung berubah, penyimpanan berjalan di belakang; dibatalkan bila server menolak. */
-async function saveTaskOptimistic(data, orig) {
+/** Pilihan orang berupa tombol (bisa lebih dari satu). */
+function peopleChips(people, wl, selected, id) {
+  return `<div class="pp-chips" id="${id}" role="group">${people.map((u) => { const w = wl[u.username], on = selected.includes(u.username);
+    return `<button type="button" class="pp-chip ${on ? 'on' : ''}" data-u="${esc(u.username)}" aria-pressed="${on}"><b>${esc(u.name)}</b><small class="ld-${w ? w.level : 'light'}" title="${esc(workloadText(w))}">${w && w.active ? `${w.active} aktif${w.overdue ? ` · ${w.overdue} telat` : ''}` : 'Kosong'}</small></button>`; }).join('')}</div>`;
+}
+async function saveTaskOptimistic(data, orig, batch) {
   const owner = S.all.users.find((u) => u.username === data.owner) || {};
   const snapAll = S.all.tasks.slice(), snapMine = S.mine.tasks.slice();
   const id = orig ? orig.id : 'tmp-' + Date.now();
@@ -1701,18 +1769,19 @@ async function saveTaskOptimistic(data, orig) {
     stage: art ? (data.stage || (orig && L.isArticle(orig) ? L.stageOf(orig) : 1)) : (orig ? orig.stage : 0)
   });
   S.all.tasks = S.all.tasks.filter((x) => x.id !== id).concat(local);
-  S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id).concat(local.owner === S.user.username ? [local] : []);
+  S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id).concat(L.isOn(local, S.user.username) ? [local] : []);
   S.pending.add(id);
   syncProjects([local.code, orig && orig.code]);
   softRender();
-  toast(orig ? 'Task diperbarui' : 'Task dibuat & dibagikan');
+  if (!batch) toast(orig ? 'Task diperbarui' : 'Task dibuat & dibagikan');
+  else { S.batchMade = (S.batchMade || 0) + 1; if (S.batchMade >= batch) { toast(`${batch} task dibuat — satu untuk tiap orang`); S.batchMade = 0; } }
   try {
     const r = await api.call('saveTask', { task: data });
     S.pending.delete(id);
     if (r && r.task) {
       const nt = Object.assign({}, r.task, { ownerName: owner.name || r.task.ownerName });
       S.all.tasks = S.all.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(nt);
-      S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(nt.owner === S.user.username ? [nt] : []);
+      S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(L.isOn(nt, S.user.username) ? [nt] : []);
       syncProjects([nt.code, orig && orig.code], r.projects);
     }
     saveCache(); softRender();
@@ -2136,7 +2205,7 @@ api.on('auth:expired', () => { S.user = null; toast('Sesi berakhir, silakan logi
 api.on('tasks:refreshed', (tasks) => {
   if (!S.user || !Array.isArray(tasks) || S.pending.size) return;
   S.mine.tasks = tasks;
-  if (S.all) S.all.tasks = S.all.tasks.filter((t) => t.owner !== S.user.username).concat(tasks);
+  if (S.all) { const ids = new Set(tasks.map((t) => t.id)); S.all.tasks = S.all.tasks.filter((t) => !ids.has(t.id) && !L.isOn(t, S.user.username)).concat(tasks); }
   saveCache();
   if (S.view === 'mine' || S.view === 'dashboard') softRender();
 });

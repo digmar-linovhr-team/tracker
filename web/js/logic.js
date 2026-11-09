@@ -17,6 +17,10 @@
 
   function isArticle(t) { return String(t && t.type || '').toLowerCase() === 'artikel'; }
   function isRequest(t) { return String(t && t.type || '').toLowerCase() === 'request'; }
+  /** Anggota pendukung task (selain penanggung jawab). KPI tetap dihitung untuk penanggung jawab (owner). */
+  function members(t) { return t && Array.isArray(t.members) ? t.members.filter(function (u, i, a) { return u && u !== t.owner && a.indexOf(u) === i; }) : []; }
+  /** Apakah username ini ikut mengerjakan task (penanggung jawab atau anggota pendukung)? */
+  function isOn(t, u) { return !!(t && u) && (t.owner === u || members(t).indexOf(u) >= 0); }
   /** KPI request: waktu klarifikasi (pertanyaan penerima → jawaban/terima) dijeda dan menggeser deadline.
    *  Tepat waktu bila pengajuan terakhir ≤ deadline + jeda. Waktu respon = dibuat → terima/klarifikasi pertama. */
   function requestKpi(task, now) {
@@ -370,7 +374,7 @@
   }
   return {
     WORK: WORK, GRACE_MS: GRACE_MS, STAGES: STAGES, REVIEW_STAGES: REVIEW_STAGES, STAGE_STATUS: STAGE_STATUS,
-    isArticle: isArticle, isRequest: isRequest, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
+    isArticle: isArticle, isRequest: isRequest, members: members, isOn: isOn, requestKpi: requestKpi, evaluateRequest: evaluateRequest, requestSummary: requestSummary, stageOf: stageOf, workMs: workMs, stageLog: stageLog, articleKpi: articleKpi, humanWork: humanWork,
     DEFAULT_START: DEFAULT_START, DEFAULT_END: DEFAULT_END, OVERPERFORM_RATIO: OVERPERFORM_RATIO,
     at: at, schedule: schedule, evaluate: evaluate, bucket: bucket, isDone: isDone,
     dueNotifications: dueNotifications, summarize: summarize, byPerson: byPerson,

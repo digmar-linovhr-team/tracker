@@ -30,7 +30,7 @@ function aiBlocked(t, stage) {
   if (st < 7 && !t.liveUrl) return 'Bisa diperiksa setelah artikel dipublish (tahap 7).';
   return t.liveUrl ? '' : 'Isi URL artikel live dulu (tombol Sudah publish).';
 }
-const aiCanRun = (t) => S.user.role === 'admin' || t.owner === S.user.username;
+const aiCanRun = (t) => S.user.role === 'admin' || L.isOn(t, S.user.username);
 // Saran "opsional" tidak menahan pengajuan; progres dihitung dari saran wajib & sebaiknya.
 function aiProgress(rv) {
   const all = rv.suggestions || [], core = all.filter((s) => s.prio !== 'opsional'), list = core.length ? core : all;
@@ -66,7 +66,7 @@ function aiCard(t, stage) {
       <div class="ai-ht"><b>${esc(aiName(stage))} belum diperiksa</b><small>Claude membaca ${src} lalu menilai sesuai Standar SEO Artikel LinovHR. 1× pengecekan per tahap.</small></div></div>
       ${can ? `<div class="ai-act"><button class="btn primary" data-aicheck="${stage}" ${why || busy ? 'disabled' : ''}>${busy ? 'Claude sedang membaca…' : 'Cek dengan AI'}</button><span class="muted small">${esc(why || (busy ? 'biasanya 30–90 detik' : '±1 menit'))}</span></div>` : '<p class="muted small" style="margin:6px 0 0">Penanggung jawab task yang menjalankan pengecekan.</p>'}</div>`;
   }
-  const p = Math.max(0, Math.min(100, rv.score)), n = (rv.suggestions || []).length, mine = t.owner === S.user.username;
+  const p = Math.max(0, Math.min(100, rv.score)), n = (rv.suggestions || []).length, mine = L.isOn(t, S.user.username);
   const crit = (rv.criteria || []).map((c) => { const r = c.max ? c.score / c.max : 1; return `<span title="${esc(c.note || '')}">${esc(c.name)}${c.mode === 'auto' ? '<span class="ai-auto">otomatis</span>' : ''}</span><span class="ai-bar"><i class="${r < 0.5 ? 'low' : r < 0.75 ? 'mid' : ''}" style="width:${r * 100}%"></i></span><span class="ai-n">${c.score}/${c.max}</span>${c.mode === 'auto' && c.note && c.score < c.max ? `<span class="ai-cnote">${esc(c.note)}</span>` : ''}`; }).join('');
   const sug = (rv.suggestions || []).map((s) => `<div class="ai-s">
       <span class="ai-st st-${esc(s.status)}" title="${esc(AI_ST_LBL[s.status] || '')}">${AI_ST_ICON[s.status] || '•'}</span>

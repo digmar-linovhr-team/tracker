@@ -26,6 +26,9 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await setDoc(doc(db, 'tasks', 'T1'), { owner: 'ari', task: 'Tugas Ari', status: 'Backlog', type: 'Non-artikel' });
     await setDoc(doc(db, 'tasks', 'T2'), { owner: 'ammar', task: 'Artikel Ammar', status: 'On-Progress', type: 'Artikel', stage: 2 });
     await setDoc(doc(db, 'tasks', 'T3'), { owner: 'ari', task: 'Selesai', status: 'Done', type: 'Non-artikel' });
+    await setDoc(doc(db, 'tasks', 'TM'), { owner: 'ari', members: ['nadia'], task: 'Campaign bersama', status: 'Backlog', type: 'Non-artikel' });
+    await setDoc(doc(db, 'tasks', 'TMA'), { owner: 'ari', members: ['nadia'], task: 'Artikel bersama', status: 'On-Progress', type: 'Artikel', stage: 2 });
+    await setDoc(doc(db, 'briefs', 'BM'), { taskId: 'TMA', createdBy: 'ari', owner: 'ari', type: 'Artikel', data: {} });
     await setDoc(doc(db, 'tasks', 'RQ1'), { owner: 'nadia', createdBy: 'ari', task: 'Request desain', status: 'Review', type: 'Request' });
     await setDoc(doc(db, 'comments', 'C1'), { taskId: 'T1', author: 'ari', kind: 'user', text: 'halo', deleted: false, createdAt: Timestamp.fromMillis(Date.now() - 60 * 6e4) });
     await setDoc(doc(db, 'leaves', 'L1'), { username: 'ammar', kind: 'Cuti', status: 'Menunggu', reason: 'pribadi' });
@@ -75,6 +78,21 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await assertSucceeds(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 3, status: 'Review', reviewAt: 'x' })));
     await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 4, status: 'On-Progress' })), 'setujui brief sendiri');
     await assertSucceeds(updateDoc(doc(admin, 'tasks', 'T2'), { stage: 4, status: 'On-Progress' }));
+  });
+
+  await it('anggota pendukung: ikut mengerjakan & ubah brief, tapi tidak bisa Done / ubah anggota / deadline', async () => {
+    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { status: 'On-Progress', startedAt: 'x' })));
+    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { results: [{ url: 'https://a.b' }] })));
+    await assertFails(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { status: 'Done' })));
+    await assertFails(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { members: ['nadia', 'ammar'] })), 'ubah anggota');
+    await assertFails(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { endDate: '2030-01-01' })));
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'TM'), by('ammar', { status: 'Review' })), 'bukan anggota');
+    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TMA'), by('nadia', { stage: 3, status: 'Review', reviewAt: 'x' })));
+    await assertFails(updateDoc(doc(nadia, 'tasks', 'TMA'), by('nadia', { stage: 4, status: 'On-Progress' })), 'setujui sendiri');
+    await assertSucceeds(updateDoc(doc(nadia, 'briefs', 'BM'), { data: { kwMain: 'payroll' } }));
+    await assertFails(updateDoc(doc(ammar, 'briefs', 'BM'), { data: { kwMain: 'x' } }), 'bukan anggota');
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { members: ['ammar'] })), 'PJ tidak bisa menambah anggota');
+    await assertSucceeds(updateDoc(doc(admin, 'tasks', 'T1'), { members: ['ammar'] }));
   });
 
   await it('request: siapa saja membuat untuk orang lain; pembuat menyetujui; penerima tidak bisa Done', async () => {

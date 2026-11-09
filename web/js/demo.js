@@ -257,6 +257,8 @@ function schLeave(s, un, w) {
   return out;
 }
 function okLeaves(s) { return (s.leaves || []).filter((l) => l.status === 'Disetujui'); }
+/** Penanggung jawab atau anggota pendukung task. */
+function onTask(t, u) { return !!(t && u) && (t.owner === u || (Array.isArray(t.members) && t.members.includes(u))); }
 function withLv(s, tasks) { if (root.PTLogic) root.PTLogic.applyLeaves(tasks, okLeaves(s)); return tasks; }
 function schWeekData(s, w) {
   const plans = {}, count = { mon: 0, tue: 0, wed: 0, thu: 0, fri: 0 };
@@ -367,7 +369,7 @@ function saveSocial(s, me, br) {
   if (br.id && !cur) throw new Error('Brief tidak ditemukan');
   if (cur) {
     const t0 = cur.taskId && s.tasks.find((x) => x.id === cur.taskId);
-    if (!admin && cur.createdBy !== me.username && !(t0 && t0.owner === me.username)) throw new Error('Hanya pembuat brief, penanggung jawab, dan admin yang bisa mengubah brief ini.');
+    if (!admin && cur.createdBy !== me.username && !onTask(t0, me.username)) throw new Error('Hanya pembuat brief, penanggung jawab, dan admin yang bisa mengubah brief ini.');
     if (br.baseUpdatedAt && cur.updatedAt !== br.baseUpdatedAt) throw new Error('Brief ini baru saja diubah oleh ' + cur.updatedBy + '. Muat ulang supaya perubahannya tidak tertimpa.');
     if (t0 && t0.status === 'Done' && !admin) throw new Error('Konten ini sudah disetujui admin, jadi brief tidak bisa diubah lagi.');
   }
@@ -425,7 +427,7 @@ function handle(action, b, session) {
     case 'changePassword': return { user: me };
     case 'setMyEmail': me.email = String(b.email || '').toLowerCase(); return { user: me };
     case 'myTasks': {
-      const mt = withLv(s, s.tasks.filter((t) => t.owner === me.username));
+      const mt = withLv(s, s.tasks.filter((t) => onTask(t, me.username)));
       let onboarding = null;
       if (me.onboard && me.onboard !== 'done') {
         const man = (me.onboard.split(':')[1] || '').split(',');
@@ -484,7 +486,7 @@ function handle(action, b, session) {
     case 'setMySkills': me.skills = String(b.skills || '').trim().slice(0, 120); return { user: me };
     case 'saveBrief': {
       const br = b.brief || {};
-      const t = s.tasks.find((x) => x.id === br.taskId && (me.role === 'admin' || x.owner === me.username));
+      const t = s.tasks.find((x) => x.id === br.taskId && (me.role === 'admin' || onTask(x, me.username)));
       if (!t) throw new Error('Task tidak ditemukan');
       if (t.type === 'Artikel' && me.role !== 'admin' && (t.stage || 1) >= 3) throw new Error('Brief sudah diajukan ke admin, jadi tidak bisa diubah lagi.');
       if (s.briefs.some((x) => x.taskId === br.taskId && x.id !== br.id)) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
@@ -542,7 +544,7 @@ function handle(action, b, session) {
       return { url: cur.docUrl, brief: cur };
     }
     case 'setResults': {
-      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
+      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
       if (!t) throw new Error('Task tidak ditemukan');
       if (me.role !== 'admin' && t.status === 'Done') throw new Error('Task ini sudah disetujui admin, link tidak bisa diubah lagi.');
       const list = (b.results || []).filter((x) => x && x.url);
@@ -553,7 +555,7 @@ function handle(action, b, session) {
       return { task: t };
     }
     case 'advanceStage': {
-      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
+      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
       if (!t) throw new Error('Task tidak ditemukan');
       if (t.type !== 'Artikel') throw new Error('Task ini bukan task artikel.');
       const st = t.stage || 1, want = { start: 1, submitBrief: 2, submitArticle: 4, publish: 6, submitAiCheck: 7 }[b.step];
@@ -578,7 +580,7 @@ function handle(action, b, session) {
       return { task: t };
     }
     case 'updateStatus': {
-      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || x.owner === me.username));
+      const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
       if (!t) throw new Error('Task tidak ditemukan');
       if (t.type === 'Artikel' && me.role !== 'admin') throw new Error('Task artikel mengikuti tahapnya. Gunakan tombol tahap di task.');
       if (t.type === 'Artikel' && b.status === 'Done') { demoStage(t, 9, me); return { task: t }; }
@@ -623,6 +625,12 @@ function handle(action, b, session) {
     case 'saveTask': {
       const t = b.task; const owner = s.users.find((u) => u.username === t.owner);
       if (!owner) throw new Error('Penanggung jawab tidak ditemukan');
+      if ('members' in t) {
+        const ms = [...new Set((Array.isArray(t.members) ? t.members : []).map(String))].filter((u) => u && u !== t.owner);
+        ms.forEach((u) => { const x = s.users.find((y) => y.username === u); if (!x || x.active === false) throw new Error('Anggota pendukung tidak ditemukan / tidak aktif: ' + u); });
+        if (ms.length > 8) throw new Error('Maksimal 8 anggota pendukung per task.');
+        t.members = ms;
+      }
       let saved, oldCode = '';
       const art = t.type === 'Artikel', wantStage = Number(t.stage) || 0;
       const clean = Object.assign({}, t); delete clean.stage; if (art) delete clean.status;
@@ -722,7 +730,7 @@ const DEMO_AI_FIELD = { brief: 'aiBrief', draft: 'aiDraft', live: 'aiLive' };
 function demoAi(s, a, b, me) {
   const t = s.tasks.find((x) => x.id === b.taskId); if (!t) throw new Error('Task tidak ditemukan');
   const f = DEMO_AI_FIELD[b.stage]; if (!f) throw new Error('Tahap tidak dikenal');
-  if (a !== 'aiAllow' && me.role !== 'admin' && t.owner !== me.username) throw new Error('Hanya penanggung jawab task dan admin yang bisa menjalankan penilaian ini');
+  if (a !== 'aiAllow' && me.role !== 'admin' && !onTask(t, me.username)) throw new Error('Hanya penanggung jawab task dan admin yang bisa menjalankan penilaian ini');
   const pass = ((s.aiCfg || {}).pass || {})[b.stage] || { brief: 70, draft: 75, live: 80 }[b.stage];
   let rv = t[f];
   if (a === 'aiCheck') {

@@ -190,6 +190,7 @@ function dpTaskTop(t) {
     ${headUrl ? `<a class="dp-url" href="${esc(headUrl)}" target="_blank" rel="noopener noreferrer">${esc(headUrl)} ↗</a>` : ''}
     <div class="dp-meta">
       <div><span class="k">Penanggung jawab</span><span class="v"><span class="avatar dp-av">${initials(t.ownerName || t.owner)}</span><span class="dp-vt">${esc(t.ownerName || t.owner || '–')}${pos ? `<small>${esc(pos)}</small>` : ''}</span></span></div>
+      ${L.members(t).length ? `<div><span class="k">Anggota pendukung</span><span class="v mem-row">${L.members(t).map((u) => `<span class="mem-tag">${esc(userName(u))}</span>`).join('')}</span></div>` : ''}
       <div><span class="k">Deadline</span><span class="v"><span class="dp-vt">${esc(dpWhen(sc.end))}<small class="w-${wcls}">${esc(w.main)}</small></span></span></div>
       <div><span class="k">Mulai</span><span class="v">${esc(dpWhen(sc.start))}</span></div>
       <div><span class="k">Project</span><span class="v">${t.code ? `<button type="button" class="dp-plink" data-dpproj="${esc(t.code)}"><span class="chip code">${esc(t.code)}</span> ${esc(proj ? proj.project : projectName(t.code) || '')}</button>` : '<span class="muted">Tanpa project</span>'}</span></div>
@@ -212,7 +213,7 @@ function dpLink(label, url) {
 /** Tombol aksi sesuai peran: anggota (pemilik), admin, atau hanya lihat. */
 function dpActions(t) {
   if (!t.id || String(t.id).startsWith('tmp-')) return '<span class="muted small">Menyimpan…</span>';
-  const admin = S.user.role === 'admin', mine = t.owner === S.user.username, ro = !(admin || mine);
+  const admin = S.user.role === 'admin', mine = L.isOn(t, S.user.username), ro = !(admin || mine);
   const done = L.isDone(t), art = L.isArticle(t), req = L.isRequest(t), id = esc(t.id);
   const out = [];
   if (art) {

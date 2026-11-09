@@ -23,7 +23,7 @@ function canEditBrief(b) {
   if (b && b.type === 'Request') return S.user.role === 'admin' || b.createdBy === S.user.username;
   if (S.user.role === 'admin') return true;
   const t = briefTask(b);
-  if (!t || t.owner !== S.user.username) return false;
+  if (!L.isOn(t, S.user.username)) return false;
   return !L.isArticle(t) || artStage(t) <= 2;   // setelah diajukan, brief terkunci untuk anggota
 }
 /** Status brief mengikuti tahap task artikel. */
@@ -139,7 +139,7 @@ function renderBriefList() {
   let list = (S.briefs || []).filter((b) => {
     if (!isArtBrief(b)) return false;
     const t = briefTask(b), st = briefStatus(b)[0];
-    if (f.tab === 'mine' && !(t && t.owner === S.user.username) && b.createdBy !== S.user.username) return false;
+    if (f.tab === 'mine' && !L.isOn(t, S.user.username) && b.createdBy !== S.user.username) return false;
     if (f.tab === 'Draft' && !['Draft', 'Dikembalikan'].includes(st)) return false;
     if (['Diajukan', 'Disetujui', 'Selesai'].includes(f.tab) && st !== f.tab) return false;
     if (q && !(bKw(b) + ' ' + bTitle(b) + ' ' + (t ? t.task + ' ' + t.ownerName + ' ' + t.code : '')).toLowerCase().includes(q)) return false;
@@ -169,7 +169,7 @@ function renderBriefList() {
 /** Task artikel yang boleh dibuatkan brief oleh pengguna ini (belum punya brief, masih tahap 1–2). */
 function eligibleTasks() {
   const admin = S.user.role === 'admin';
-  return allTasksForBrief().filter((t) => t.id && L.isArticle(t) && L.stageOf(t) <= 2 && !briefOf(t.id) && (admin || t.owner === S.user.username));
+  return allTasksForBrief().filter((t) => t.id && L.isArticle(t) && L.stageOf(t) <= 2 && !briefOf(t.id) && (admin || L.isOn(t, S.user.username)));
 }
 
 function taskOptions(list, sel) {
@@ -359,7 +359,7 @@ function briefStepButtons(b) {
   const t = briefTask(b);
   if (!t || !L.isArticle(t)) return '';
   const st = artStage(t), admin = S.user.role === 'admin';
-  if (st === 2 && (t.owner === S.user.username || admin)) return '<button class="btn sm primary" id="bsubmit">Ajukan brief</button>';
+  if (st === 2 && (L.isOn(t, S.user.username) || admin)) return '<button class="btn sm primary" id="bsubmit">Ajukan brief</button>';
   if (st === 3 && admin) return '<button class="btn sm" id="brev-return">Kembalikan</button><button class="btn sm primary" id="brev-ok">Setujui brief</button>';
   return '';
 }

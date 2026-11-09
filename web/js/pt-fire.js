@@ -244,6 +244,9 @@
       case 'saveTask': {
         var id = result && result.id, a = id && tA(id), b0 = id && tB(id);
         if (a && (!b0 || b0.owner !== a.owner)) add(a.owner, 'assign', myName + ' menugaskan task: ' + short(a.task), { taskId: id });
+        // anggota pendukung yang baru ditambahkan
+        if (a) { var was = b0 ? [b0.owner].concat(b0.members || []) : [], baru = (a.members || []).filter(function (u) { return u !== a.owner && was.indexOf(u) < 0; });
+          if (baru.length) add(baru, 'assign', myName + ' menambahkan Anda sebagai anggota pendukung: ' + short(a.task), { taskId: id }); }
         break;
       }
       case 'updateStatus': {
@@ -258,8 +261,9 @@
       }
       case 'reviewTask': {
         var t3 = tA(p.taskId); if (!t3) break;
-        if (p.decision === 'return') add(t3.owner, 'returned', 'Dikembalikan: ' + short(t3.task) + (p.reason ? ' — ' + short(p.reason) : ''), { taskId: p.taskId });
-        else add(t3.owner, 'approved', (t3.status === 'Done' ? 'Disetujui & selesai: ' : 'Disetujui, lanjut tahap berikutnya: ') + short(t3.task), { taskId: p.taskId });
+        var tim = [t3.owner].concat(t3.members || []);
+        if (p.decision === 'return') add(tim, 'returned', 'Dikembalikan: ' + short(t3.task) + (p.reason ? ' — ' + short(p.reason) : ''), { taskId: p.taskId });
+        else add(tim, 'approved', (t3.status === 'Done' ? 'Disetujui & selesai: ' : 'Disetujui, lanjut tahap berikutnya: ') + short(t3.task), { taskId: p.taskId });
         if (p.decision !== 'return' && t3.type === 'Sosmed' && t3.status === 'Done') add(t3.createdBy, 'approved', 'Konten sosmed selesai: ' + short(t3.task), { taskId: p.taskId, view: 'briefs' });
         break;
       }

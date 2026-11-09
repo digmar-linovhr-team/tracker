@@ -23,7 +23,7 @@ function artStageChip(t) {
 /** Tombol langkah berikutnya untuk pemilik task. */
 function artActions(t, readonly) {
   const st = artStage(t), id = esc(t.id);
-  const mine = t.owner === S.user.username || S.user.role === 'admin';
+  const mine = L.isOn(t, S.user.username) || S.user.role === 'admin';
   if (readonly || !mine || !t.id) return `<span class="pill ${ST_CLASS[t.status] || 'st-backlog'}">${esc(st >= 9 ? 'Done' : L.STAGES[st])}</span>`;
   const wait = (txt) => `<span class="art-wait">${HOURGLASS_SVG}${txt}</span>`;
   switch (st) {
