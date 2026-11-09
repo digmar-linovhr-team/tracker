@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.35.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.36.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1508,3 +1508,7 @@ body.dp-rows tr[data-tid]:hover td, body.dp-rows tr[data-pcode]:hover td { backg
 .mem-tag.lead { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .t-team { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--info-soft); color: var(--info); white-space: nowrap; }
 .t-team.sup { background: var(--review-soft); color: var(--review); }
+/* keterangan project */
+.dp-desc { white-space: normal; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
+.dp-desc a { color: var(--accent); }
+.p-desc { font-size: 12.5px; color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }

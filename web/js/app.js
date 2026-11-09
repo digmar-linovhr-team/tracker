@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.35.0';
+const CSS_VERSION = '2.36.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -1800,7 +1800,7 @@ function viewProjects() {
     ${all.projects.map((p) => {
       const ts = all.tasks.filter((t) => t.code && t.code === p.code);
       const d = ts.filter(L.isDone).length, r = ts.length ? d / ts.length : 0;
-      return `<tr data-pcode="${esc(p.code || '')}"><td><span class="chip code">${esc(p.code)}</span></td><td class="clip" title="${esc(p.project)}"><b>${esc(p.project)}</b></td><td class="small">${esc(p.pic)}</td>
+      return `<tr data-pcode="${esc(p.code || '')}"><td><span class="chip code">${esc(p.code)}</span></td><td class="clip" title="${esc(p.project + (p.desc ? '\n\n' + p.desc : ''))}"><b>${esc(p.project)}</b>${p.desc ? `<div class="p-desc">${esc(p.desc.split('\n')[0])}</div>` : ''}</td><td class="small">${esc(p.pic)}</td>
         <td>${fmtIso(p.start, p.startRaw)}</td><td>${fmtIso(p.end, p.endRaw)}</td><td>${priorityChip(p.priority)}</td><td>${statusChip(p.status)}</td>
         <td>${!ts.length && p.code ? `<button class="btn sm" data-pt="${p.row}" title="Buat task dari project ini">+ Jadikan task</button>` : `<div class="row" style="gap:8px"><div class="bar" style="flex:1"><i style="width:${r * 100}%"></i></div><span class="small muted">${d}/${ts.length}</span></div>`}</td>
         <td style="white-space:nowrap"><button class="btn sm" data-pe="${p.row}">Edit</button> <button class="btn sm danger" data-pd="${p.row}">Hapus</button></td></tr>`;
@@ -1828,6 +1828,7 @@ function projectModal(p) {
       <div class="grid2"><label class="field"><span>Code</span><input name="code" value="${esc(p.code || '')}" placeholder="mis. B7"></label>
       <label class="field"><span>Prioritas</span><select name="priority">${PRIORITIES.map((x) => opt(x, p.priority)).join('')}</select></label></div>
       <label class="field"><span>Nama project *</span><textarea name="project" rows="2" required>${esc(p.project || '')}</textarea></label>
+      <label class="field"><span>Keterangan <small class="muted">— tujuan, ruang lingkup, target; link boleh ditempel</small></span><textarea name="desc" rows="4" maxlength="2000" placeholder="mis. Optimasi 48 artikel lama untuk 144 keyword. Target: 30 keyword masuk halaman 1 Google sebelum akhir Desember.">${esc(p.desc || '')}</textarea></label>
       <label class="field"><span>PIC (pisahkan dengan koma)</span><input name="pic" value="${esc(p.pic || '')}" placeholder="${esc(names)}"></label>
       <div class="grid2"><label class="field"><span>Mulai</span><input type="date" name="start" value="${esc(p.start || '')}"></label>
       <label class="field"><span>Selesai</span><input type="date" name="end" value="${esc(p.end || '')}"></label></div>
@@ -1860,7 +1861,7 @@ function projectModal(p) {
           if (s0 && e0 && e0 < s0) { $('#perr', m).innerHTML = '<div class="error">Tanggal selesai tidak boleh sebelum tanggal mulai.</div>'; return; }
           if (!data.code.trim()) { $('#perr', m).innerHTML = '<div class="error">Isi Code project supaya task terhubung ke project ini.</div>'; return; }
         }
-        const proj = { code: data.code, project: data.project, pic: data.pic, start: data.start, end: data.end, priority: data.priority, status: data.status };
+        const proj = { code: data.code, project: data.project, desc: String(data.desc || '').trim().slice(0, 2000), pic: data.pic, start: data.start, end: data.end, priority: data.priority, status: data.status };
         if (edit) { proj.row = p.row; proj.originalCode = p.code; }
         close();
         // tampilan langsung berubah; penyimpanan berjalan di belakang

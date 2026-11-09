@@ -287,6 +287,7 @@ function dpProjectView() {
   dpShell(`
     <h1 class="dp-title"><span class="chip code">${esc(p.code)}</span> ${esc(p.project)}</h1>
     <div class="dp-chips">${statusChip(p.status)}${p.priority ? priorityChip(p.priority) : ''}${period ? `<span class="chip">${esc(period)}</span>` : ''}${p.pic ? `<span class="chip">PIC: ${esc(p.pic)}</span>` : ''}</div>
+    ${p.desc ? `<section class="dp-sec"><h3>Keterangan</h3><div class="dp-desc">${linkify(p.desc)}</div></section>` : admin ? '<section class="dp-sec"><p class="muted small" style="margin:0">Belum ada keterangan. <button type="button" class="linkbtn" id="dp-adddesc">Tambahkan keterangan</button></p></section>' : ''}
     <section class="dp-sec"><div class="dp-progh"><b>Progres</b><span class="muted small">${done.length} dari ${tasks.length} task selesai · ${pct}%</span></div><div class="dp-prog"><i style="width:${pct}%"></i></div></section>
     <div class="dp-tiles">
       <div class="dp-tile"><b>${count((t) => t.status === 'On-Progress')}</b><span>Berjalan</span></div>
@@ -308,6 +309,7 @@ function dpProjectView() {
   $$('[data-dptask]', root).forEach((b) => b.onclick = () => openTask(b.dataset.dptask));
   if ($('#dp-newt', root)) $('#dp-newt', root).onclick = () => taskModal(taskFromProject(p), true);
   if ($('#dp-editp', root)) $('#dp-editp', root).onclick = () => projectModal(p);
+  if ($('#dp-adddesc', root)) $('#dp-adddesc', root).onclick = () => { projectModal(p); setTimeout(() => { const d = document.querySelector('#pf [name=desc]'); if (d) d.focus(); }, 80); };
 }
 
 // ---------- titik masuk ----------
