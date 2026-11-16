@@ -1135,6 +1135,52 @@ if (process.env.FB_EMU) it('Tahap 5: otomatisasi membaca Firebase — Calendar, 
   assert.ok(sheetTasks.some((t) => t.id === 'TF1' && t.task === 'Judul dari Firebase' && t.status === 'Done'), 'task Firebase tersalin ke tab orangnya');
   assert.ok(sandbox.readUsers_().some((u) => u.username === 'baru' && u.sheetName === 'Orang Baru'), 'pengguna baru tersalin');
   assert.ok(sheetTasks.some((t) => t.id === copyId && t.repeatOf === 'TREP'), 'salinan task berulang ikut');
+  // salinan malam inkremental: hanya yang berubah yang dibaca
+  const realFetchBk = sandbox.UrlFetchApp.fetch; let docsRead = 0;
+  sandbox.UrlFetchApp.fetch = (url, opt) => {
+    const res = realFetchBk(url, opt);
+    if (/\/documents/.test(url) && res.getResponseCode() < 300) {
+      let j = {}; try { j = JSON.parse(res.getContentText() || '{}'); } catch (e) { j = {}; }
+      if (/:runAggregationQuery/.test(url)) docsRead += 1;
+      else if (Array.isArray(j)) docsRead += j.filter((x) => x.document || x.found).length;
+      else if (j.documents) docsRead += j.documents.length;
+      else if (j.fields && String((opt && opt.method) || 'get') === 'get') docsRead += 1;
+    }
+    return res;
+  };
+  const counted = (fn) => { docsRead = 0; const r = fn(); return [r, docsRead]; };
+  const [fullBk, fullReads] = counted(() => sandbox.runNightlyBackup());
+  assert.strictEqual(fullBk.mode, 'penuh', 'dari menu: salinan penuh');
+  const nightly = () => sandbox.runNightlyBackup({ triggerUid: 'malam' });
+  const shiftBk = (min) => { const st = JSON.parse(props.BK_STATE); st.at = new Date(Date.now() + min * 60000).toISOString(); props.BK_STATE = JSON.stringify(st); };
+  shiftBk(11);   // seolah salinan terakhir baru saja selesai: tidak ada perubahan sejak itu
+  const [idle, idleReads] = counted(nightly);
+  assert.strictEqual(idle.mode, 'inkremental'); assert.ok(!idle.tasksFull && !idle.commentsFull, JSON.stringify(idle));
+  if (process.env.BK_LOG) console.log('BK reads penuh=' + fullReads + ' inkremental=' + idleReads);
+  assert.ok(idleReads < fullReads, 'malam tanpa perubahan membaca lebih sedikit: ' + idleReads + ' vs ' + fullReads);
+  sandbox.fsMerge_('tasks/TF1', { task: 'Diubah malam ini', updatedAt: new Date() });
+  sandbox.fsSet_('comments/CBK1', { taskId: 'TF1', author: 'ari', kind: 'user', text: 'komentar baru', mentions: [], createdAt: new Date(), editedAt: null, deleted: false });
+  const [inc] = counted(nightly);
+  assert.ok(inc.tasksChanged >= 1 && !inc.tasksFull && !inc.commentsFull, JSON.stringify(inc));
+  sandbox.resetMemo_();
+  assert.ok(sandbox.allTasks_().some((t) => t.id === 'TF1' && t.task === 'Diubah malam ini'), 'perubahan task tersalin');
+  assert.strictEqual(sandbox.allTasks_().filter((t) => t.id === 'TF1').length, 1, 'tidak terduplikasi');
+  const cmSh = ss.getSheetByName('Komentar'); assert.ok(cmSh.data.some((r) => r.includes('CBK1') && r.includes('komentar baru')), 'komentar baru tersalin');
+  // pindah pemilik → keluar dari tab lama, masuk tab baru
+  sandbox.fsMerge_('tasks/TF1', { owner: 'baru', updatedAt: new Date() });
+  const [mv] = counted(nightly); assert.ok(!mv.tasksFull, JSON.stringify(mv));
+  sandbox.resetMemo_();
+  const moved = sandbox.allTasks_().filter((t) => t.id === 'TF1');
+  assert.ok(moved.length === 1 && moved[0].owner === 'baru', 'task pindah tab: ' + JSON.stringify(moved.map((t) => t.owner)));
+  // task dihapus → jumlah tidak cocok → salinan task penuh
+  sandbox.fsSet_('tasks/TBK2', { owner: 'ari', task: 'Akan dihapus malam', status: 'Backlog', startDate: '2026-01-05', endDate: '2026-01-05', type: 'Non-artikel', updatedAt: new Date() });
+  nightly();
+  sandbox.fsCommit_([{ path: 'tasks/TBK2', del: true }]);
+  const [del] = counted(nightly);
+  assert.ok(del.tasksFull, 'penghapusan terdeteksi → penuh');
+  sandbox.resetMemo_(); assert.ok(!sandbox.allTasks_().some((t) => t.id === 'TBK2'), 'task terhapus hilang dari salinan');
+  sandbox.fsMerge_('tasks/TF1', { owner: 'ari', updatedAt: new Date() });
+  sandbox.UrlFetchApp.fetch = realFetchBk;
   // mundur
   sandbox.fbRollback();
   assert.strictEqual(props.BACKEND, 'sheets');

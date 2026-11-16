@@ -40,6 +40,11 @@
 - Aplikasi membuka listener untuk task aktif + selesai 90 hari terakhir; task lebih lama dimuat saat dibutuhkan (Dashboard "Semua").
 - Cache offline Firestore (IndexedDB) aktif → membuka ulang aplikasi tidak membaca ulang semua dokumen.
 - Perkiraan 5 orang aktif: 2.000–5.000 baca/hari.
+- **Salinan malam ke Sheets (23.00) inkremental**: hanya task & komentar yang berubah sejak salinan terakhir yang dibaca
+  (jumlah dokumen dicek lewat kueri agregasi). Salinan penuh otomatis seminggu sekali, saat daftar pengguna/tab berubah,
+  bila ada task/komentar yang terhapus, atau saat dijalankan manual dari menu spreadsheet.
+- Otomatisasi 15 menit: penanda email pengingat (`serverMeta`) hanya dibaca untuk task yang masuk jendela email;
+  daftar pengguna tidak dibaca dua kali.
 
 ## Catatan keamanan
 Aturan keamanan menjaga **siapa boleh mengubah apa** (mis. anggota tidak bisa menandai Done, mengubah task orang lain,
