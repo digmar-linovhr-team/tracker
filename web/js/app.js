@@ -1002,7 +1002,11 @@ function renderPersonChart(tasks, range) {
     type: 'bar', data: { labels: people.map((p) => p.name), datasets: ds },
     options: {
       indexAxis: 'y', maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      // grafik horizontal: baris dipilih dari posisi vertikal kursor (axis 'y'), bukan horizontal
+      interaction: { mode: 'index', axis: 'y', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', axis: 'y', intersect: false,
+        filter: (it) => it.raw > 0,
+        callbacks: { footer: (items) => items.length ? 'Total: ' + items[0].chart.data.datasets.reduce((n, d) => n + (d.data[items[0].dataIndex] || 0), 0) + ' task' : '' } } },
       scales: { x: { stacked: true, ticks: { precision: 0 }, grid: { color: css('--border') } }, y: { stacked: true, grid: { display: false } } }
     }
   }));
