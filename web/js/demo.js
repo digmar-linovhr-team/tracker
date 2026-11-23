@@ -213,7 +213,21 @@ function build() {
     { id: 'KMD2', taskId: rv.id, author: rv.owner, kind: 'user', text: 'Sudah saya tambahkan 2 internal link. @Administrator boleh dicek lagi?', mentions: ['admin'], createdAt: ago(26) },
     { id: 'KMD3', taskId: rv.id, author: rv.owner, kind: 'sys', text: 'mengajukan review artikel', createdAt: ago(25.9) },
     { id: 'KMD4', taskId: op.id, author: 'wisnu', kind: 'user', text: 'Ari, untuk report minggu ini tolong tambahkan data AI Overview juga ya. Contoh format: https://docs.google.com/spreadsheets/d/contoh', mentions: [], createdAt: ago(3) }];
-  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves, comments };
+  // jenis output (Grand Plan) & contoh backlink
+  [['employee-engagement', 'Artikel TL industri', 'Manufaktur'], ['onboarding-karyawan', 'Artikel TL industri', 'Logistik'], ['payroll-outsourcing', 'Optimasi artikel'],
+    ['hr-analytics', 'Studi kasus', 'Ritel'], ['hris-indonesia', 'Artikel Lawencon'], ['aplikasi-absensi', 'Optimasi artikel'], ['offboarding', 'Artikel TL industri', 'Kesehatan']]
+    .forEach(([frag, kind, ind]) => { const t = tasks.find((x) => x.task.includes(frag)); if (t) { t.outKind = kind; if (ind) t.industry = ind; } });
+  const bl = (id, o) => Object.assign({ id, brand: 'LinovHR', kind: 'Backlink', domain: '', sourceUrl: '', targetUrl: '', anchor: '', dr: '', rel: 'Dofollow', via: '', status: 'Prospek', pic: 'arya', date: '', notes: '',
+    createdBy: 'arya', createdAt: stamp(-10, 9, 0), updatedAt: stamp(-1, 9, 0), updatedBy: 'arya' }, o);
+  const backlinks = [
+    bl('BLDEMO1', { domain: 'hrnews.co.id', sourceUrl: 'https://hrnews.co.id/tren-hris-2026/', targetUrl: 'https://www.linovhr.com/', anchor: 'software HRIS', dr: 42, via: 'Guest post', status: 'Tayang', date: iso(addDays(today, -6)) }),
+    bl('BLDEMO2', { domain: 'majalahsdm.com', sourceUrl: 'https://majalahsdm.com/payroll-otomatis/', targetUrl: 'https://www.linovhr.com/fitur/payroll/', anchor: 'aplikasi payroll', dr: 35, via: 'PR / media', status: 'Tayang', date: iso(addDays(today, -2)), kind: 'Mention artikel' }),
+    bl('BLDEMO3', { domain: 'startupid.net', targetUrl: 'https://www.linovhr.com/solusi-industri/startup/', via: 'Partnership', status: 'Negosiasi', notes: 'Minta artikel 1.200 kata, gratis.' }),
+    bl('BLDEMO4', { domain: 'blogbisnis.id', via: 'Guest post', status: 'Outreach terkirim', notes: 'Email ke editor 2 hari lalu.' }),
+    bl('BLDEMO5', { domain: 'direktorisoftware.id', via: 'Listing / direktori', status: 'Prospek', dr: 28 }),
+    bl('BLDEMO6', { brand: 'Lawencon', domain: 'itworks.id', sourceUrl: 'https://itworks.id/vendor-erp-lokal/', targetUrl: 'https://www.lawencon.com/', anchor: 'Lawencon', dr: 31, via: 'PR / media', status: 'Tayang', date: iso(addDays(today, -9)) }),
+    bl('BLDEMO7', { domain: 'forumhrd.org', via: 'Komunitas / forum', status: 'Ditolak', notes: 'Tidak menerima link komersial.' })];
+  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves, comments, backlinks };
 }
 // ---------- komentar (meniru server) ----------
 function cmCountsD(s) {
@@ -325,6 +339,33 @@ function reqAction(s, me, id, act, p) {
   if (next !== st) { b.status = next; b.statusAt = now; }
   t.status = REQ_TS[b.status]; b.updatedAt = now; b.updatedBy = me.username;
   return { brief: b, task: t };
+}
+
+
+// ---------- backlink ----------
+const BL_STATUS = ['Prospek', 'Outreach terkirim', 'Negosiasi', 'Tayang', 'Ditolak', 'Hilang'];
+function saveBl(s, me, d) {
+  s.backlinks = s.backlinks || [];
+  const str = (v, n) => String(v == null ? '' : v).trim().slice(0, n || 300);
+  const url = (v, label) => { v = str(v, 500); if (v && !/^https?:\/\/\S+$/i.test(v)) throw new Error(label + ' harus diawali http:// atau https://'); return v; };
+  const o = {
+    brand: d.brand === 'Lawencon' ? 'Lawencon' : 'LinovHR', kind: d.kind === 'Mention artikel' ? 'Mention artikel' : 'Backlink',
+    domain: str(d.domain, 120).replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase(),
+    sourceUrl: url(d.sourceUrl, 'URL halaman sumber'), targetUrl: url(d.targetUrl, 'URL tujuan'), anchor: str(d.anchor, 200),
+    dr: d.dr === '' || d.dr == null ? '' : Math.max(0, Math.min(100, Math.round(Number(d.dr) || 0))),
+    rel: d.rel === 'Nofollow' ? 'Nofollow' : 'Dofollow', via: str(d.via, 40), status: BL_STATUS.includes(d.status) ? d.status : 'Prospek',
+    pic: str(d.pic, 60) || me.username, date: /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : '', notes: str(d.notes, 2000)
+  };
+  if (!o.domain) throw new Error('Isi domain sumber.');
+  if (o.status === 'Tayang' && !o.date) o.date = iso(new Date());
+  if (o.status === 'Tayang' && !o.sourceUrl) throw new Error('Isi URL halaman sumber untuk backlink yang sudah tayang.');
+  if (!s.users.some((u) => u.username === o.pic)) throw new Error('PIC tidak ditemukan.');
+  const now = new Date().toISOString();
+  let x = d.id ? s.backlinks.find((y) => y.id === d.id) : null;
+  if (d.id && !x) throw new Error('Backlink tidak ditemukan (mungkin sudah dihapus). Muat ulang data.');
+  if (x) Object.assign(x, o, { updatedAt: now, updatedBy: me.username });
+  else { x = Object.assign({ id: nid('BL') }, o, { createdBy: me.username, createdAt: now, updatedAt: now, updatedBy: me.username }); s.backlinks.push(x); }
+  return { backlink: x };
 }
 
 let db = null;
@@ -481,6 +522,13 @@ function handle(action, b, session) {
     }
     case 'briefs': return { briefs: briefSums(s) };
     case 'getBrief': { const b0 = s.briefs.find((x) => x.id === b.briefId); if (!b0) throw new Error('Brief tidak ditemukan'); return { brief: b0 }; }
+    case 'backlinks': return { backlinks: s.backlinks || [] };
+    case 'saveBacklink': return saveBl(s, me, b.backlink || {});
+    case 'deleteBacklink': {
+      const x = (s.backlinks || []).find((y) => y.id === b.id); if (!x) throw new Error('Backlink tidak ditemukan. Muat ulang data.');
+      if (me.role !== 'admin' && x.createdBy !== me.username) throw new Error('Hanya pembuat backlink atau admin yang bisa menghapus.');
+      s.backlinks = s.backlinks.filter((y) => y.id !== b.id); return { ok: true };
+    }
     case 'teamTasks': return { comments: cmCountsD(s), tasks: withLv(s, s.tasks), users: s.users.filter((u) => u.sheetName).map((u) => ({ username: u.username, name: u.name, position: u.position || '' })), projects: s.projects, briefs: briefSums(s),
       org: s.users.filter((u) => u.active).map((u) => ({ username: u.username, name: u.name, position: u.position || '', reportsTo: u.reportsTo || '', division: u.division || '', skills: u.skills || '', joined: u.joined || '', orgOnly: !!u.orgOnly, hasTasks: !!u.sheetName, role: u.role })) };
     case 'setMySkills': me.skills = String(b.skills || '').trim().slice(0, 120); return { user: me };
