@@ -73,7 +73,7 @@ function outCounts(tasks, backlinks, ym) {
 let blLoading = null;
 function loadBacklinks(force) {
   if (blLoading) return blLoading;
-  if (!force && S.backlinks && Date.now() - (S.blAt || 0) < 15000) return Promise.resolve(true);
+  if (!force && S.backlinks && Date.now() - (S.blAt || 0) < 15000) return Promise.resolve(false);   // data masih baru: tidak ada perubahan (true di sini memicu render berulang)
   blLoading = api.call('backlinks').then((r) => {
     const before = JSON.stringify(S.backlinks || null);
     S.backlinks = (r && r.backlinks) || []; S.blAt = Date.now();
