@@ -5,19 +5,17 @@
 // Jenis output task disimpan di kolom outKind; task Sosmed otomatis dihitung sebagai post sosmed,
 // task Artikel tanpa jenis dihitung sebagai "Artikel biasa".
 
-/** [label, target per bulan, brand, sumber]. Ubah target di sini. */
+/** Kelompok target: [label, target per bulan, keterangan sumber]. Ubah target di sini. */
 const OUT_KINDS = [
-  ['Artikel TL industri', 16, 'LinovHR', 'task'],
-  ['Studi kasus', 4, 'LinovHR', 'task'],
-  ['Optimasi artikel', 8, 'LinovHR', 'task'],
-  ['Draf optimasi', 8, 'LinovHR', 'task'],
-  ['Artikel biasa', 0, 'LinovHR', 'task'],
-  ['Post LinkedIn & Instagram', 12, 'LinovHR', 'task'],
-  ['Artikel Lawencon', 12, 'Lawencon', 'task'],
-  ['Backlink berkualitas', 8, 'LinovHR', 'backlink'],
-  ['Artikel mention eksternal', 2, 'LinovHR', 'backlink'],
-  ['Backlink Lawencon', 2, 'Lawencon', 'backlink']
+  ['Artikel TL industri', 16, 'task'],
+  ['Studi kasus', 4, 'task'],
+  ['Optimasi', 16, 'optimasi + draf optimasi'],
+  ['Post sosmed', 12, 'task Sosmed'],
+  ['Backlink', 12, 'tayang · LinovHR & Lawencon']
 ];
+/** Jenis output task/backlink → kelompok target ('' = tidak dihitung ke target). */
+const OUT_GROUP = { 'Artikel TL industri': 'Artikel TL industri', 'Studi kasus': 'Studi kasus', 'Optimasi artikel': 'Optimasi', 'Draf optimasi': 'Optimasi',
+  'Post LinkedIn & Instagram': 'Post sosmed', 'Backlink berkualitas': 'Backlink', 'Artikel mention eksternal': 'Backlink', 'Backlink Lawencon': 'Backlink' };
 /** Jenis output yang bisa dipilih di form task (Sosmed otomatis). */
 /** Target Grand Plan berlaku mulai tahun ini; tahun sebelumnya ditampilkan sebagai uji coba (tanpa target tahunan). */
 const GP_YEAR = 2027;
@@ -55,7 +53,8 @@ function doneYm(t) {
 function outCounts(tasks, backlinks, ym) {
   const y = ym.slice(0, 4), month = {}, year = {}, byMonth = {}, people = {};
   OUT_KINDS.forEach(([k]) => { month[k] = 0; year[k] = 0; });
-  const add = (k, m, who) => {
+  const add = (kind, m, who) => {
+    const k = OUT_GROUP[kind];
     if (!k || !m) return;
     byMonth[m] = (byMonth[m] || 0) + 1;
     if (m.slice(0, 4) === y) year[k] = (year[k] || 0) + 1;
@@ -126,14 +125,13 @@ function viewTarget() {
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
   if (!years.includes(f.y)) years.push(f.y);
   const pctChip = (r) => r === null ? '<span class="muted">–</span>' : `<span class="chip ${ratioCls(r)}">${pct(r)}</span>`;
-  const rows = OUT_KINDS.map(([k, t, brand, src]) => `<tr>
-      <td><b>${esc(k)}</b>${src === 'backlink' ? ' <span class="muted small">· menu Backlink</span>' : k === 'Post LinkedIn & Instagram' ? ' <span class="muted small">· task Sosmed</span>' : ''}</td>
-      <td><span class="chip ${brand === 'Lawencon' ? 'warn' : 'info'}">${brand}</span></td>
-      <td class="num">${t || '–'}</td><td class="num"><b>${c.month[k]}</b></td><td class="num">${pctChip(ratio(c.month[k], t))}</td>
-      <td class="num">${t && gp ? t * 12 : '–'}</td><td class="num"><b>${c.year[k]}</b></td><td class="num">${gp ? pctChip(ratio(c.year[k], t * 12)) : '<span class="muted">–</span>'}</td></tr>`).join('');
+  const rows = OUT_KINDS.map(([k, t, src]) => `<tr>
+      <td><b>${esc(k)}</b>${src !== 'task' ? ` <span class="muted small">· ${esc(src)}</span>` : ''}</td>
+      <td class="num">${c.month[k]} <span class="muted">/ ${t}</span></td><td class="num">${pctChip(ratio(c.month[k], t))}</td>
+      <td class="num">${c.year[k]}${gp ? ` <span class="muted">/ ${t * 12}</span>` : ''}</td><td class="num">${gp ? pctChip(ratio(c.year[k], t * 12)) : '<span class="muted">–</span>'}</td></tr>`).join('');
   // per orang (bulan terpilih)
   const kindsUsed = OUT_KINDS.map((k) => k[0]).filter((k) => Object.values(c.people).some((p) => p[k]));
-  const short = { 'Artikel TL industri': 'TL', 'Studi kasus': 'Studi kasus', 'Optimasi artikel': 'Optimasi', 'Draf optimasi': 'Draf', 'Artikel biasa': 'Artikel', 'Post LinkedIn & Instagram': 'Sosmed', 'Artikel Lawencon': 'Lawencon', 'Backlink berkualitas': 'Backlink', 'Artikel mention eksternal': 'Mention', 'Backlink Lawencon': 'BL Lawencon' };
+  const short = { 'Artikel TL industri': 'TL', 'Post sosmed': 'Sosmed' };
   const people = Object.keys(c.people).map((u) => ({ u, name: personName(u), p: c.people[u], total: Object.values(c.people[u]).reduce((a, b) => a + b, 0) }))
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   // industri: TL & studi kasus Done di tahun terpilih
@@ -156,8 +154,8 @@ function viewTarget() {
       ${tile('Industri tercover ' + f.y, `${covered}/${INDUSTRIES.length}`, 'punya artikel TL / studi kasus yang Done', 'var(--info)')}
       ${blAvailable() ? tile('Backlink dalam proses', open, 'prospek · outreach · negosiasi', 'var(--warn)') : ''}
     </div>
-    <div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Target per jenis output</h2><span class="muted small">${MONTHS[f.m - 1]} ${f.y} · tahun ${f.y}</span></div>
-      <div class="card-b" style="padding-top:6px;overflow:auto"><table class="tbl tg-tbl"><thead><tr><th>Jenis output</th><th>Brand</th><th class="num">Target/bln</th><th class="num">${MONTHS[f.m - 1]}</th><th class="num">%</th><th class="num">Target ${gp ? f.y : 'tahunan'}</th><th class="num">Aktual ${f.y}</th><th class="num">%</th></tr></thead>
+    <div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Target bulanan & tahunan</h2><span class="muted small">${MONTHS[f.m - 1]} ${f.y} · tahun ${f.y}</span></div>
+      <div class="card-b" style="padding-top:6px;overflow:auto"><table class="tbl tg-tbl"><thead><tr><th>Target</th><th class="num">${MONTHS[f.m - 1]}</th><th class="num">%</th><th class="num">${f.y}</th><th class="num">%</th></tr></thead>
       <tbody>${rows}</tbody></table></div></div>
     <div class="dash-grid">
       <div class="card"><div class="card-h"><h2>Hasil per orang</h2><span class="muted small">${MONTHS[f.m - 1]} ${f.y}</span></div>
@@ -170,7 +168,7 @@ function viewTarget() {
     </div>
     <div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Cakupan industri ${f.y}</h2><span class="muted small">artikel TL industri & studi kasus yang Done</span></div>
       <div class="card-b"><div class="tg-ind">${INDUSTRIES.map((x) => `<span class="chip ${ind[x] ? 'good' : ''}">${ind[x] ? '✓' : '○'} ${esc(x)}${ind[x] ? ` · ${ind[x]}` : ''}</span>`).join('')}</div></div></div>
-    <p class="def">Cara menghitung — <b>Task</b> dihitung pada bulan disetujui (Done). Jenis output dipilih di form task; task <b>Sosmed</b> otomatis menjadi post LinkedIn & Instagram, task <b>Artikel</b> tanpa jenis dihitung sebagai "Artikel biasa" (tanpa target). Task Request tidak dihitung. <b>Backlink</b> dihitung pada tanggal tayang dan hanya yang berstatus Tayang: brand Lawencon = Backlink Lawencon; LinovHR jenis "Mention artikel" = Artikel mention eksternal; selain itu Backlink berkualitas. Persentase capaian total tidak menghitung kelebihan satu jenis untuk menutup kekurangan jenis lain.</p>`;
+    <p class="def">Cara menghitung — <b>Task</b> dihitung pada bulan disetujui (Done), sesuai <b>Jenis output</b> di form task: TL industri, Studi kasus, Optimasi (optimasi artikel + draf optimasi). Task <b>Sosmed</b> otomatis masuk Post sosmed. Artikel biasa, Artikel Lawencon, dan task Request tidak masuk target. <b>Backlink</b> dihitung pada tanggal tayang (status Tayang), LinovHR & Lawencon, termasuk mention. Persentase capaian total tidak menghitung kelebihan satu target untuk menutup kekurangan target lain.</p>`;
   formPick($('#view'));
   $$('#tg-y button').forEach((b) => b.onclick = () => { f.y = Number(b.dataset.y); go('target'); });
   $('#tg-m').onchange = (e) => { f.m = Number(e.target.value); go('target'); };
