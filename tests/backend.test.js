@@ -224,11 +224,15 @@ it('admin: buat user baru (tab dibuat), buat task untuknya, pindahkan ke orang l
   let all = post({ action: 'getAll', token: admin }).data;
   const mine = all.tasks.find((x) => x.id === t.data.id);
   assert.strictEqual(mine.startTime, '10:00'); assert.strictEqual(mine.endDate, '2026-11-05'); assert.strictEqual(mine.owner, 'wildan');
-  const mv = post({ action: 'saveTask', token: admin, task: Object.assign({}, mine, { owner: 'wisnu', status: 'Done' }) });
+  const ok1 = post({ action: 'saveTask', token: admin, task: Object.assign({}, mine, { outKind: 'Artikel TL industri', industry: 'Manufaktur' }) });
+  assert.ok(ok1.ok, ok1.error);
+  assert.strictEqual(ok1.data.task.outKind, 'Artikel TL industri'); assert.strictEqual(ok1.data.task.industry, 'Manufaktur');
+  const mv = post({ action: 'saveTask', token: admin, task: Object.assign({}, ok1.data.task, { owner: 'wisnu', status: 'Done' }) });
   assert.ok(mv.ok, mv.error);
   all = post({ action: 'getAll', token: admin }).data;
   const moved = all.tasks.find((x) => x.id === t.data.id);
   assert.strictEqual(moved.owner, 'wisnu'); assert.ok(moved.doneAt, 'Done lewat form tetap tercatat');
+  assert.strictEqual(moved.outKind, 'Artikel TL industri', 'jenis output ikut saat pindah penanggung jawab'); assert.strictEqual(moved.industry, 'Manufaktur');
   assert.ok(post({ action: 'deleteTask', token: admin, taskId: t.data.id }).ok);
   assert.ok(!post({ action: 'getAll', token: admin }).data.tasks.some((x) => x.id === t.data.id));
 });

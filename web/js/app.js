@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.36.1';
+const CSS_VERSION = '2.37.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -47,6 +47,8 @@ const ICONS = {
   org: svg('<rect x="9" y="2.5" width="6" height="5" rx="1.5"/><rect x="2.5" y="16.5" width="6" height="5" rx="1.5"/><rect x="15.5" y="16.5" width="6" height="5" rx="1.5"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>'),
   briefs: svg('<path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 11h8M8 15h5"/>'),
   review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
+  target: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>'),
+  backlinks: svg('<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
 const fsvg = (d) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -254,8 +256,10 @@ function renderNav() {
   const items = [];
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
+  items.push(['target', 'Target', 'Target']);
+  if (blAvailable()) items.push(['backlinks', 'Backlink', 'Backlink']);
   items.push(['team', 'Tim', 'Tim']);
-  items.push(['org', 'Struktur', 'Struktur']);
+  items.push(['org', 'Struktur', 'Struktur', 0, '', 'secondary']);   // HP: disembunyikan dari bilah bawah agar menu tidak terlalu padat
   items.push(['schedule', 'Jadwal', 'Jadwal', admin && typeof schPending === 'function' ? schPending().length : 0, 'info']);
   items.push(['briefs', 'Brief', 'Brief', (S.socNew ? S.socNew.size : 0) + (typeof reqTodoCount === 'function' ? reqTodoCount() : 0), 'good']);
   if (admin) {
@@ -277,7 +281,7 @@ function saveCache() {
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
-function resetSession() { S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
+function resetSession() { S.backlinks = null; S.blAt = 0; S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -306,6 +310,7 @@ async function loadData(quiet) {
     const br = (all && all.briefs) || (mine && mine.briefs);
     if (br) S.briefs = br;
     else if (!S.user.sheetName && S.user.role !== 'admin') { try { S.briefs = (await api.call('briefs')).briefs || []; } catch (e) { /* abaikan */ } }
+    if (S.backlinks && typeof loadBacklinks === 'function') await loadBacklinks(true);
     if (typeof socialNotify === 'function') socialNotify();
     if (S.user.role === 'admin' && typeof loadSched === 'function') loadSched(S.sched && S.sched.week, true).then((ok) => { if (ok) { renderNav(); if (S.view === 'review') softRender(); } });
     S.lastSync = new Date();
@@ -353,6 +358,8 @@ function go(view) {
     schedule: ['Jadwal kerja', 'WFO & WFH tim: Selasa wajib, pilih Senin atau Kamis'],
     org: ['Struktur', 'Siapa mengerjakan apa: atasan, posisi, divisi, dan keahlian'],
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
+    target: ['Target', 'Capaian hasil kerja dibanding target bulanan & tahunan'],
+    backlinks: ['Backlink', 'Pipeline outreach backlink LinovHR & Lawencon'],
     briefs: ['Brief', 'Brief artikel & konten sosmed'],
     brief: ['Brief', 'Brief'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']
@@ -361,7 +368,7 @@ function go(view) {
   $('#view-sub').textContent = titles[view][1];
   // halaman Review & Brief selalu disegarkan di belakang layar agar pengajuan terbaru langsung terlihat
   if ((view === 'review' || view === 'briefs') && (!S.lastSync || Date.now() - S.lastSync > 15000) && !S.pending.size) refreshInBackground(0);
-  ({ mine: viewMine, dashboard: viewDashboard, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, target: viewTarget, backlinks: viewBacklinks, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
   if (typeof dpRefresh === 'function') dpRefresh();
   if (view === 'brief' && typeof draftBanner === 'function') draftBanner();
 }
@@ -1636,6 +1643,11 @@ function taskModal(t, prefill) {
         <small class="muted" id="tf-type-hint" style="display:block;margin-top:5px">${TYPE_HINT[taskType(t)]}</small></div>
       <label class="field ${taskType(t) === 'Artikel' ? '' : 'hidden'}" id="tf-live"><span>URL live artikel</span><input type="url" name="liveUrl" value="${esc(t.liveUrl || '')}" placeholder="https://www.linovhr.com/blog/…">
         <small class="muted" style="display:block;margin-top:5px">Alamat artikel yang tayang sekarang. Dipakai untuk "Cek dengan AI" halaman live — isi bila berbeda dari URL di nama task.</small></label>
+      <div class="grid2 ${taskType(t) === 'Sosmed' ? 'hidden' : ''}" id="tf-out">
+        <label class="field"><span>Jenis output <small class="muted">— dihitung ke menu Target</small></span><select name="outKind" data-pick="plain"><option value="">— Belum dipilih —</option>${TASK_OUT_KINDS.map((k) => opt(k, t.outKind || '')).join('')}</select>
+          <small class="muted" id="tf-out-hint" style="display:block;margin-top:5px">${taskType(t) === 'Artikel' ? 'Task Artikel tanpa jenis dihitung sebagai Artikel biasa.' : 'Kosongkan bila task ini bukan hasil kerja yang ditargetkan.'}</small></label>
+        <label class="field ${OUT_NEEDS_INDUSTRY.includes(t.outKind) ? '' : 'hidden'}" id="tf-ind"><span>Industri</span><select name="industry" data-pick="plain"><option value="">— pilih industri —</option>${INDUSTRIES.concat(t.industry && !INDUSTRIES.includes(t.industry) ? [t.industry] : []).map((k) => opt(k, t.industry || '')).join('')}</select></label>
+      </div>
       <div class="grid4">
         <label class="field"><span>Tanggal mulai</span><input type="date" name="startDate" value="${esc(t.startDate || '')}"></label>
         <label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="${esc(t.startTime || '09:00')}"></label>
@@ -1707,7 +1719,10 @@ function taskModal(t, prefill) {
         $('#tf-stage', m).classList.toggle('hidden', !(type === 'Artikel' && edit && L.isArticle(t)));
         $('#tf-type-hint', m).textContent = TYPE_HINT[type];
         $('#tf-live', m).classList.toggle('hidden', type !== 'Artikel');
+        $('#tf-out', m).classList.toggle('hidden', type === 'Sosmed');
+        $('#tf-out-hint', m).textContent = type === 'Artikel' ? 'Task Artikel tanpa jenis dihitung sebagai Artikel biasa.' : 'Kosongkan bila task ini bukan hasil kerja yang ditargetkan.';
       });
+      f.outKind.addEventListener('change', () => $('#tf-ind', m).classList.toggle('hidden', !OUT_NEEDS_INDUSTRY.includes(f.outKind.value)));
       $('#save', m).onclick = async () => {
         if (!f.reportValidity()) return;
         if (!edit && !picked.who.length) { $('#terr', m).innerHTML = '<div class="error">Pilih minimal satu orang yang ditugaskan.</div>'; return; }
@@ -1722,6 +1737,8 @@ function taskModal(t, prefill) {
         else if (data.liveUrl && !isHttp(data.liveUrl)) { $('#terr', m).innerHTML = '<div class="error">URL live harus diawali http:// atau https://</div>'; return; }
         if (edit) data.id = t.id;
         data.type = type;
+        if (type === 'Sosmed' || !TASK_OUT_KINDS.includes(data.outKind)) data.outKind = '';
+        if (!OUT_NEEDS_INDUSTRY.includes(data.outKind)) data.industry = '';
         if (type === 'Artikel') { delete data.status; if (!(edit && L.isArticle(t))) delete data.stage; else data.stage = Number(data.stage); }
         else delete data.stage;
         const parsed = parseResultsText(data.results || '');

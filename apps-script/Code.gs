@@ -14,6 +14,7 @@ var CFG = {
   LOG_SHEET: 'Activity Log',
   BRIEF_SHEET: 'Briefs',
   SCHED_SHEET: 'Jadwal', SREQ_SHEET: 'Pengajuan Jadwal', HOLIDAY_SHEET: 'Libur', LEAVE_SHEET: 'Cuti', COMMENT_SHEET: 'Komentar',
+  BACKLINK_SHEET: 'Backlink',   // salinan malam koleksi backlinks (Firebase)
   // --- Firebase (migrasi dari Google Sheets) ---
   FB_PROJECT: 'linovhr-tracker',
   FB_API_KEY: 'AIzaSyCZsmvY7DAFhSWYYkI5qDXHlAYO3eNCips',
@@ -39,12 +40,14 @@ var CFG = {
 var TASK_HEADERS = ['Code', 'Task', 'Start Date', 'End Date', 'Status',
   'Start Time', 'End Time', 'Priority', 'Task ID', 'Started At', 'Done At', 'Notes',
   'Cal Start ID', 'Cal Due ID', 'Cal Sync', 'Reminded', 'Review At', 'Result', 'Result Note',
-  'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log', 'Repeat', 'Repeat Of'];
+  'Type', 'Stage', 'Live URL', 'AI Check URL', 'Stage Log', 'Repeat', 'Repeat Of', 'Output Kind', 'Industry'];
 var USER_HEADERS = ['Username', 'Name', 'Role', 'Sheet Name', 'Password Hash',
   'Salt', 'Must Change', 'Active', 'Created At', 'Email', 'Position',
   'Reports To', 'Division', 'Skills', 'Joined', 'Org Only', 'WFO Exempt', 'Onboard'];
 var MAIN_HEADERS = ['Code', 'Project', 'PIC', 'Start', 'End', 'Priority', 'Status'];
 var LOG_HEADERS = ['Timestamp', 'User', 'Action', 'Task ID', 'Detail'];
+var BACKLINK_HEADERS = ['ID', 'Status', 'Tanggal Tayang', 'Brand', 'Jenis', 'Domain', 'URL Sumber', 'URL Tujuan', 'Anchor', 'DR', 'Link', 'Cara Dapat', 'PIC', 'Catatan',
+  'Created By', 'Created At', 'Updated At', 'Updated By'];
 var BRIEF_HEADERS = ['Brief ID', 'Task ID', 'Owner', 'Created By', 'Type', 'Status', 'Keyword', 'Title',
   'Data', 'Doc URL', 'Created At', 'Updated At', 'Updated By', 'Status At'];
 
@@ -801,7 +804,8 @@ function rowTask_(r, disp, col, sh, user, row) {
     stage: Number(g('stage')) || 0,
     liveUrl: String(g('live url') || ''), aiCheckUrl: String(g('ai check url') || ''),
     stageLog: parseStageLog_(g('stage log')),
-    repeat: normRepeat_(g('repeat')), repeatOf: String(g('repeat of') || '')
+    repeat: normRepeat_(g('repeat')), repeatOf: String(g('repeat of') || ''),
+    outKind: String(g('output kind') || '').trim(), industry: String(g('industry') || '').trim()
   };
 }
 
@@ -923,6 +927,8 @@ function saveTask_(me, t) {
       if (lu && !/^https?:\/\/\S+$/i.test(lu)) throw new Error('URL live harus diawali http:// atau https://');
       obj['live url'] = lu.slice(0, 500);
     }
+    if (t.outKind !== undefined) obj['output kind'] = String(t.outKind || '').trim().slice(0, 60);
+    if (t.industry !== undefined) obj['industry'] = String(t.industry || '').trim().slice(0, 60);
     if (t.repeat !== undefined) obj['repeat'] = normRepeat_(t.repeat);
     if (t.repeatOf) obj['repeat of'] = String(t.repeatOf);
     if (t.resultNote !== undefined) obj['result note'] = cleanNote_(t.resultNote);
@@ -938,7 +944,7 @@ function saveTask_(me, t) {
       oldCode = String(loc.sheet.getRange(loc.row, loc.col['code'] + 1).getValue() || '').trim();
       if (loc.sheet.getName() !== target.getName()) {
         // pindah penanggung jawab: salin kolom yang tidak ada di form lalu hapus baris lama
-        ['status', 'started at', 'done at', 'review at', 'result', 'result note', 'type', 'stage', 'live url', 'ai check url', 'stage log'].forEach(function (k) {
+        ['status', 'started at', 'done at', 'review at', 'result', 'result note', 'type', 'stage', 'live url', 'ai check url', 'stage log', 'output kind', 'industry'].forEach(function (k) {
           if (obj[k] === undefined && loc.col[k] !== undefined) obj[k] = loc.sheet.getRange(loc.row, loc.col[k] + 1).getValue();
         });
         obj['task id'] = id;
@@ -3886,7 +3892,8 @@ function bkTaskRow_(t, m) {
     'done at': bkCell_(t.doneAt), 'notes': bkCell_(t.notes || ''), 'cal start id': m.calStartId || '', 'cal due id': m.calDueId || '', 'cal sync': m.calSync || '',
     'reminded': m.reminded || '', 'review at': bkCell_(t.reviewAt), 'result': t.results.length ? serializeResults_(t.results) : '', 'result note': bkCell_(t.resultNote || ''),
     'type': t.type || 'Non-artikel', 'stage': t.stage || '', 'live url': t.liveUrl || '', 'ai check url': t.aiCheckUrl || '',
-    'stage log': t.stageLog.length ? JSON.stringify(t.stageLog) : '', 'repeat': t.repeat || '', 'repeat of': t.repeatOf || '' };
+    'stage log': t.stageLog.length ? JSON.stringify(t.stageLog) : '', 'repeat': t.repeat || '', 'repeat of': t.repeatOf || '',
+    'output kind': t.outKind || '', 'industry': t.industry || '' };
 }
 function bkCommentRow_(c) {
   return { 'id': c._id, 'task id': c.taskId || '', 'author': c.author || '', 'kind': c.kind || 'user', 'text': bkCell_(c.text || ''), 'mentions': (c.mentions || []).join(','),
@@ -4031,6 +4038,12 @@ function runNightlyBackup(e) {
     count.leaves = mirrorRows_(CFG.LEAVE_SHEET, LEAVE_HEADERS, fsList_('leaves').map(function (l) {
       return { 'id': l._id, 'username': l.username, 'kind': l.kind || '', 'from': toDateCell_(l.from), 'to': toDateCell_(l.to), 'reason': bkCell_(l.reason || ''), 'status': l.status || '',
         'created at': bkCell_(l.createdAt), 'created by': l.createdBy || '', 'decided by': l.decidedBy || '', 'decided at': bkCell_(l.decidedAt), 'note': bkCell_(l.note || '') };
+    }));
+    count.backlinks = mirrorRows_(CFG.BACKLINK_SHEET, BACKLINK_HEADERS, fsList_('backlinks').map(function (b) {
+      return { 'id': b._id, 'status': b.status || '', 'tanggal tayang': toDateCell_(b.date), 'brand': b.brand || '', 'jenis': b.kind || '', 'domain': b.domain || '',
+        'url sumber': b.sourceUrl || '', 'url tujuan': b.targetUrl || '', 'anchor': bkCell_(b.anchor || ''), 'dr': b.dr === undefined ? '' : b.dr, 'link': b.rel || '',
+        'cara dapat': b.via || '', 'pic': b.pic || '', 'catatan': bkCell_(b.notes || ''), 'created by': b.createdBy || '', 'created at': bkCell_(b.createdAt),
+        'updated at': bkCell_(b.updatedAt), 'updated by': b.updatedBy || '' };
     }));
     // Komentar (hapus-lunak tanpa editedAt baru terlihat di salinan penuh mingguan)
     var cinc = !full && typeof st.comments === 'number' ? bkCommentsIncremental_(since, st.comments, nComments) : null;

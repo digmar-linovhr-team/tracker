@@ -148,6 +148,23 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await assertFails(getDoc(doc(admin, 'serverMeta', 'T1')));
   });
 
+  await it('backlink: semua anggota mencatat & memperbarui; hapus hanya pembuat/admin; nilai divalidasi', async () => {
+    const bl = (u, o) => Object.assign(by(u, { brand: 'LinovHR', kind: 'Backlink', status: 'Prospek', domain: 'contoh.com', notes: '', createdBy: u, createdAt: serverTimestamp() }), o || {});
+    await assertSucceeds(setDoc(doc(ari, 'backlinks', 'BL1'), bl('ari')));
+    await assertFails(setDoc(doc(ari, 'backlinks', 'BL2'), bl('ari', { createdBy: 'ammar' })));
+    await assertFails(setDoc(doc(ari, 'backlinks', 'BL3'), bl('ari', { status: 'Selesai' })));
+    await assertFails(setDoc(doc(ari, 'backlinks', 'BL4'), bl('ari', { brand: 'Lain' })));
+    await assertFails(setDoc(doc(as('lama'), 'backlinks', 'BL5'), bl('lama')));
+    await assertSucceeds(getDoc(doc(ammar, 'backlinks', 'BL1')));
+    await assertSucceeds(updateDoc(doc(ammar, 'backlinks', 'BL1'), by('ammar', { status: 'Tayang', date: '2027-01-05' })));
+    await assertFails(updateDoc(doc(ammar, 'backlinks', 'BL1'), by('ammar', { createdBy: 'ammar' })));
+    await assertFails(updateDoc(doc(ammar, 'backlinks', 'BL1'), { status: 'Negosiasi' }));   // tanpa cap updatedBy/updatedAt
+    await assertFails(deleteDoc(doc(ammar, 'backlinks', 'BL1')));
+    await assertSucceeds(deleteDoc(doc(ari, 'backlinks', 'BL1')));
+    await assertSucceeds(setDoc(doc(nadia, 'backlinks', 'BL6'), bl('nadia', { brand: 'Lawencon', kind: 'Mention artikel' })));
+    await assertSucceeds(deleteDoc(doc(admin, 'backlinks', 'BL6')));
+  });
+
   await env.cleanup();
   console.log(`\n${n} uji aturan lulus`);
 })().catch((e) => { console.error(e); process.exit(1); });

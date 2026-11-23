@@ -1,11 +1,11 @@
 /* Service worker: membuat aplikasi bisa dibuka cepat/offline dan menangani klik notifikasi.
  * Naikkan VERSION setiap kali file aplikasi diubah agar semua pengguna mendapat versi baru. */
-const VERSION = 'pt-v2.36.3';
+const VERSION = 'pt-v2.37.0';
 const V = VERSION.match(/[\d.]+$/)[0];
 // File yang disimpan saat pemasangan. tools/build-site.js mengganti daftar ini dengan file hasil bundel.
 const SHELL_FILES = [
   'styles.css', 'config.js', 'manifest.webmanifest',
-  'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/aila.js', 'js/pt-web.js', 'js/app.js', 'js/brief.js', 'js/article.js', 'js/social.js', 'js/org.js', 'js/briefdoc.js', 'js/request.js', 'js/schedule.js', 'js/comments.js', 'js/bell.js', 'js/push.js', 'js/detail.js', 'js/ai.js', 'vendor/chart.umd.js',
+  'js/theme.js', 'js/logic.js', 'js/demo.js', 'js/aila.js', 'js/pt-web.js', 'js/app.js', 'js/brief.js', 'js/article.js', 'js/social.js', 'js/org.js', 'js/briefdoc.js', 'js/request.js', 'js/schedule.js', 'js/comments.js', 'js/bell.js', 'js/push.js', 'js/detail.js', 'js/ai.js', 'js/output.js', 'vendor/chart.umd.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/badge-96.png'
 ];
 const SHELL = ['./'].concat(SHELL_FILES.map((f) => f + '?v=' + V));

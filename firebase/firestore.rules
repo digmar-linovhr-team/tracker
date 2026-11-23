@@ -96,6 +96,21 @@ service cloud.firestore {
       allow delete: if admin() || (active() && old().createdBy == uname() && old().get('type', '') in ['Sosmed', 'Request']);
     }
 
+    // ---------- backlink (outreach SEO) ----------
+    // Semua anggota aktif boleh mencatat & memperbarui (pipeline outreach dikerjakan bersama); hapus: pembuat & admin.
+    function blOk() {
+      return d().brand in ['LinovHR', 'Lawencon'] && d().kind in ['Backlink', 'Mention artikel']
+        && d().status in ['Prospek', 'Outreach terkirim', 'Negosiasi', 'Tayang', 'Ditolak', 'Hilang']
+        && d().domain is string && d().domain.size() > 0 && d().domain.size() <= 120
+        && d().get('notes', '').size() <= 2000 && stamped();
+    }
+    match /backlinks/{id} {
+      allow read: if active();
+      allow create: if active() && blOk() && d().createdBy == uname() && d().createdAt == request.time;
+      allow update: if active() && blOk() && unchanged('createdBy') && unchanged('createdAt');
+      allow delete: if admin() || (active() && old().createdBy == uname());
+    }
+
     // ---------- jadwal kerja ----------
     match /schedule/{id} {
       allow read: if active();

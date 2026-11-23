@@ -39,7 +39,7 @@
     return v;
   }
   function docData(d) { return plain(d.data({ serverTimestamps: 'estimate' })); }
-  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {} };
+  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {}, backlinks: {} };
 
   function nameOf(u) { var x = raw.users[u]; return x ? x.name : u; }
   function rebuild() {
@@ -60,7 +60,7 @@
     var holidays = {};
     Object.keys(raw.holidays).forEach(function (d) { holidays[d] = raw.holidays[d].name || 'Libur'; });
     var list = function (col) { return Object.keys(raw[col]).map(function (id) { return Object.assign({}, raw[col][id], { id: id }); }); };
-    S = { users: users, tasks: tasks, projects: projects, briefs: briefs, sched: sched, sreqs: list('schedRequests'), holidays: holidays, leaves: list('leaves'), comments: list('comments') };
+    S = { users: users, tasks: tasks, projects: projects, briefs: briefs, sched: sched, sreqs: list('schedRequests'), holidays: holidays, leaves: list('leaves'), comments: list('comments'), backlinks: list('backlinks') };
   }
   function changed() {
     rebuild();
@@ -71,7 +71,8 @@
   // ---------- langganan realtime ----------
   function subscribe() {
     unsubscribe();
-    var pending = [], add = function (name, q, col, keyFn) {
+    // soft: koleksi tambahan — bila aturan keamanannya belum terpasang, aplikasi tetap terbuka (koleksi dianggap kosong)
+    var pending = [], add = function (name, q, col, keyFn, soft) {
       pending.push(new Promise(function (resolve, reject) {
         var first = true;
         unsubs.push(q.onSnapshot(function (snap) {
@@ -81,7 +82,7 @@
             if (col === 'notifications' && !first && c.type === 'added' && !raw[col][key].read) emit('notif:new', Object.assign({ id: key }, raw[col][key]));
           });
           if (first) { first = false; resolve(); } else changed();
-        }, function (err) { console.error('Langganan ' + name + ' gagal', err); if (first) reject(err); else emit('error', err); }));
+        }, function (err) { console.error('Langganan ' + name + ' gagal', err); if (first && soft) { first = false; resolve(); } else if (first) reject(err); else emit('error', err); }));
       }));
     };
     add('users', db.collection('users'), 'users');
@@ -99,6 +100,7 @@
       add('leaves-ok', db.collection('leaves').where('status', '==', 'Disetujui'), 'leaves');
     }
     add('comments', db.collection('comments'), 'comments');
+    add('backlinks', db.collection('backlinks'), 'backlinks', null, true);
     add('notifications', db.collection('notifications').where('to', '==', me), 'notifications');
     if (isAdmin) add('devices', db.collection('devices'), 'devices');
     return Promise.all(pending).then(rebuild);
@@ -144,7 +146,7 @@
   function pick(o, keys) { var r = {}; keys.forEach(function (k) { if (o[k] !== undefined) r[k] = o[k]; }); return r; }
   function omit(o, skip) { var r = {}; Object.keys(o).forEach(function (k) { if (!skip[k] && o[k] !== undefined) r[k] = o[k]; }); return r; }
   function stored(st) {
-    var out = { users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {} };
+    var out = { users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, backlinks: {} };
     st.users.forEach(function (u) {
       out.users[u.username] = Object.assign(pick(u, USER_KEYS), { hasTasks: !!(u.sheetName || u.hasTasks) && !u.orgOnly });
       out.private[u.username] = { email: u.email || '' };
@@ -157,6 +159,7 @@
     Object.keys(st.holidays).forEach(function (d) { out.holidays[d] = { name: st.holidays[d] }; });
     st.leaves.forEach(function (l) { out.leaves[l.id] = omit(l, { id: 1 }); });
     st.comments.forEach(function (c) { out.comments[c.id] = omit(c, { id: 1 }); });
+    (st.backlinks || []).forEach(function (b) { out.backlinks[b.id] = omit(b, { id: 1 }); });
     return out;
   }
   function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -197,6 +200,7 @@
         if (o.type === 'set' && !d.createdBy && (d.type === 'Request' || d.type === 'Sosmed')) d.createdBy = me;
       }
       if (o.col === 'comments' && o.type === 'set') { d.createdAt = ts; d.deleted = false; d.editedAt = null; }
+      if (o.col === 'backlinks' && o.type !== 'delete') { d.updatedBy = me; d.updatedAt = ts; if (o.type === 'set') { d.createdBy = me; d.createdAt = ts; } }
       if (o.col === 'comments' && o.type === 'update' && 'editedAt' in d) d.editedAt = ts;
       return { col: o.col, id: o.id, type: o.type, data: d };
     });
