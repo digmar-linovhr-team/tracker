@@ -4546,6 +4546,11 @@ function aiContext_(stage, t) {
 // ---------- Tahap Ide untuk Artikel TL industri (review & diskusi ide sebelum brief) ----------
 var IDEA_MAX_REVIEW = 5, IDEA_MAX_REPLY = 10;
 var IDEA_PT_LABEL = { fit: 'Kecocokan dengan industri', logic: 'Konsistensi alasan', unique: 'Pembeda', data: 'Data & regulasi', aio: 'Peluang AI Overview' };
+var IDEA_CASE_LABEL = { story: 'Kekuatan cerita', proof: 'Bukti hasil', fit: 'Relevansi industri', role: 'Peran LinovHR', publish: 'Kesiapan publikasi' };
+var IDEA_OPT_LABEL = { diagnose: 'Ketepatan diagnosis', intent: 'Kecocokan maksud pencarian', plan: 'Dampak rencana perubahan', gap: 'Celah kompetitor', aio: 'Peluang AI Overview' };
+var IDEA_FORM_KEYS = { tl: ['problem', 'reason', 'angle', 'reader', 'title', 'data'], 'case': ['client', 'scale', 'before', 'solution', 'result', 'permit', 'title'],
+  opt: ['url', 'keyword', 'problem', 'competitor', 'plan', 'title'] };
+var IDEA_KIND_OF = { 'Artikel TL industri': 'tl', 'Studi kasus': 'case', 'Optimasi artikel': 'opt' };
 /** Prompt AI Overview per industri (sama dengan tab "Prompt AIO Industri"); dipakai Claude untuk menilai peluang AIO. */
 var IDEA_PROMPTS = {"Startup": ["Software HR apa yang cocok untuk startup yang karyawannya bertambah cepat?","Bagaimana startup mengelola payroll, BPJS, dan PPh 21 tanpa tim finance yang besar?","Aplikasi absensi untuk startup dengan karyawan remote dan hybrid apa?","Apa tantangan HR terbesar di startup dan bagaimana HRIS membantu mengatasinya?","Kapan startup perlu mulai memakai HRIS, dan fitur apa yang wajib ada?"],"Teknologi": ["HRIS apa yang cocok untuk perusahaan teknologi dengan banyak tim proyek?","Bagaimana menghitung gaji dan tunjangan karyawan IT kontrak dan tetap dalam satu sistem?","Aplikasi absensi untuk perusahaan teknologi yang menerapkan jam kerja fleksibel apa?","Bagaimana perusahaan teknologi mengelola performa engineer dengan KPI atau OKR?","Fitur software HR apa yang penting untuk perusahaan IT dan software house?"],"Jasa Profesional": ["Software HR untuk firma konsultan, hukum, atau akuntan apa yang direkomendasikan?","Bagaimana menghitung payroll karyawan jasa profesional yang dibayar per proyek?","Aplikasi untuk mencatat jam kerja dan timesheet konsultan per klien apa?","Bagaimana perusahaan jasa profesional mengembangkan kompetensi dan jenjang karier karyawannya?","Apa yang perlu dicari dari HRIS untuk perusahaan jasa profesional?"],"Keuangan": ["HRIS apa yang aman untuk perusahaan keuangan seperti bank, asuransi, dan multifinance?","Software payroll yang memenuhi standar keamanan data industri keuangan apa?","Aplikasi absensi untuk kantor cabang bank yang tersebar di banyak kota apa?","Bagaimana perusahaan keuangan mengelola sertifikasi dan pelatihan wajib karyawan?","Kriteria memilih software HR untuk perusahaan yang diawasi OJK"],"Perhotelan": ["Software HR yang cocok untuk hotel dan resort apa?","Bagaimana menghitung gaji, service charge, dan lembur karyawan hotel?","Aplikasi untuk mengatur shift karyawan hotel yang beroperasi 24 jam apa?","Bagaimana hotel mengurangi turnover karyawan dengan sistem HR yang baik?","Fitur HRIS apa yang dibutuhkan grup hotel dengan banyak properti?"],"F&B": ["Aplikasi HR untuk restoran dan bisnis F&B dengan banyak outlet apa?","Bagaimana menghitung gaji karyawan restoran yang harian, part-time, dan tetap?","Aplikasi absensi dan jadwal shift untuk karyawan restoran apa yang bagus?","Bagaimana bisnis F&B mengatasi turnover karyawan yang tinggi?","Software HR apa yang cocok untuk bisnis franchise F&B?"],"Ritel": ["Software HR untuk perusahaan ritel dengan ratusan toko apa?","Bagaimana mengelola payroll karyawan toko yang mendapat komisi dan insentif penjualan?","Aplikasi absensi dan shift untuk karyawan toko ritel apa?","Bagaimana perusahaan ritel mengatur rotasi dan mutasi karyawan antar toko?","HRIS apa yang cocok untuk jaringan minimarket dan supermarket?"],"Kesehatan": ["Software HR untuk rumah sakit dan klinik apa yang direkomendasikan?","Bagaimana menghitung gaji dan jasa medis dokter serta perawat di rumah sakit?","Aplikasi pengaturan shift perawat dan tenaga medis rumah sakit apa?","Bagaimana rumah sakit memantau masa berlaku STR, SIP, dan sertifikasi tenaga kesehatan?","Fitur HRIS apa yang dibutuhkan rumah sakit?"],"Logistik": ["Software HR untuk perusahaan logistik dan ekspedisi apa?","Bagaimana menghitung gaji kurir dan sopir yang mendapat insentif per pengiriman?","Aplikasi absensi GPS untuk kurir dan sopir lapangan apa?","Bagaimana perusahaan logistik mengelola karyawan di banyak gudang dan hub?","HRIS apa yang cocok untuk perusahaan transportasi dan pergudangan?"],"Manufaktur": ["Software HR untuk pabrik manufaktur dengan ribuan karyawan apa?","Bagaimana menghitung lembur dan upah karyawan pabrik sesuai aturan ketenagakerjaan?","Aplikasi absensi dan shift untuk pabrik yang beroperasi 24 jam apa?","Bagaimana pabrik mengelola karyawan kontrak, harian, dan tetap sekaligus?","HRIS apa yang cocok untuk industri manufaktur di Indonesia?"],"Konstruksi": ["Software HR untuk perusahaan konstruksi dengan banyak proyek apa?","Bagaimana menghitung gaji pekerja proyek konstruksi yang harian dan borongan?","Aplikasi absensi untuk pekerja di lokasi proyek konstruksi apa?","Bagaimana perusahaan konstruksi mengelola sertifikasi K3 pekerjanya?","HRIS apa yang cocok untuk kontraktor di Indonesia?"],"Sektor Riil": ["Software HR untuk perusahaan sektor riil dengan banyak unit usaha apa?","Bagaimana mengelola payroll grup perusahaan dengan banyak entitas?","Aplikasi absensi untuk perusahaan dengan karyawan kantor, pabrik, dan lapangan sekaligus","Bagaimana grup usaha menyatukan data karyawan dari banyak anak perusahaan?","HRIS apa yang cocok untuk holding dan grup perusahaan?"],"Pertanian": ["Software HR untuk perusahaan agribisnis dan pertanian apa?","Bagaimana menghitung upah pekerja pertanian yang harian dan musiman?","Aplikasi absensi untuk pekerja lahan pertanian di daerah yang sinyalnya lemah apa?","Bagaimana perusahaan agribisnis mengelola tenaga kerja musiman?","HRIS apa yang cocok untuk industri pertanian di Indonesia?"],"Perkebunan": ["Software HR untuk perusahaan perkebunan sawit dan karet apa?","Bagaimana menghitung premi panen dan upah pekerja kebun?","Aplikasi absensi offline untuk pekerja perkebunan di daerah terpencil apa?","Bagaimana perusahaan perkebunan mengelola karyawan di banyak afdeling dan estate?","HRIS apa yang cocok untuk perusahaan perkebunan?"],"Pertambangan": ["Software HR untuk perusahaan tambang apa yang direkomendasikan?","Bagaimana menghitung gaji karyawan tambang dengan sistem roster dan tunjangan site?","Aplikasi untuk mengatur roster kerja karyawan tambang apa?","Bagaimana perusahaan tambang memantau sertifikasi K3 dan kompetensi operator?","HRIS apa yang cocok untuk industri pertambangan di Indonesia?"],"Minyak & Gas": ["Software HR untuk perusahaan minyak dan gas apa?","Bagaimana menghitung gaji pekerja offshore dengan sistem rotasi?","Aplikasi untuk mengatur jadwal rotasi crew offshore apa?","Bagaimana perusahaan migas mengelola sertifikasi keselamatan pekerja offshore?","HRIS apa yang cocok untuk industri migas di Indonesia?"],"Outsourcing": ["Software HR untuk perusahaan outsourcing dengan ribuan karyawan di banyak klien apa?","Bagaimana menghitung payroll karyawan outsourcing per klien dan per kontrak?","Aplikasi absensi untuk karyawan outsourcing yang ditempatkan di lokasi klien apa?","Bagaimana perusahaan outsourcing mengelola kontrak PKWT ribuan karyawan?","HRIS apa yang cocok untuk perusahaan penyedia tenaga kerja?"]};
 var IDEA_REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required: ['verdict', 'summary', 'points', 'alts', 'questions', 'prompts'], properties: {
@@ -4554,11 +4559,22 @@ var IDEA_REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required
     key: { type: 'string', enum: ['fit', 'logic', 'unique', 'data', 'aio'] }, status: { type: 'string', enum: ['kuat', 'pertajam', 'lemah'] }, note: { type: 'string' } } } },
   alts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'desc'], properties: { title: { type: 'string' }, desc: { type: 'string' } } } },
   questions: { type: 'array', items: { type: 'string' } }, prompts: { type: 'array', items: { type: 'string' } } } };
+var IDEA_CASE_SCHEMA = { type: 'object', additionalProperties: false, required: ['verdict', 'summary', 'points', 'questions'], properties: {
+  verdict: { type: 'string', enum: ['kuat', 'pertajam', 'ganti'] }, summary: { type: 'string' },
+  points: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['key', 'status', 'note'], properties: {
+    key: { type: 'string', enum: ['story', 'proof', 'fit', 'role', 'publish'] }, status: { type: 'string', enum: ['kuat', 'pertajam', 'lemah'] }, note: { type: 'string' } } } },
+  questions: { type: 'array', items: { type: 'string' } } } };
+var IDEA_OPT_SCHEMA = { type: 'object', additionalProperties: false, required: ['verdict', 'summary', 'points', 'questions'], properties: {
+  verdict: { type: 'string', enum: ['kuat', 'pertajam', 'ganti'] }, summary: { type: 'string' },
+  points: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['key', 'status', 'note'], properties: {
+    key: { type: 'string', enum: ['diagnose', 'intent', 'plan', 'gap', 'aio'] }, status: { type: 'string', enum: ['kuat', 'pertajam', 'lemah'] }, note: { type: 'string' } } } },
+  questions: { type: 'array', items: { type: 'string' } } } };
 var IDEA_REPLY_SCHEMA = { type: 'object', additionalProperties: false, required: ['reply'], properties: { reply: { type: 'string' } } };
 
 function ideaLoad_(me, taskId) {
   var t = aiLoadTask_(me, taskId);
-  if (t.outKind !== 'Artikel TL industri') throw new Error('Tahap ide hanya untuk task berjenis Artikel TL industri.');
+  if (!IDEA_KIND_OF[t.outKind]) throw new Error('Tahap ide hanya untuk task berjenis Artikel TL industri, Studi kasus, dan Optimasi artikel.');
+  t.ideaKind = IDEA_KIND_OF[t.outKind];
   return t;
 }
 function ideaObj_(t) {
@@ -4566,8 +4582,8 @@ function ideaObj_(t) {
   return { form: i.form || {}, reviews: i.reviews || [], chat: i.chat || [], final: !!i.final, finalAt: i.finalAt || '', finalBy: i.finalBy || '',
     skipped: !!i.skipped, skippedBy: i.skippedBy || '' };
 }
-function ideaClean_(f) {
-  var o = {}; ['problem', 'reason', 'angle', 'reader', 'title', 'data'].forEach(function (k) { o[k] = String((f || {})[k] || '').trim().slice(0, k === 'title' || k === 'reader' ? 200 : 1200); });
+function ideaClean_(f, kind) {
+  var o = {}; IDEA_FORM_KEYS[kind || 'tl'].forEach(function (k) { o[k] = String((f || {})[k] || '').trim().slice(0, ['title', 'reader', 'client', 'scale', 'permit', 'url', 'keyword'].indexOf(k) >= 0 ? 300 : 1200); });
   return o;
 }
 function ideaOpen_(t, idea) {
@@ -4581,9 +4597,18 @@ function ideaPut_(me, t, idea, what) {
 }
 function ideaSave_(me, b) {
   var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t); ideaOpen_(t, idea);
-  idea.form = ideaClean_(b.form);
+  idea.form = ideaClean_(b.form, t.ideaKind);
   return ideaPut_(me, t, idea, 'save');
 }
+function ideaCaseText_(f) {
+  return 'Klien: ' + (f.client || '-') + '\nIndustri & skala: ' + (f.scale || '-') + '\nKondisi sebelum: ' + (f.before || '-') + '\nSolusi (modul LinovHR & penerapan): ' + (f.solution || '-') +
+    '\nHasil (angka sebelum & sesudah): ' + (f.result || '(belum ada)') + '\nSumber data & izin publikasi: ' + (f.permit || '(belum diisi)') + '\nJudul kerja: ' + (f.title || '-');
+}
+function ideaOptText_(f) {
+  return 'URL artikel: ' + (f.url || '-') + '\nKeyword target & kondisi sekarang: ' + (f.keyword || '-') + '\nDiagnosis writer: ' + (f.problem || '-') +
+    '\nKompetitor di atas & kelebihannya: ' + (f.competitor || '(belum diisi)') + '\nRencana perubahan: ' + (f.plan || '-') + '\nH1/judul baru: ' + (f.title || '(tidak berubah)');
+}
+function ideaText_(t, f) { return t.ideaKind === 'case' ? ideaCaseText_(f) : t.ideaKind === 'opt' ? ideaOptText_(f) : ideaFormText_(f); }
 function ideaFormText_(f) {
   return 'Masalah industri: ' + (f.problem || '-') + '\nAlasan (kenapa sekarang, siapa yang merasakan): ' + (f.reason || '-') + '\nSudut pandang / argumen utama: ' + (f.angle || '-') +
     '\nPembaca utama: ' + (f.reader || '-') + '\nJudul kerja: ' + (f.title || '-') + '\nData/regulasi pendukung: ' + (f.data || '(belum ada)');
@@ -4600,7 +4625,7 @@ function ideaContext_(t) {
   var ind = t.industry || '(industri belum dipilih)', prompts = IDEA_PROMPTS[t.industry] || [];
   var sib = [];
   try {
-    sib = fsList_('tasks').filter(function (x) { return x._id !== t.id && x.outKind === 'Artikel TL industri' && x.industry === t.industry; })
+    sib = fsList_('tasks').filter(function (x) { return x._id !== t.id && x.outKind === t.outKind && x.industry === t.industry; })
       .map(function (x) { return (x.idea && x.idea.form && x.idea.form.title) || x.task; }).slice(0, 40);
   } catch (e) { sib = []; }
   return { ind: ind, prompts: prompts, siblings: sib };
@@ -4608,7 +4633,9 @@ function ideaContext_(t) {
 function ideaReview_(me, b) {
   var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t); ideaOpen_(t, idea);
   if (idea.reviews.length >= IDEA_MAX_REVIEW) throw new Error('Kuota review ide (' + IDEA_MAX_REVIEW + '×) untuk task ini sudah habis. Finalkan ide, atau minta admin.');
-  idea.form = ideaClean_(b.form || idea.form);
+  idea.form = ideaClean_(b.form || idea.form, t.ideaKind);
+  if (t.ideaKind === 'case') return ideaCaseReview_(me, t, idea);
+  if (t.ideaKind === 'opt') return ideaOptReview_(me, t, idea);
   if (idea.form.problem.length < 20 || idea.form.angle.length < 20) throw new Error('Isi dulu masalah industri dan sudut pandang (minimal 20 karakter).');
   var st = aiSettings_(), c = ideaContext_(t), prev = idea.reviews[idea.reviews.length - 1];
   var sys = ideaSystem_(c.ind) + '\n\nNilai 5 poin, masing-masing status "kuat" / "pertajam" / "lemah" dengan catatan ≤ 35 kata:\n' +
@@ -4636,17 +4663,78 @@ function ideaReview_(me, b) {
   idea.reviews.push(rv);
   return ideaPut_(me, t, idea, 'review');
 }
+/** Ringkasan artikel live (khusus linovhr.com / lawencon.com) untuk review rencana optimasi. */
+function ideaLivePage_(url) {
+  url = String(url || '').trim();
+  if (!/^https?:\/\/([a-z0-9-]+\.)*(linovhr|lawencon)\.com(\/|$)/i.test(url)) return { note: '(URL bukan halaman linovhr.com / lawencon.com, tidak dibaca)' };
+  try {
+    var m = aiLiveModel_({ liveUrl: url });
+    return { note: 'Meta title: ' + (m.metaTitle || '-') + '\nH1: ' + (m.h1 || []).join(' | ') + '\nH2: ' + (m.h2 || []).slice(0, 25).join(' | ') +
+      '\nJumlah kata: ' + m.words + '\nAwal isi:\n' + aiTrim_(m.text, 2500) };
+  } catch (e) { return { note: '(Halaman tidak bisa dibuka: ' + e.message + ')' }; }
+}
+function ideaOptReview_(me, t, idea) {
+  if (idea.form.problem.length < 20 || idea.form.plan.length < 20) throw new Error('Isi dulu diagnosis dan rencana perubahan (minimal 20 karakter).');
+  var st = aiSettings_(), prev = idea.reviews[idea.reviews.length - 1], live = ideaLivePage_(idea.form.url);
+  var sys = 'Anda SEO editor senior untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. ' +
+    'Anda menilai RENCANA OPTIMASI sebuah artikel yang sudah tayang, SEBELUM brief optimasi dibuat. Bandingkan diagnosis writer dengan isi artikel live yang diberikan. ' +
+    'Bersikap kritis dan spesifik; jangan mengarang angka ranking, volume, atau isi kompetitor yang tidak diberikan — bila perlu data, minta writer mengeceknya. ' +
+    'Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".\n\nNilai 5 poin, status "kuat" / "pertajam" / "lemah", catatan ≤ 35 kata:\n' +
+    '- diagnose: apakah diagnosis writer cocok dengan kondisi artikel live (bukan tebakan)?\n- intent: apakah artikel (dan rencananya) sesuai maksud pencarian keyword target?\n' +
+    '- plan: apakah rencana perubahan cukup berdampak untuk menaikkan posisi/CTR, atau hanya kosmetik?\n- gap: apakah celah dibanding kompetitor sudah ditutup?\n' +
+    '- aio: apakah rencana membuat artikel mudah dikutip AI Overview (definisi singkat, daftar, tabel, FAQ)?\n' +
+    'Kesimpulan "verdict": "kuat" (siap dikerjakan), "pertajam", atau "ganti" (diagnosis keliru / rencana salah arah). "summary" 1–2 kalimat. ' +
+    '"questions": 2–4 data yang perlu dicek writer dulu (mis. query Search Console, kanibalisasi, CTR). Jawab HANYA JSON.';
+  var user = 'RENCANA OPTIMASI\n' + ideaOptText_(idea.form) + '\n\nARTIKEL LIVE SAAT INI\n' + live.note +
+    (prev ? '\n\nREVIEW SEBELUMNYA: ' + prev.verdict + ' — ' + prev.summary + '\nDISKUSI TERAKHIR\n' + idea.chat.slice(-6).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : 'Writer: ') + m.text; }).join('\n') +
+      '\nNilai versi rencana terbaru ini; sebut bila ada perbaikan dari review sebelumnya.' : '');
+  var r = aiCall_(st.models.idea || st.models.brief, sys, user, 2000, st, 'idea', IDEA_OPT_SCHEMA);
+  var j = r.json; if (!j || !j.verdict) throw aiUnreadable_(r);
+  var ok = function (v, list, d) { return list.indexOf(v) >= 0 ? v : d; };
+  idea.reviews.push({ at: new Date().toISOString(), by: me.username, model: r.model, cost: Math.round(r.cost * 1e5) / 1e5,
+    verdict: ok(j.verdict, ['kuat', 'pertajam', 'ganti'], 'pertajam'), summary: String(j.summary || '').slice(0, 400),
+    points: (j.points || []).filter(function (p) { return IDEA_OPT_LABEL[p.key]; }).slice(0, 5).map(function (p) {
+      return { key: p.key, label: IDEA_OPT_LABEL[p.key], status: ok(p.status, ['kuat', 'pertajam', 'lemah'], 'pertajam'), note: String(p.note || '').slice(0, 300) }; }),
+    alts: [], prompts: [], questions: (j.questions || []).slice(0, 4).map(function (q) { return String(q).slice(0, 250); }) });
+  return ideaPut_(me, t, idea, 'review');
+}
+function ideaCaseReview_(me, t, idea) {
+  if (idea.form.before.length < 20 || idea.form.solution.length < 20) throw new Error('Isi dulu kondisi sebelum dan solusi (minimal 20 karakter).');
+  var st = aiSettings_(), c = ideaContext_(t), prev = idea.reviews[idea.reviews.length - 1];
+  var sys = 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. ' +
+    'Anda menilai USULAN STUDI KASUS klien di industri ' + c.ind + ' SEBELUM brief dibuat. Studi kasus yang baik meyakinkan calon klien di industri yang sama: ' +
+    'masalah yang mereka kenali, solusi LinovHR yang jelas, dan hasil yang terukur. Bersikap kritis dan jujur; jangan mengarang angka atau fakta klien. ' +
+    'Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".\n\nNilai 5 poin, status "kuat" / "pertajam" (perlu dilengkapi) / "lemah", catatan ≤ 35 kata:\n' +
+    '- story: kekuatan cerita — alur masalah → solusi → hasil runtut dan menarik?\n- proof: bukti hasil — ada angka sebelum & sesudah yang terukur? Data apa yang masih perlu diminta?\n' +
+    '- fit: relevansi industri — masalahnya khas ' + c.ind + ' sehingga calon klien merasa "ini kami"?\n- role: peran LinovHR — modul yang dipakai jelas terhubung dengan hasilnya, bukan sekadar disebut?\n' +
+    '- publish: kesiapan publikasi — izin nama/data klien jelas? Bila belum, sarankan versi samaran yang tetap spesifik.\n' +
+    'Kesimpulan "verdict": "kuat" (siap dibuat brief), "pertajam" (perlu dilengkapi), atau "ganti" (belum layak: hasil tidak ada / peran LinovHR tidak jelas). "summary" 1–2 kalimat. ' +
+    '"questions": 3–5 pertanyaan wawancara klien yang konkret untuk melengkapi cerita dan angka. Jawab HANYA JSON.';
+  var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN STUDI KASUS\n' + ideaCaseText_(idea.form) +
+    '\n\nSTUDI KASUS LINOVHR LAIN DI INDUSTRI YANG SAMA (hindari cerita yang sama)\n' + (c.siblings.length ? c.siblings.map(function (x) { return '- ' + x; }).join('\n') : '(belum ada)') +
+    (prev ? '\n\nREVIEW SEBELUMNYA: ' + prev.verdict + ' — ' + prev.summary + '\nDISKUSI TERAKHIR\n' + idea.chat.slice(-6).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : 'Writer: ') + m.text; }).join('\n') +
+      '\nNilai versi terbaru ini; sebut bila ada perbaikan dari review sebelumnya.' : '');
+  var r = aiCall_(st.models.idea || st.models.brief, sys, user, 2000, st, 'idea', IDEA_CASE_SCHEMA);
+  var j = r.json; if (!j || !j.verdict) throw aiUnreadable_(r);
+  var ok = function (v, list, d) { return list.indexOf(v) >= 0 ? v : d; };
+  idea.reviews.push({ at: new Date().toISOString(), by: me.username, model: r.model, cost: Math.round(r.cost * 1e5) / 1e5,
+    verdict: ok(j.verdict, ['kuat', 'pertajam', 'ganti'], 'pertajam'), summary: String(j.summary || '').slice(0, 400),
+    points: (j.points || []).filter(function (p) { return IDEA_CASE_LABEL[p.key]; }).slice(0, 5).map(function (p) {
+      return { key: p.key, label: IDEA_CASE_LABEL[p.key], status: ok(p.status, ['kuat', 'pertajam', 'lemah'], 'pertajam'), note: String(p.note || '').slice(0, 300) }; }),
+    alts: [], prompts: [], questions: (j.questions || []).slice(0, 5).map(function (q) { return String(q).slice(0, 250); }) });
+  return ideaPut_(me, t, idea, 'review');
+}
 function ideaReply_(me, b) {
   var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t); ideaOpen_(t, idea);
   var text = String(b.text || '').trim().slice(0, 800);
   if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu.');
   if (text.length < 3) throw new Error('Tulis pesan dulu.');
   if (idea.chat.filter(function (m) { return m.role === 'user'; }).length >= IDEA_MAX_REPLY) throw new Error('Kuota balasan (' + IDEA_MAX_REPLY + '×) untuk task ini sudah habis.');
-  if (b.form) idea.form = ideaClean_(b.form);
+  if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
   var st = aiSettings_(), c = ideaContext_(t), rv = idea.reviews[idea.reviews.length - 1];
-  var sys = ideaSystem_(c.ind) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer secara singkat (maksimal 120 kata), tetap kritis, ' +
-    'beri contoh konkret untuk industri ' + c.ind + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. Jawab HANYA JSON {"reply": "..."}.';
-  var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE TERBARU\n' + ideaFormText_(idea.form) +
+  var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com dan rekan brainstorming writer untuk rencana optimasi artikel. Jangan mengarang angka ranking atau volume. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. Jangan mengarang angka atau fakta klien. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : ideaSystem_(c.ind)) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer secara singkat (maksimal 120 kata), tetap kritis, ' +
+    (t.ideaKind === 'opt' ? 'beri contoh konkret untuk artikel ini' : 'beri contoh konkret untuk industri ' + c.ind) + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. Jawab HANYA JSON {"reply": "..."}.';
+  var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE TERBARU\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ' — ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + (idea.chat.slice(-10).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : 'Writer: ') + m.text; }).join('\n') || '(belum ada)') +
     '\n\nPESAN BARU WRITER: ' + text;
@@ -4667,7 +4755,7 @@ function ideaFinal_(me, b) {
     return ideaPut_(me, t, idea, 'reopen');
   }
   ideaOpen_(t, idea);
-  if (b.form) idea.form = ideaClean_(b.form);
+  if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
   if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum difinalkan.');
   idea.final = true; idea.finalAt = new Date().toISOString(); idea.finalBy = me.username;
   return ideaPut_(me, t, idea, 'final');

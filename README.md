@@ -173,3 +173,11 @@ TZ=Asia/Jakarta node tests/backend.test.js # backend dengan simulasi Sheets/Cale
 - Claude (model brief, kind `idea`) menilai 5 poin — kecocokan dengan industri, konsistensi alasan, pembeda (termasuk dibanding artikel TL lain untuk industri yang sama), data & regulasi, peluang AI Overview (daftar `IDEA_PROMPTS` di Code.gs) — memberi kesimpulan *Kuat / Perlu dipertajam / Ganti sudut*, alternatif sudut, dan pertanyaan pendalaman. Kotak balasan untuk diskusi singkat. Kuota per task: 5 review & 10 balasan.
 - **Finalkan ide** membuka pembuatan brief; H1, pembuka, dan data dari ide terisi otomatis. Brief untuk task TL tidak bisa dibuat sebelum ide final (admin bisa **Lewati tahap ide** atau **Buka lagi ide**).
 - Data di `task.idea`, ditulis server (Apps Script `ideaSave/ideaReview/ideaReply/ideaFinal/ideaSkip`). **Tempel Code.gs baru lalu Deploy versi baru** agar fitur ini jalan.
+
+### Tahap Ide untuk Studi kasus (v2.39)
+- Task **Artikel** berjenis **Studi kasus** juga melewati tahap Ide. Form: klien, industri & skala, kondisi sebelum, solusi (modul LinovHR), hasil (angka sebelum & sesudah), sumber data & izin publikasi, judul kerja.
+- Claude menilai kekuatan cerita, bukti hasil, relevansi industri, peran LinovHR, dan kesiapan publikasi (*Kuat / Perlu dilengkapi / Belum layak*), plus 3–5 **pertanyaan wawancara klien**. Kuota & alur finalisasi sama dengan TL. Perlu **Code.gs baru**.
+
+### Tahap Ide untuk Optimasi artikel (v2.40)
+- Task **Artikel** berjenis **Optimasi artikel** melewati tahap Ide berbentuk *Rencana optimasi*: URL artikel, keyword target & kondisi sekarang, diagnosis, kompetitor, rencana perubahan, H1 baru.
+- Claude membaca artikel live (khusus linovhr.com / lawencon.com) lalu menilai ketepatan diagnosis, kecocokan maksud pencarian, dampak rencana, celah kompetitor, dan peluang AI Overview (*Siap dikerjakan / Perlu dipertajam / Diagnosis keliru*), plus data yang perlu dicek dulu.

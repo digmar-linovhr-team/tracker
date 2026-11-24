@@ -346,9 +346,10 @@ function reqAction(s, me, id, act, p) {
 function demoIdea(s, a, b, me) {
   const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
   if (!t) throw new Error('Task tidak ditemukan');
-  if (t.type !== 'Artikel' || t.outKind !== 'Artikel TL industri') throw new Error('Tahap ide hanya untuk task Artikel TL industri.');
+  if (t.type !== 'Artikel' || !['Artikel TL industri', 'Studi kasus', 'Optimasi artikel'].includes(t.outKind)) throw new Error('Tahap ide hanya untuk task Artikel TL industri, Studi kasus, dan Optimasi artikel.');
+  const isCase = t.outKind === 'Studi kasus', isOpt = t.outKind === 'Optimasi artikel';
   const idea = t.idea = Object.assign({ form: {}, reviews: [], chat: [] }, t.idea || {});
-  const clean = (f) => { const o = {}; ['problem', 'reason', 'angle', 'reader', 'title', 'data'].forEach((k) => { o[k] = String((f || {})[k] || '').trim().slice(0, 1200); }); return o; };
+  const clean = (f) => { const o = {}; (isOpt ? ['url', 'keyword', 'problem', 'competitor', 'plan', 'title'] : isCase ? ['client', 'scale', 'before', 'solution', 'result', 'permit', 'title'] : ['problem', 'reason', 'angle', 'reader', 'title', 'data']).forEach((k) => { o[k] = String((f || {})[k] || '').trim().slice(0, 1200); }); return o; };
   const now = new Date().toISOString();
   if (a === 'ideaSkip') { if (me.role !== 'admin') throw new Error('Hanya admin yang bisa melewati tahap ide.'); idea.skipped = true; idea.skippedBy = me.username; return { idea }; }
   if (a === 'ideaFinal' && b.undo) { if (me.role !== 'admin') throw new Error('Hanya admin yang bisa membuka lagi ide.'); idea.final = false; idea.skipped = false; return { idea }; }
@@ -360,6 +361,32 @@ function demoIdea(s, a, b, me) {
   if (a === 'ideaReview') {
     if (idea.reviews.length >= 5) throw new Error('Kuota review ide (5×) untuk task ini sudah habis.');
     const second = idea.reviews.length >= 1;
+    if (isOpt) {
+      idea.reviews.push({ at: now, by: me.username, model: 'claude-sonnet-5-5', verdict: second ? 'kuat' : 'pertajam',
+        summary: second ? 'Diagnosis dan rencana sudah tepat sasaran. Siap dikerjakan.' : 'Diagnosisnya masuk akal, tapi rencana perubahan belum menutup celah utama dibanding kompetitor.',
+        points: [
+          { key: 'diagnose', label: 'Ketepatan diagnosis', status: 'kuat', note: 'Artikel live memang belum menjawab maksud pencarian di paragraf pertama.' },
+          { key: 'intent', label: 'Kecocokan maksud pencarian', status: second ? 'kuat' : 'pertajam', note: second ? 'Rencana sudah mengarah ke format yang dicari (daftar & perbandingan).' : 'Keyword ini komersial: pencari ingin daftar & perbandingan aplikasi, bukan definisi panjang.' },
+          { key: 'plan', label: 'Dampak rencana perubahan', status: second ? 'kuat' : 'pertajam', note: second ? 'Perubahan cukup besar untuk menggeser posisi.' : 'Menambah FAQ saja belum cukup. Tambahkan tabel perbandingan fitur dan harga.' },
+          { key: 'gap', label: 'Celah kompetitor', status: 'pertajam', note: 'Kompetitor teratas punya bagian cara memilih dan studi kasus singkat.' },
+          { key: 'aio', label: 'Peluang AI Overview', status: 'kuat', note: 'Tambahkan definisi singkat 40–60 kata di awal agar mudah dikutip.' }],
+        alts: [], prompts: [],
+        questions: ['Query apa saja di Search Console yang mendatangkan impresi ke URL ini?', 'Apakah ada artikel lain di blog yang menyasar keyword yang sama (kanibalisasi)?', 'Bagaimana CTR 3 bulan terakhir — turun atau stabil?'] });
+      return { idea };
+    }
+    if (isCase) {
+      idea.reviews.push({ at: now, by: me.username, model: 'claude-sonnet-5-5', verdict: second ? 'kuat' : 'pertajam',
+        summary: second ? 'Cerita dan angka sudah lengkap. Siap dijadikan brief.' : 'Alur ceritanya kuat dan khas ' + ind + ', tapi hasilnya belum cukup terukur dan izin publikasi belum jelas.',
+        points: [
+          { key: 'story', label: 'Kekuatan cerita', status: 'kuat', note: 'Masalah → solusi → hasil runtut dan mudah diikuti.' },
+          { key: 'proof', label: 'Bukti hasil', status: second ? 'kuat' : 'pertajam', note: second ? 'Angka sebelum & sesudah sudah lengkap.' : 'Baru 1 angka. Minta data sebelum & sesudah yang lain, mis. jumlah koreksi atau jam kerja HR yang hemat.' },
+          { key: 'fit', label: 'Relevansi industri', status: 'kuat', note: 'Masalahnya khas ' + ind + ' — calon klien di industri yang sama akan merasa relevan.' },
+          { key: 'role', label: 'Peran LinovHR', status: 'kuat', note: 'Modul yang dipakai jelas terhubung dengan hasilnya.' },
+          { key: 'publish', label: 'Kesiapan publikasi', status: /sudah|ada izin/i.test(idea.form.permit) ? 'kuat' : 'lemah', note: /sudah|ada izin/i.test(idea.form.permit) ? 'Izin publikasi sudah ada.' : 'Izin nama belum jelas. Siapkan versi samaran atau minta izin tertulis.' }],
+        alts: [], prompts: [],
+        questions: ['Berapa angka sebelum dan sesudah memakai LinovHR untuk proses utama yang diceritakan?', 'Apa hambatan terbesar saat implementasi, dan bagaimana diatasi?', 'Bolehkah nama perusahaan dan kutipan HR ditampilkan?'] });
+      return { idea };
+    }
     idea.reviews.push({ at: now, by: me.username, model: 'claude-sonnet-5-5', verdict: second ? 'kuat' : 'pertajam',
       summary: second ? 'Sudut pandang sudah tajam dan khas ' + ind + '. Siap dijadikan brief.' : 'Masalahnya relevan untuk ' + ind + ', tapi sudut pandangnya masih mirip artikel kompetitor.',
       points: [
@@ -581,8 +608,8 @@ function handle(action, b, session) {
       if (!t) throw new Error('Task tidak ditemukan');
       if (t.type === 'Artikel' && me.role !== 'admin' && (t.stage || 1) >= 3) throw new Error('Brief sudah diajukan ke admin, jadi tidak bisa diubah lagi.');
       if (s.briefs.some((x) => x.taskId === br.taskId && x.id !== br.id)) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
-      if (me.role !== 'admin' && !s.briefs.some((x) => x.id === br.id) && t.type === 'Artikel' && t.outKind === 'Artikel TL industri' && !(t.idea && (t.idea.final || t.idea.skipped)))
-        throw new Error('Task TL industri: finalkan ide dulu (tahap Ide) sebelum membuat brief.');
+      if (me.role !== 'admin' && !s.briefs.some((x) => x.id === br.id) && t.type === 'Artikel' && ['Artikel TL industri', 'Studi kasus', 'Optimasi artikel'].includes(t.outKind) && !(t.idea && (t.idea.final || t.idea.skipped)))
+        throw new Error('Task ' + t.outKind + ': finalkan ide dulu (tahap Ide) sebelum membuat brief.');
       if (JSON.stringify(br.data || {}).length > 45000) throw new Error('Isi brief terlalu panjang');
       if (br.status === 'Siap ditulis' && ((br.data && br.data.competitors) || []).filter((c) => c && c.url).length < 2) throw new Error('Lengkapi dulu: minimal 2 link kompetitor.');
       const now = new Date().toISOString();
