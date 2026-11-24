@@ -177,3 +177,7 @@ TZ=Asia/Jakarta node tests/backend.test.js # backend dengan simulasi Sheets/Cale
 ### Tahap Ide untuk Studi kasus (v2.39)
 - Task **Artikel** berjenis **Studi kasus** juga melewati tahap Ide. Form: klien, industri & skala, kondisi sebelum, solusi (modul LinovHR), hasil (angka sebelum & sesudah), sumber data & izin publikasi, judul kerja.
 - Claude menilai kekuatan cerita, bukti hasil, relevansi industri, peran LinovHR, dan kesiapan publikasi (*Kuat / Perlu dilengkapi / Belum layak*), plus 3–5 **pertanyaan wawancara klien**. Kuota & alur finalisasi sama dengan TL. Perlu **Code.gs baru**.
+
+### Tahap Ide untuk Optimasi artikel (v2.40)
+- Task **Artikel** berjenis **Optimasi artikel** melewati tahap Ide berbentuk *Rencana optimasi*: URL artikel, keyword target & kondisi sekarang, diagnosis, kompetitor, rencana perubahan, H1 baru.
+- Claude membaca artikel live (khusus linovhr.com / lawencon.com) lalu menilai ketepatan diagnosis, kecocokan maksud pencarian, dampak rencana, celah kompetitor, dan peluang AI Overview (*Siap dikerjakan / Perlu dipertajam / Diagnosis keliru*), plus data yang perlu dicek dulu.

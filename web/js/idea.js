@@ -32,7 +32,19 @@ const IDEA_KINDS = {
     verdict: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dilengkapi', 'warn'], ganti: ['Belum layak', 'bad'] },
     pt: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dilengkapi', 'warn'], lemah: ['Belum aman', 'bad'] },
     qTitle: 'Pertanyaan untuk wawancara klien',
-    hint: 'Claude akan menilai kekuatan cerita, bukti hasil, relevansi industri, peran LinovHR, dan kesiapan publikasi — plus pertanyaan untuk wawancara klien.' }
+    hint: 'Claude akan menilai kekuatan cerita, bukti hasil, relevansi industri, peran LinovHR, dan kesiapan publikasi — plus pertanyaan untuk wawancara klien.' },
+  opt: { out: 'Optimasi artikel', name: 'Rencana optimasi', need: ['problem', 'plan'],
+    fields: [
+      ['url', 'URL artikel yang dioptimasi', 'Claude akan membaca versi live artikel ini.', 1],
+      ['keyword', 'Keyword target & kondisi sekarang', 'mis. aplikasi absensi — posisi 8, 12.500 impresi/bln, CTR 1,2%, belum dikutip AI Overview.', 1],
+      ['problem', 'Diagnosis — kenapa artikel belum perform?', 'mis. maksud pencarian tidak cocok, konten tipis, kalah lengkap dari kompetitor, CTR rendah.', 3],
+      ['competitor', 'Kompetitor di atas kita & kelebihannya', 'Boleh kosong.', 2],
+      ['plan', 'Rencana perubahan', 'Bagian yang ditambah, ditulis ulang, digabung, atau dihapus.', 3],
+      ['title', 'H1 / judul baru', 'Kosongkan bila tidak berubah.', 1]],
+    verdict: { kuat: ['Siap dikerjakan', 'good'], pertajam: ['Perlu dipertajam', 'warn'], ganti: ['Diagnosis keliru', 'bad'] },
+    pt: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dipertajam', 'warn'], lemah: ['Lemah', 'bad'] },
+    qTitle: 'Data yang perlu dicek dulu',
+    hint: 'Claude membaca artikel live-nya, lalu menilai ketepatan diagnosis, kecocokan maksud pencarian, dampak rencana perubahan, celah kompetitor, dan peluang AI Overview.' }
 };
 const IDEA = { draft: {}, busy: {}, reply: {} };
 
@@ -40,7 +52,7 @@ const IDEA = { draft: {}, busy: {}, reply: {} };
 function ideaKind(t) {
   if (!t || typeof aiEnabled !== 'function' || !aiEnabled() || !L.isArticle(t)) return '';
   const k = outKindOf(t);
-  return k === 'Artikel TL industri' ? 'tl' : k === 'Studi kasus' ? 'case' : '';
+  return k === 'Artikel TL industri' ? 'tl' : k === 'Studi kasus' ? 'case' : k === 'Optimasi artikel' ? 'opt' : '';
 }
 /** Task ini wajib melewati tahap Ide? */
 function ideaApplies(t) { return !!ideaKind(t); }
@@ -48,7 +60,10 @@ function ideaApplies(t) { return !!ideaKind(t); }
 function ideaReady(t) { return !ideaApplies(t) || !!(t.idea && (t.idea.final || t.idea.skipped)); }
 const ideaCan = (t) => S.user.role === 'admin' || L.isOn(t, S.user.username);
 function ideaForm(t) {
-  if (!IDEA.draft[t.id]) IDEA.draft[t.id] = Object.assign({}, (t.idea && t.idea.form) || {});
+  if (!IDEA.draft[t.id]) {
+    IDEA.draft[t.id] = Object.assign({}, (t.idea && t.idea.form) || {});
+    if (ideaKind(t) === 'opt' && !IDEA.draft[t.id].url) IDEA.draft[t.id].url = t.liveUrl || (/^https?:\/\//.test(String(t.task || '').trim()) ? String(t.task).trim() : '');
+  }
   return IDEA.draft[t.id];
 }
 
@@ -86,7 +101,7 @@ function ideaSection(t) {
   const finalBtns = locked ? (admin && (idea.final || idea.skipped) && !briefOf(t.id) ? `<div class="idea-act"><button class="btn ghost" data-ideaundo="${id}">Buka lagi ide</button></div>` : '')
     : `<div class="idea-act">${admin && !idea.final ? `<button class="btn ghost" data-ideaskip="${id}">Lewati tahap ide</button>` : ''}<button class="btn ok" data-ideafinal="${id}" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Diskusikan dengan AI dulu'}">Finalkan ide → mulai brief</button></div>`;
   return `<section class="dp-sec" id="idea-sec"><h3>${esc(K.name)} ${head}</h3>
-    ${t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri belum dipilih di task — minta admin mengisinya (Edit task) agar review Claude tepat.</p>'}
+    ${ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri belum dipilih di task — minta admin mengisinya (Edit task) agar review Claude tepat.</p>'}
     ${form}${review}${thread}${replyBox}${finalBtns}</section>`;
 }
 
@@ -144,11 +159,11 @@ function ideaBriefSeed(t, d) {
   const f = (t && t.idea && t.idea.form) || {};
   if (!Object.keys(f).some((k) => f[k])) return d;
   if (f.title && !d.h1) d.h1 = f.title;
-  const intro = (f.before || f.solution
+  const intro = (f.plan ? [f.problem && 'Diagnosis: ' + f.problem, 'Rencana perubahan: ' + f.plan, f.keyword && 'Keyword & kondisi: ' + f.keyword] : f.before || f.solution
     ? [f.client && 'Klien: ' + f.client + (f.scale ? ' (' + f.scale + ')' : ''), f.before && 'Sebelum: ' + f.before, f.solution && 'Solusi: ' + f.solution, f.result && 'Hasil: ' + f.result]
     : [f.angle && 'Sudut pandang: ' + f.angle, f.problem && 'Masalah: ' + f.problem, f.reader && 'Pembaca: ' + f.reader]).filter(Boolean).join('\n');
   if (intro && !d.intro) d.intro = intro;
-  const extra = f.data ? 'Data/regulasi dari tahap ide: ' + f.data : f.permit ? 'Sumber data & izin: ' + f.permit : '';
+  const extra = f.data ? 'Data/regulasi dari tahap ide: ' + f.data : f.permit ? 'Sumber data & izin: ' + f.permit : f.competitor ? 'Celah kompetitor: ' + f.competitor : '';
   if (extra && d.sections && d.sections[0] && !d.sections[0].points) d.sections[0].points = extra;
   return d;
 }
