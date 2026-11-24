@@ -316,7 +316,7 @@
     var it = r && r.item; if (!it || !S) return [];
     var myName = (S.users.find(function (u) { return u.username === me; }) || {}).name || me, title = it.title || 'ide tanpa judul';
     if (action === 'bankSubmit') return S.users.filter(function (u) { return u.role === 'admin' && u.active !== false && !u.orgOnly && u.username !== me; })
-      .map(function (u) { return { to: u.username, type: 'bank', text: myName + ' mengajukan ide: ' + title, view: 'ideas' }; });
+      .map(function (u) { return { to: u.username, type: 'bank', text: myName + ' mengirim ide: ' + title, view: 'ideas' }; });
     if (action === 'bankDecide' && p.decision !== 'withdraw' && it.author && it.author !== me) {
       var w = { approve: 'menyetujui', revise: 'meminta revisi', reject: 'menolak' }[p.decision] || 'memutuskan';
       return [{ to: it.author, type: 'bank', text: myName + ' ' + w + ' ide Anda: ' + title + (p.note ? ' — ' + String(p.note).slice(0, 80) : ''), view: 'ideas' }];

@@ -10,41 +10,41 @@ const IDEA_MAX_REVIEW = 5, IDEA_MAX_REPLY = 10;
 const IDEA_KINDS = {
   tl: { out: 'Artikel TL industri', name: 'Ide artikel TL', need: ['problem', 'angle'],
     fields: [
-      ['problem', 'Masalah industri yang diangkat', 'Masalah nyata yang dialami perusahaan di industri ini — bukan masalah HR umum.', 3],
-      ['reason', 'Alasan — kenapa penting sekarang & siapa yang merasakannya', 'mis. regulasi baru, tren, audit, biaya yang membengkak.', 2],
-      ['angle', 'Sudut pandang / argumen utama', 'Pendapat atau kerangka berpikir yang ingin dibuktikan artikel ini.', 3],
-      ['reader', 'Pembaca utama', 'Jabatan, mis. HR Manager pabrik, HSE Manager site.', 1],
+      ['problem', 'Masalah di industri ini', 'Masalah yang memang dialami perusahaan di industri ini, bukan masalah HR secara umum.', 3],
+      ['reason', 'Kenapa penting sekarang', 'Siapa yang kena dan apa pemicunya. Contoh: aturan baru, audit, biaya naik.', 2],
+      ['angle', 'Sudut pandang', 'Pendapat utama yang mau dibuktikan di artikel.', 3],
+      ['reader', 'Pembaca', 'Jabatannya. Contoh: HR Manager pabrik, HSE Manager di site.', 1],
       ['title', 'Judul kerja', '', 1],
-      ['data', 'Data / regulasi pendukung', 'Boleh kosong — Claude akan menyarankan sumber yang perlu dicek.', 2]],
+      ['data', 'Data atau aturan pendukung', 'Boleh dikosongkan. Nanti Claude kasih saran sumber yang perlu dicek.', 2]],
     verdict: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dipertajam', 'warn'], ganti: ['Ganti sudut', 'bad'] },
     pt: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dipertajam', 'warn'], lemah: ['Lemah', 'bad'] },
     qTitle: 'Pertanyaan pendalaman',
-    hint: 'Claude akan menilai apakah masalahnya benar-benar khas industri ini, apakah alasannya nyambung, dan memberi alternatif sudut.' },
+    hint: 'Claude akan cek apakah masalahnya memang khas industri ini dan alasannya masuk akal, lalu kasih pilihan sudut lain.' },
   case: { out: 'Studi kasus', name: 'Ide studi kasus', need: ['before', 'solution'],
     fields: [
-      ['client', 'Klien', 'Nama asli, atau samaran bila belum ada izin.', 1],
-      ['scale', 'Industri & skala', 'mis. Manufaktur komponen otomotif · 1.200 karyawan, 3 shift.', 1],
-      ['before', 'Kondisi sebelum — masalah yang dialami klien', 'Proses lama, angka, dan dampaknya bagi HR/perusahaan.', 3],
-      ['solution', 'Solusi — modul LinovHR & cara penerapannya', 'Modul yang dipakai, integrasi, lama implementasi.', 3],
-      ['result', 'Hasil — angka sebelum & sesudah', 'Sertakan angka terukur bila ada; Claude akan menyarankan data yang perlu diminta.', 2],
-      ['permit', 'Sumber data & izin publikasi', 'mis. wawancara HR Manager; izin nama perusahaan sudah/belum ada.', 1],
+      ['client', 'Klien', 'Nama asli, atau nama samaran kalau belum ada izin.', 1],
+      ['scale', 'Industri dan ukuran perusahaan', 'Contoh: manufaktur komponen otomotif, 1.200 karyawan, 3 shift.', 1],
+      ['before', 'Kondisi sebelum pakai LinovHR', 'Cara kerja lama, angkanya, dan dampaknya ke HR atau perusahaan.', 3],
+      ['solution', 'Yang dipakai dari LinovHR', 'Modul, integrasi, dan berapa lama implementasinya.', 3],
+      ['result', 'Hasilnya', 'Angka sebelum dan sesudah. Kalau belum ada, Claude kasih saran data yang perlu diminta.', 2],
+      ['permit', 'Sumber data dan izin', 'Contoh: wawancara HR Manager, izin pakai nama perusahaan sudah ada atau belum.', 1],
       ['title', 'Judul kerja', '', 1]],
     verdict: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dilengkapi', 'warn'], ganti: ['Belum layak', 'bad'] },
     pt: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dilengkapi', 'warn'], lemah: ['Belum aman', 'bad'] },
     qTitle: 'Pertanyaan untuk wawancara klien',
-    hint: 'Claude akan menilai kekuatan cerita, bukti hasil, relevansi industri, peran LinovHR, dan kesiapan publikasi — plus pertanyaan untuk wawancara klien.' },
+    hint: 'Claude akan cek apakah ceritanya kuat, hasilnya ada buktinya, dan aman dipublikasikan, lalu kasih daftar pertanyaan untuk wawancara klien.' },
   opt: { out: 'Optimasi artikel', name: 'Rencana optimasi', need: ['problem', 'plan'],
     fields: [
-      ['url', 'URL artikel yang dioptimasi', 'Claude akan membaca versi live artikel ini.', 1],
-      ['keyword', 'Keyword target & kondisi sekarang', 'mis. aplikasi absensi — posisi 8, 12.500 impresi/bln, CTR 1,2%, belum dikutip AI Overview.', 1],
-      ['problem', 'Diagnosis — kenapa artikel belum perform?', 'mis. maksud pencarian tidak cocok, konten tipis, kalah lengkap dari kompetitor, CTR rendah.', 3],
-      ['competitor', 'Kompetitor di atas kita & kelebihannya', 'Boleh kosong.', 2],
-      ['plan', 'Rencana perubahan', 'Bagian yang ditambah, ditulis ulang, digabung, atau dihapus.', 3],
-      ['title', 'H1 / judul baru', 'Kosongkan bila tidak berubah.', 1]],
+      ['url', 'URL artikel', 'Claude akan membaca artikel yang sudah tayang ini.', 1],
+      ['keyword', 'Keyword dan posisi sekarang', 'Contoh: aplikasi absensi, posisi 8, 12.500 impresi per bulan, CTR 1,2%, belum muncul di AI Overview.', 1],
+      ['problem', 'Kenapa artikelnya belum naik', 'Contoh: tidak sesuai yang dicari orang, isinya tipis, kalah lengkap dari kompetitor, CTR rendah.', 3],
+      ['competitor', 'Kompetitor di atas kita', 'Apa yang mereka punya dan kita belum. Boleh dikosongkan.', 2],
+      ['plan', 'Yang mau diubah', 'Bagian yang ditambah, ditulis ulang, digabung, atau dihapus.', 3],
+      ['title', 'Judul baru', 'Kosongkan kalau judulnya tetap.', 1]],
     verdict: { kuat: ['Siap dikerjakan', 'good'], pertajam: ['Perlu dipertajam', 'warn'], ganti: ['Diagnosis keliru', 'bad'] },
     pt: { kuat: ['Kuat', 'good'], pertajam: ['Perlu dipertajam', 'warn'], lemah: ['Lemah', 'bad'] },
     qTitle: 'Data yang perlu dicek dulu',
-    hint: 'Claude membaca artikel live-nya, lalu menilai ketepatan diagnosis, kecocokan maksud pencarian, dampak rencana perubahan, celah kompetitor, dan peluang AI Overview.' }
+    hint: 'Claude akan membaca artikelnya, lalu cek apakah analisis dan rencana perubahannya sudah tepat.' }
 };
 const IDEA = { draft: {}, busy: {}, reply: {} };
 
@@ -73,9 +73,9 @@ function ideaTaskSrc(t) {
   return { key: t.id, kind: ideaKind(t), idea, locked, ids: { taskId: t.id }, form: () => (locked ? (idea.form || {}) : ideaForm(t)),
     apply: (r) => patchTask(t.id, { idea: r.idea }), rerender: () => { if (typeof dpRefresh === 'function') dpRefresh(); },
     head: idea.final ? `<span class="chip good">Ide final${idea.finalBy ? ' · ' + esc(idea.finalBy) : ''}</span>` : idea.skipped ? `<span class="chip">Dilewati admin</span>` : `<span class="chip warn">Belum final</span>`,
-    industry: ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri belum dipilih di task — minta admin mengisinya (Edit task) agar review Claude tepat.</p>',
+    industry: ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri task ini belum diisi. Minta admin mengisinya lewat Edit task supaya Claude bisa menilai dengan tepat.</p>',
     footer: (rv, busy) => locked ? (admin && (idea.final || idea.skipped) && !briefOf(t.id) ? `<div class="idea-act"><button class="btn ghost" data-ideaundo="${id}">Buka lagi ide</button></div>` : '')
-      : `<div class="idea-act">${admin && !idea.final ? `<button class="btn ghost" data-ideaskip="${id}">Lewati tahap ide</button>` : ''}<button class="btn ok" data-ideafinal="${id}" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Diskusikan dengan AI dulu'}">Finalkan ide → mulai brief</button></div>` };
+      : `<div class="idea-act">${admin && !idea.final ? `<button class="btn ghost" data-ideaskip="${id}">Lewati tahap ide</button>` : ''}<button class="btn ok" data-ideafinal="${id}" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Cek ke Claude dulu'}">Finalkan ide dan mulai brief</button></div>` };
 }
 
 /** HTML inti tahap ide. src: { key, kind, idea, locked, form(), head, industry, footer(rv, busy), wrapId? } */
@@ -91,21 +91,21 @@ function ideaCoreHtml(src) {
         ${rows > 1 ? `<textarea data-idea="${k}" rows="${rows}" maxlength="1200">${esc(f[k] || '')}</textarea>` : `<input data-idea="${k}" maxlength="200" value="${esc(f[k] || '')}">`}
         ${h ? `<small class="muted">${esc(h)}</small>` : ''}</label>`).join('')}
         <div class="idea-act"><button class="btn" data-ideasave="${id}" ${busy ? 'disabled' : ''}>Simpan draf</button>
-        <button class="btn primary" data-idearev="${id}" ${busy || nRev >= IDEA_MAX_REVIEW ? 'disabled' : ''}>${busy === 'review' ? 'Claude sedang membaca…' : nRev ? 'Review ulang ide' : 'Diskusikan dengan AI'}</button></div></div>`;
+        <button class="btn primary" data-idearev="${id}" ${busy || nRev >= IDEA_MAX_REVIEW ? 'disabled' : ''}>${busy === 'review' ? 'Claude sedang membaca…' : nRev ? 'Cek lagi ke Claude' : 'Cek ke Claude'}</button></div></div>`;
   const pts = rv ? (rv.points || []).map((p) => { const st = IDEA_PT[p.status] || IDEA_PT.pertajam;
     return `<div class="idea-pt ${st[1]}"><b>${esc(p.label)} <span class="chip ${st[1]}">${esc(st[0])}</span></b><p>${esc(p.note)}</p></div>`; }).join('') : '';
   const alts = rv ? (rv.alts || []).map((a, i) => `<div class="idea-alt"><div><b>${esc(a.title)}</b><p>${esc(a.desc)}</p></div>${locked ? '' : `<button class="btn sm" data-ideaalt="${i}">Pakai sudut ini</button>`}</div>`).join('') : '';
   const review = rv ? `<div class="idea-rv">
       <div class="idea-verdict ${(IDEA_VERDICT[rv.verdict] || IDEA_VERDICT.pertajam)[1]}"><b>${esc((IDEA_VERDICT[rv.verdict] || IDEA_VERDICT.pertajam)[0])}</b><span>${esc(rv.summary || '')}</span></div>
-      <div class="idea-sh">Catatan per poin <span class="muted">· review ke-${nRev} dari ${IDEA_MAX_REVIEW} · ${esc(cmWhen(rv.at))}</span></div>${pts}
-      ${alts ? `<div class="idea-sh">Alternatif sudut</div>${alts}` : ''}
+      <div class="idea-sh">Catatan Claude <span class="muted">· cek ke-${nRev} dari ${IDEA_MAX_REVIEW} · ${esc(cmWhen(rv.at))}</span></div>${pts}
+      ${alts ? `<div class="idea-sh">Pilihan sudut lain</div>${alts}` : ''}
       ${(rv.questions || []).length ? `<div class="idea-sh">${esc(K.qTitle)}</div><ul class="idea-q">${rv.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
-      ${(rv.prompts || []).length ? `<div class="idea-sh">Prompt AI Overview yang bisa dijawab</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
-    </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi usulan ide lalu klik <b>Diskusikan dengan AI</b>. ${esc(K.hint)}</p>`);
+      ${(rv.prompts || []).length ? `<div class="idea-sh">Pertanyaan di AI Overview yang bisa dijawab artikel ini</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
+    </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi idenya, lalu klik <b>Cek ke Claude</b>. ${esc(K.hint)}</p>`);
   const thread = chat.length ? `<div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : 'me'}"><small>${esc(c.role === 'ai' ? 'Claude' : (c.by || ''))}</small>${esc(c.text)}</div>`).join('')}</div>` : '';
-  const replyBox = rv && !locked ? `<div class="idea-reply"><textarea data-ideareply rows="2" maxlength="800" placeholder="Balas atau tanyakan sesuatu ke Claude…">${esc(IDEA.reply[src.key] || '')}</textarea>
+  const replyBox = rv && !locked ? `<div class="idea-reply"><textarea data-ideareply rows="2" maxlength="800" placeholder="Balas atau tanya ke Claude">${esc(IDEA.reply[src.key] || '')}</textarea>
       <button class="btn" data-ideasend="${id}" ${busy || nRep >= IDEA_MAX_REPLY ? 'disabled' : ''}>${busy === 'reply' ? 'Menunggu…' : 'Kirim'}</button></div>
-      <div class="idea-quota muted small">Sisa kuota: ${IDEA_MAX_REVIEW - nRev} review · ${IDEA_MAX_REPLY - nRep} balasan</div>` : '';
+      <div class="idea-quota muted small">Sisa ${IDEA_MAX_REVIEW - nRev} kali cek dan ${IDEA_MAX_REPLY - nRep} kali balas</div>` : '';
   return `<section class="dp-sec" id="${src.wrapId || 'idea-sec'}"><h3>${esc(src.title || K.name)} ${src.head || ''}</h3>
     ${src.industry || ''}${form}${review}${thread}${replyBox}${src.footer(rv, busy)}</section>`;
 }
@@ -132,8 +132,8 @@ function ideaCoreBind(root, src) {
   $$('[data-idearev]', root).forEach((b) => b.onclick = () => {
     const f = form();
     const miss = K.need.filter((k) => String(f[k] || '').trim().length < 20).map((k) => (K.fields.find((x) => x[0] === k) || [k, k])[1].split(' — ')[0].toLowerCase());
-    if (miss.length) { toast('Isi dulu ' + miss.join(' dan ') + ' (minimal 20 karakter).', true); return; }
-    run('review', 'ideaReview', { form: f }, (r) => r && r.idea ? `Review Claude: ${(IDEA_VERDICT[r.idea.reviews[r.idea.reviews.length - 1].verdict] || ['–'])[0]}` : '');
+    if (miss.length) { toast('Kolom ' + miss.join(' dan ') + ' masih terlalu pendek (minimal 20 karakter).', true); return; }
+    run('review', 'ideaReview', { form: f }, (r) => r && r.idea ? `Hasil cek Claude: ${(IDEA_VERDICT[r.idea.reviews[r.idea.reviews.length - 1].verdict] || ['–'])[0]}` : '');
   });
   $$('[data-ideasend]', root).forEach((b) => b.onclick = async () => {
     const text = String(IDEA.reply[key] || '').trim();
@@ -144,7 +144,7 @@ function ideaCoreBind(root, src) {
   $$('[data-ideaalt]', root).forEach((b) => b.onclick = () => {
     const rv = ((src.idea || {}).reviews || []).slice(-1)[0], a = rv && rv.alts[Number(b.dataset.ideaalt)]; if (!a) return;
     src.form().angle = a.title + ' — ' + a.desc;
-    toast('Sudut pandang diganti. Sesuaikan isinya, lalu Simpan draf atau Review ulang ide.'); src.rerender();
+    toast('Sudut pandang sudah diganti. Rapikan isinya, lalu simpan atau cek lagi.'); src.rerender();
   });
   return { run, form };
 }
@@ -160,12 +160,12 @@ function ideaBind(root, t) {
   const { run, form } = ideaCoreBind(root, src);
   $$('[data-ideafinal]', root).forEach((b) => b.onclick = async () => {
     const rv = ((t.idea || {}).reviews || []).slice(-1)[0];
-    if (rv && rv.verdict !== 'kuat' && !(await confirmBox('Finalkan ide?', `Review terakhir Claude: "${(IDEA_VERDICT[rv.verdict] || ['–'])[0]}". Ide tetap bisa difinalkan bila Anda yakin — admin akan melihat catatannya saat mereview brief.`))) return;
-    const r = await run('final', 'ideaFinal', { form: form() }, 'Ide final. Silakan susun brief — judul & sudut pandang sudah terisi.');
+    if (rv && rv.verdict !== 'kuat' && !(await confirmBox('Finalkan ide?', `Penilaian terakhir Claude: “${(IDEA_VERDICT[rv.verdict] || ['–'])[0]}”. Ide tetap bisa difinalkan, dan admin akan melihat catatannya saat mengecek brief.`))) return;
+    const r = await run('final', 'ideaFinal', { form: form() }, 'Ide sudah final. Judul dan sudut pandangnya sudah masuk ke brief.');
     if (r && typeof newBriefModal === 'function' && !briefOf(t.id) && artStage(t) <= 2) newBriefModal(t.id);
   });
   $$('[data-ideaskip]', root).forEach((b) => b.onclick = async () => {
-    if (!(await confirmBox('Lewati tahap ide?', 'Writer bisa langsung menyusun brief tanpa review ide dari Claude.'))) return;
+    if (!(await confirmBox('Lewati tahap ide?', 'Writer bisa langsung bikin brief tanpa cek ke Claude.'))) return;
     run('final', 'ideaSkip', {}, 'Tahap ide dilewati');
   });
   $$('[data-ideaundo]', root).forEach((b) => b.onclick = () => run('final', 'ideaFinal', { undo: true }, 'Ide dibuka lagi'));

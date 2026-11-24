@@ -7,10 +7,10 @@
 // Data di koleksi ideas/ (ditulis lewat server). Status: Draft → Diajukan → Disetujui | Revisi | Ditolak → Dipakai.
 
 /** Batas periode brainstorming topik untuk periode 1 (Desember). */
-const BANK_PERIOD = { name: 'Desember 2026', due: '2026-12-01T18:00:00+07:00', label: 'Senin, 1 Desember 2026 pukul 18.00' };
-const BANK_KINDS = [['tl', 'Artikel TL industri', 'TL industri', 'Masalah HR khas satu industri, dibahas dari sudut pandang ahli.'],
-  ['case', 'Studi kasus', 'Studi kasus', 'Cerita klien nyata yang berhasil dengan LinovHR, lengkap dengan angka hasilnya.'],
-  ['opt', 'Optimasi artikel', 'Optimasi', 'Rencana memperbaiki artikel yang sudah tayang agar naik peringkat / dikutip AI Overview.']];
+const BANK_PERIOD = { name: 'Desember 2026', due: '2026-12-01T18:00:00+07:00', label: 'Senin, 1 Desember, jam 18.00' };
+const BANK_KINDS = [['tl', 'Artikel TL industri', 'TL industri', 'Masalah HR di satu industri, ditulis dari sudut pandang praktisi.'],
+  ['case', 'Studi kasus', 'Studi kasus', 'Klien yang pakai LinovHR dan hasilnya bisa ditunjukkan dengan angka.'],
+  ['opt', 'Optimasi artikel', 'Optimasi', 'Artikel lama yang mau diperbaiki supaya naik peringkat.']];
 const BANK_STATUSES = ['Draft', 'Diajukan', 'Revisi', 'Disetujui', 'Ditolak', 'Dipakai'];
 const BANK_CHIP = { Draft: '', Diajukan: 'info', Revisi: 'warn', Disetujui: 'good', Ditolak: 'bad', Dipakai: 'good' };
 const BANK_EDITABLE = ['Draft', 'Revisi'];
@@ -40,15 +40,15 @@ function bankPut(r) {
 const bankLastRv = (d) => { const rv = ((d.idea || {}).reviews || []); return rv[rv.length - 1]; };
 const bankTitleOf = (d) => d.title || ((d.idea || {}).form || {}).title || '';
 function bankVerdictChip(d) {
-  const rv = bankLastRv(d); if (!rv) return '<span class="chip">Belum direview</span>';
+  const rv = bankLastRv(d); if (!rv) return '<span class="chip">Belum dicek Claude</span>';
   const v = ((IDEA_KINDS[d.kind] || IDEA_KINDS.tl).verdict[rv.verdict]) || ['–', ''];
   return `<span class="chip ${v[1]}" title="Review Claude terakhir">Claude: ${esc(v[0])}</span>`;
 }
 function bankDueText() {
   const left = new Date(BANK_PERIOD.due) - new Date();
-  if (left <= 0) return { over: true, text: 'Periode brainstorming sudah berakhir — ide masih bisa diusulkan untuk bulan berikutnya.' };
+  if (left <= 0) return { over: true, text: 'Batas waktu sudah lewat. Ide masih bisa ditulis untuk bulan berikutnya.' };
   const d = Math.floor(left / 864e5), h = Math.floor((left % 864e5) / 36e5);
-  return { over: false, text: d >= 1 ? `Sisa ${d} hari ${h} jam` : `Sisa ${h} jam` };
+  return { over: false, text: d >= 1 ? `${d} hari ${h} jam lagi` : `${h} jam lagi` };
 }
 
 function viewIdeas() {
@@ -85,39 +85,38 @@ function viewIdeas() {
     const rv = bankLastRv(d), nRev = ((d.idea || {}).reviews || []).length, title = bankTitleOf(d);
     return `<div class="bk-card" data-id="${esc(d.id)}" tabindex="0" role="button" aria-label="Buka ide ${esc(title || 'tanpa judul')}">
       <div class="bk-top"><span class="chip ${d.kind === 'tl' ? 'info' : d.kind === 'case' ? 'warn' : ''}">${esc(bankKindName(d.kind))}</span>${d.industry ? `<span class="chip">${esc(d.industry)}</span>` : ''}<span style="flex:1"></span><span class="chip ${BANK_CHIP[d.status] || ''}">${esc(d.status)}</span></div>
-      <b class="bk-title">${title ? esc(title) : '<span class="muted">(belum ada judul kerja)</span>'}</b>
+      <b class="bk-title">${title ? esc(title) : '<span class="muted">(belum ada judul)</span>'}</b>
       ${rv && rv.summary ? `<p class="bk-sum">${esc(rv.summary)}</p>` : ''}
       ${d.decision && d.decision.note && (d.status === 'Revisi' || d.status === 'Ditolak') ? `<p class="bk-note ${d.status === 'Ditolak' ? 'bad' : 'warn'}"><b>${esc(firstNameOf(d.decision.byName))}:</b> ${esc(d.decision.note)}</p>` : ''}
-      <div class="bk-foot">${bankVerdictChip(d)}<span class="muted small">${esc(d.authorName || personName(d.author))} · ${esc(cmWhen(d.updatedAt || d.createdAt))}${nRev ? ` · ${nRev} review` : ''}</span></div>
+      <div class="bk-foot">${bankVerdictChip(d)}<span class="muted small">${esc(d.authorName || personName(d.author))} · ${esc(cmWhen(d.updatedAt || d.createdAt))}${nRev ? ` · dicek ${nRev}×` : ''}</span></div>
     </div>`;
   };
   $('#view').innerHTML = `
     <div class="card bk-hero"><div class="card-b">
-      <div class="bk-hero-t"><div><h2 style="margin:0 0 4px">Brainstorming topik ${esc(BANK_PERIOD.name)}</h2>
-        <p class="muted" style="margin:0">Usulkan topik, diskusikan dengan Claude sampai tajam, lalu <b>ajukan</b>. Ide yang disetujui siap dijadikan task. Tenggat: <b>${esc(BANK_PERIOD.label)}</b>.</p></div>
+      <div class="bk-hero-t"><div><h2 style="margin:0 0 4px">Topik untuk ${esc(BANK_PERIOD.name)}</h2>
+        <p class="muted" style="margin:0">Tulis ide topik, cek dulu ke Claude, lalu kirim ke admin. Batas kirim <b>${esc(BANK_PERIOD.label)}</b>.</p></div>
         <div class="bk-due ${due.over ? 'over' : ''}">${esc(due.text)}</div></div>
-      <div class="bk-steps"><span><b>1</b> Usulkan ide</span><span><b>2</b> Diskusikan dengan Claude</span><span><b>3</b> Ajukan</span><span><b>4</b> Admin setujui</span><span><b>5</b> Jadi task</span></div>
-      <button class="btn primary" id="bk-add">+ Usulkan ide</button>
+      <button class="btn primary" id="bk-add">+ Tulis ide</button>
     </div></div>
     <div class="tiles">
-      ${tile('Ide TL disetujui', count((d) => d.kind === 'tl' && ok(d)), `target ${tgt.tl} artikel/bulan`, 'var(--info)')}
-      ${tile('Studi kasus disetujui', count((d) => d.kind === 'case' && ok(d)), `target ${tgt.case} artikel/bulan`, 'var(--warn)')}
-      ${tile('Optimasi disetujui', count((d) => d.kind === 'opt' && ok(d)), `target ${tgt.opt} optimasi/bulan`, 'var(--brand)')}
-      ${tile('Menunggu keputusan', count((d) => d.status === 'Diajukan'), `${count((d) => d.status === 'Draft' || d.status === 'Revisi')} masih draf / revisi`, 'var(--muted)')}
+      ${tile('TL disetujui', count((d) => d.kind === 'tl' && ok(d)), `target ${tgt.tl} per bulan`, 'var(--info)')}
+      ${tile('Studi kasus disetujui', count((d) => d.kind === 'case' && ok(d)), `target ${tgt.case} per bulan`, 'var(--warn)')}
+      ${tile('Optimasi disetujui', count((d) => d.kind === 'opt' && ok(d)), `target ${tgt.opt} per bulan`, 'var(--brand)')}
+      ${tile('Belum diputuskan', count((d) => d.status === 'Diajukan'), `${count((d) => d.status === 'Draft' || d.status === 'Revisi')} masih draf`, 'var(--muted)')}
     </div>
     <div class="bk-grid2">
       <div class="card"><div class="card-h"><h2>Per orang</h2></div><div class="card-b">
-        ${ppl.length ? `<table class="bk-tbl"><thead><tr><th>Nama</th><th title="Draft + Revisi">Draf</th><th>Diajukan</th><th>Disetujui</th><th>Ditolak</th></tr></thead><tbody>
+        ${ppl.length ? `<table class="bk-tbl"><thead><tr><th>Nama</th><th title="Draft + Revisi">Draf</th><th>Menunggu</th><th>Disetujui</th><th>Ditolak</th></tr></thead><tbody>
           ${ppl.map(([u, p]) => `<tr data-person="${esc(u)}"><td><b>${esc(p.name)}</b></td><td>${p.Draft + p.Revisi}</td><td>${p.Diajukan}</td><td><b style="color:var(--good)">${p.Disetujui + p.Dipakai}</b></td><td>${p.Ditolak}</td></tr>`).join('')}</tbody></table>`
-          : '<p class="muted small" style="margin:0">Belum ada yang mengusulkan ide.</p>'}
+          : '<p class="muted small" style="margin:0">Belum ada ide masuk.</p>'}
       </div></div>
-      <div class="card"><div class="card-h"><h2>Cakupan industri</h2><span class="muted small">${covered}/${INDUSTRIES.length} industri punya ide disetujui</span></div><div class="card-b">
-        <div class="bk-cov">${cov.map((c) => `<button type="button" class="bk-ind ${c.ok ? 'ok' : c.wait ? 'wait' : c.draft ? 'draft' : ''} ${f.ind === c.ind ? 'on' : ''}" data-ind="${esc(c.ind)}" title="${c.ok} disetujui · ${c.wait} diajukan · ${c.draft} draf">${esc(c.ind)}${c.ok + c.wait + c.draft ? `<small>${c.ok}${c.wait ? ' · ' + c.wait + '⏳' : ''}</small>` : ''}</button>`).join('')}</div>
-        <p class="muted small" style="margin:8px 0 0"><span class="bk-dot ok"></span>disetujui <span class="bk-dot wait"></span>diajukan <span class="bk-dot draft"></span>draf — TL & studi kasus. Klik industri untuk menyaring.</p>
+      <div class="card"><div class="card-h"><h2>Cakupan industri</h2><span class="muted small">${covered} dari ${INDUSTRIES.length} sudah ada topik</span></div><div class="card-b">
+        <div class="bk-cov">${cov.map((c) => `<button type="button" class="bk-ind ${c.ok ? 'ok' : c.wait ? 'wait' : c.draft ? 'draft' : ''} ${f.ind === c.ind ? 'on' : ''}" data-ind="${esc(c.ind)}" title="${c.ok} disetujui · ${c.wait} menunggu · ${c.draft} draf">${esc(c.ind)}${c.ok + c.wait + c.draft ? `<small>${c.ok + c.wait + c.draft}</small>` : ''}</button>`).join('')}</div>
+        <p class="muted small" style="margin:8px 0 0"><span class="bk-dot ok"></span>disetujui <span class="bk-dot wait"></span>menunggu <span class="bk-dot draft"></span>draf · hanya TL dan studi kasus. Klik industri untuk memfilter.</p>
       </div></div>
     </div>
     <div class="toolbar">
-      <input type="search" id="bk-q" placeholder="Cari judul, isi ide, nama…" value="${esc(f.q)}" aria-label="Cari ide">
+      <input type="search" id="bk-q" placeholder="Cari judul atau nama" value="${esc(f.q)}" aria-label="Cari ide">
       <div class="seg" id="bk-kind">${[['', 'Semua']].concat(BANK_KINDS.map((k) => [k[0], k[2]])).map(([k, l]) => `<button data-k="${k}" class="${f.kind === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       ${msTrigger({ id: 'bk-status', single: true, icon: 'status', on: !!f.status, title: 'Status ide', selected: f.status,
         items: [{ value: '', label: 'Semua status' }].concat(BANK_STATUSES.map((s) => ({ value: s, label: s }))), onApply: (v) => { f.status = v; go('ideas'); } })}
@@ -125,8 +124,8 @@ function viewIdeas() {
       ${f.ind ? `<button class="btn sm on" id="bk-indx" title="Hapus saring industri">${esc(f.ind)} ×</button>` : ''}
     </div>
     ${list.length ? `<div class="bk-list">${list.map(card).join('')}</div>`
-      : `<div class="card"><div class="empty"><b>${all.length ? 'Tidak ada ide yang cocok dengan saringan' : 'Belum ada ide'}</b>${all.length ? 'Ubah saringan di atas.' : 'Mulai dengan <b>+ Usulkan ide</b>. Satu ide = satu calon artikel.'}</div></div>`}
-    <p class="def">Ide hanya bisa diajukan setelah didiskusikan dengan Claude minimal sekali. Claude juga membaca usulan rekan lain untuk industri yang sama, jadi topik ganda akan ditandai. Kuota per ide: ${IDEA_MAX_REVIEW} review & 10 balasan. Admin memutuskan setiap ide; yang disetujui bisa langsung dijadikan task dan writer tidak perlu mengulang tahap ide.</p>`;
+      : `<div class="card"><div class="empty"><b>${all.length ? 'Tidak ada ide yang cocok' : 'Belum ada ide'}</b>${all.length ? 'Coba ubah filternya.' : 'Klik “+ Tulis ide” untuk mulai.'}</div></div>`}
+    <p class="def">Ide baru bisa dikirim setelah dicek Claude minimal sekali. Claude juga melihat ide teman di industri yang sama, jadi topik yang mirip akan ketahuan. Tiap ide bisa dicek ${IDEA_MAX_REVIEW} kali dan dibalas 10 kali. Ide yang disetujui admin bisa langsung dijadikan task.</p>`;
   const qi = $('#bk-q');
   qi.oninput = () => { f.q = qi.value; clearTimeout(S.bkQt); S.bkQt = setTimeout(() => { go('ideas'); const x = $('#bk-q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 250); };
   $$('#bk-kind button').forEach((b) => b.onclick = () => { f.kind = b.dataset.k; go('ideas'); });
@@ -143,23 +142,23 @@ const firstNameOf = (n) => String(n || '').split(/\s+/)[0];
 function bankNewModal() {
   let kind = 'tl';
   modal({
-    title: 'Usulkan ide',
-    body: `<div class="field"><span>Jenis ide</span><div class="bk-kinds" role="radiogroup">${BANK_KINDS.map(([k, out, , desc]) => `<button type="button" role="radio" data-k="${k}" class="bk-kind ${k === kind ? 'on' : ''}" aria-checked="${k === kind}"><b>${esc(out)}</b><small>${esc(desc)}</small></button>`).join('')}</div></div>
-      <label class="field" id="bk-indf"><span>Industri *</span><select id="bk-ind" data-pick="plain"><option value="">— pilih industri —</option>${INDUSTRIES.map((i) => `<option>${esc(i)}</option>`).join('')}</select></label>
+    title: 'Tulis ide baru',
+    body: `<div class="field"><span>Jenis</span><div class="bk-kinds" role="radiogroup">${BANK_KINDS.map(([k, out, , desc]) => `<button type="button" role="radio" data-k="${k}" class="bk-kind ${k === kind ? 'on' : ''}" aria-checked="${k === kind}"><b>${esc(out)}</b><small>${esc(desc)}</small></button>`).join('')}</div></div>
+      <label class="field" id="bk-indf"><span>Industri *</span><select id="bk-ind" data-pick="plain"><option value="">Pilih industri</option>${INDUSTRIES.map((i) => `<option>${esc(i)}</option>`).join('')}</select></label>
       <div id="bk-err"></div>`,
-    actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="bk-go">Lanjut isi ide</button>',
+    actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="bk-go">Lanjut</button>',
     onMount: (m, close) => {
       formPick(m);
       const sync = () => { $$('.bk-kind', m).forEach((b) => { b.classList.toggle('on', b.dataset.k === kind); b.setAttribute('aria-checked', b.dataset.k === kind); }); $('#bk-indf', m).classList.toggle('hidden', kind === 'opt'); };
       $$('.bk-kind', m).forEach((b) => b.onclick = () => { kind = b.dataset.k; sync(); });
       $('#bk-go', m).onclick = async () => {
         const ind = $('#bk-ind', m).value;
-        if (kind !== 'opt' && !ind) { $('#bk-err', m).innerHTML = '<div class="error">Pilih industri dulu.</div>'; return; }
-        const btn = $('#bk-go', m); btn.disabled = true; btn.textContent = 'Membuat…';
+        if (kind !== 'opt' && !ind) { $('#bk-err', m).innerHTML = '<div class="error">Industrinya belum dipilih.</div>'; return; }
+        const btn = $('#bk-go', m); btn.disabled = true; btn.textContent = 'Sebentar…';
         try {
           const r = await api.call('bankSave', { item: { kind, industry: kind === 'opt' ? '' : ind, form: {}, period: BANK_PERIOD.name } });
           bankPut(r); close(); if (S.view === 'ideas') go('ideas'); bankOpen(r.item.id);
-        } catch (e) { btn.disabled = false; btn.textContent = 'Lanjut isi ide'; $('#bk-err', m).innerHTML = `<div class="error">${esc(cleanErr(e))}</div>`; }
+        } catch (e) { btn.disabled = false; btn.textContent = 'Lanjut'; $('#bk-err', m).innerHTML = `<div class="error">${esc(cleanErr(e))}</div>`; }
       };
     }
   });
@@ -179,30 +178,31 @@ function bankOpen(id) {
       form: () => (editable ? ideaDraft(id, idea.form) : (idea.form || {})),
       apply: (r) => { bankPut(r); }, rerender: () => { render(); if (S.view === 'ideas') go('ideas'); },
       head: `<span class="chip ${BANK_CHIP[d.status] || ''}">${esc(d.status)}</span>`,
-      industry: d.kind === 'opt' ? '' : `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(d.industry || '–')}</b> · diusulkan ${esc(d.authorName || personName(d.author))}</p>`,
+      industry: d.kind === 'opt' ? '' : `<p class="muted small" style="margin:0 0 8px">Industri <b>${esc(d.industry || '–')}</b> · ditulis ${esc(d.authorName || personName(d.author))}</p>`,
       wrapId: 'bk-sec',
       footer: () => {
         const btn = [];
         if (editable && mineIdea) btn.push('<button class="btn ghost" data-bk="delete">Hapus draf</button>');
         else if (admin && d.status !== 'Dipakai') btn.push('<button class="btn ghost" data-bk="delete">Hapus</button>');
-        if (editable) btn.push(`<button class="btn ok" data-bk="submit" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Diskusikan dengan AI dulu'}">Ajukan ke admin</button>`);
-        if (d.status === 'Diajukan' && mineIdea) btn.push('<button class="btn" data-bk="withdraw">Tarik kembali untuk diubah</button>');
+        if (editable) btn.push(`<button class="btn ok" data-bk="submit" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Cek ke Claude dulu'}">Kirim ke admin</button>`);
+        if (d.status === 'Diajukan' && mineIdea) btn.push('<button class="btn" data-bk="withdraw">Tarik lagi</button>');
         if (d.status === 'Dipakai' && d.taskId) btn.push('<button class="btn" data-bk="task">Buka task</button>');
         const decide = admin && ['Diajukan', 'Disetujui', 'Revisi', 'Ditolak'].includes(d.status) ? `<div class="bk-decide">
-            <label class="field" style="margin:0"><span>Catatan untuk ${esc(firstNameOf(d.authorName) || 'pengusul')} <small class="muted">— wajib untuk revisi / tolak</small></span><textarea id="bk-dnote" rows="2" maxlength="800" placeholder="mis. Sudutnya bagus, tapi data regulasinya perlu sumber resmi.">${esc((S.bkNote || {})[id] || '')}</textarea></label>
+            <label class="field" style="margin:0"><span>Catatan untuk ${esc(firstNameOf(d.authorName) || 'penulis')} <small class="muted">(wajib kalau minta revisi atau tolak)</small></span><textarea id="bk-dnote" rows="2" maxlength="800" placeholder="Contoh: sudutnya oke, tapi sumber datanya belum ada.">${esc((S.bkNote || {})[id] || '')}</textarea></label>
             <div class="idea-act">${d.status !== 'Ditolak' ? '<button class="btn" data-bk="reject">Tolak</button>' : ''}${d.status !== 'Revisi' ? '<button class="btn" data-bk="revise">Minta revisi</button>' : ''}${d.status !== 'Disetujui' ? '<button class="btn ok" data-bk="approve">Setujui</button>' : ''}
             ${d.status === 'Disetujui' ? '<button class="btn primary" data-bk="use">Jadikan task</button>' : ''}</div></div>` : '';
         return `${decide}${btn.length ? `<div class="idea-act">${btn.join('')}</div>` : ''}`;
       }
     };
     const dec = d.decision && d.decision.note ? `<div class="bk-note ${d.status === 'Ditolak' ? 'bad' : d.status === 'Revisi' ? 'warn' : 'good'}"><b>${esc(d.decision.status)} · ${esc(d.decision.byName || d.decision.by)}</b> <span class="muted small">${esc(cmWhen(d.decision.at))}</span><br>${esc(d.decision.note)}</div>` : '';
-    const lockMsg = !editable && d.status === 'Diajukan' && mineIdea ? '<p class="muted small">Ide sedang menunggu keputusan admin. Tarik kembali bila ingin mengubahnya.</p>' : '';
+    const lockMsg = !editable && d.status === 'Diajukan' && mineIdea ? '<p class="muted small">Ide ini sedang dicek admin. Klik Tarik lagi kalau mau mengubahnya.</p>' : '';
     box.innerHTML = dec + lockMsg + ideaCoreHtml(src);
     const { form } = ideaCoreBind(box, src);
     const note = $('#bk-dnote', box); if (note) note.oninput = () => { (S.bkNote = S.bkNote || {})[id] = note.value; };
     $$('[data-bk]', box).forEach((b) => b.onclick = () => bankAction(id, b.dataset.bk, form, render, () => closeFn && closeFn()));
   };
-  closeFn = modal({ title: 'Bank Ide', wide: true, body: '<div id="bk-ed"></div>', actions: '<button class="btn" data-close>Tutup</button>', onMount: () => setTimeout(render, 0) });
+  const d0 = (S.bank || []).find((x) => x.id === id);
+  closeFn = modal({ title: d0 && bankTitleOf(d0) ? bankTitleOf(d0) : 'Ide baru', wide: true, body: '<div id="bk-ed"></div>', actions: '<button class="btn" data-close>Tutup</button>', onMount: () => setTimeout(render, 0) });
 }
 
 async function bankAction(id, act, form, render, close) {
@@ -219,18 +219,18 @@ async function bankAction(id, act, form, render, close) {
     const rv = bankLastRv(d), V = (IDEA_KINDS[d.kind] || IDEA_KINDS.tl).verdict;
     if (rv && rv.verdict !== 'kuat') {
       const f0 = form();   // simpan isi form sebelum modal konfirmasi menggantikan editor
-      const yes = await confirmBox('Ajukan ide?', `Review terakhir Claude: "${(V[rv.verdict] || ['–'])[0]}". Ide tetap bisa diajukan bila Anda yakin — admin akan melihat catatan Claude.`, 'Ajukan');
+      const yes = await confirmBox('Kirim ke admin?', `Penilaian terakhir Claude: “${(V[rv.verdict] || ['–'])[0]}”. Ide tetap bisa dikirim, dan admin akan melihat catatan Claude.`, 'Kirim');
       bankOpen(id); if (!yes) return;
-      await call('bankSubmit', { form: f0 }, 'Ide diajukan ke admin'); return;
+      await call('bankSubmit', { form: f0 }, 'Ide terkirim ke admin'); return;
     }
-    await call('bankSubmit', { form: form() }, 'Ide diajukan ke admin');
-  } else if (act === 'withdraw') await call('bankDecide', { decision: 'withdraw' }, 'Ide ditarik kembali — silakan ubah lalu ajukan lagi');
+    await call('bankSubmit', { form: form() }, 'Ide terkirim ke admin');
+  } else if (act === 'withdraw') await call('bankDecide', { decision: 'withdraw' }, 'Ide ditarik. Silakan ubah, lalu kirim lagi.');
   else if (act === 'approve' || act === 'revise' || act === 'reject') {
-    if (act !== 'approve' && note().length < 5) { toast('Tulis catatan untuk pengusul dulu (minimal 5 karakter).', true); const n = $('#bk-dnote'); if (n) n.focus(); return; }
-    const r = await call('bankDecide', { decision: act, note: note() }, { approve: 'Ide disetujui', revise: 'Ide dikembalikan untuk revisi', reject: 'Ide ditolak' }[act]);
+    if (act !== 'approve' && note().length < 5) { toast('Isi catatan untuk penulisnya dulu.', true); const n = $('#bk-dnote'); if (n) n.focus(); return; }
+    const r = await call('bankDecide', { decision: act, note: note() }, { approve: 'Ide disetujui', revise: 'Ide dikembalikan untuk direvisi', reject: 'Ide ditolak' }[act]);
     if (r && S.bkNote) delete S.bkNote[id];
   } else if (act === 'delete') {
-    if (!(await confirmBox('Hapus ide?', 'Ide beserta riwayat diskusinya dengan Claude akan dihapus permanen.'))) { bankOpen(id); return; }
+    if (!(await confirmBox('Hapus ide ini?', 'Ide dan obrolannya dengan Claude akan terhapus dan tidak bisa dikembalikan.'))) { bankOpen(id); return; }
     try { bankPut(await api.call('bankDelete', { ideaId: id })); toast('Ide dihapus'); } catch (e) { toast(cleanErr(e), true); bankOpen(id); return; }
     if (S.view === 'ideas') go('ideas');
   } else if (act === 'task') { close(); if (typeof openTask === 'function') openTask(d.taskId); }
@@ -249,7 +249,7 @@ function bankToTask(d, close) {
     const r = await api.call('bankUse', { ideaId: d.id, taskId: t.id });
     bankPut(r);
     if (typeof patchTask === 'function') patchTask(t.id, { idea: Object.assign({}, d.idea, { final: true, fromBank: d.id }) });
-    toast('Task dibuat dari ide — tahap ide sudah final, writer bisa langsung menyusun brief');
+    toast('Task sudah dibuat. Tahap ide dianggap selesai, jadi writer bisa langsung bikin brief.');
     if (S.view === 'ideas') go('ideas');
   } });
 }
