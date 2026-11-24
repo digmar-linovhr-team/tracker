@@ -119,7 +119,8 @@ function viewIdeas() {
     <div class="toolbar">
       <input type="search" id="bk-q" placeholder="Cari judul, isi ide, nama…" value="${esc(f.q)}" aria-label="Cari ide">
       <div class="seg" id="bk-kind">${[['', 'Semua']].concat(BANK_KINDS.map((k) => [k[0], k[2]])).map(([k, l]) => `<button data-k="${k}" class="${f.kind === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
-      <select id="bk-status" aria-label="Status"><option value="">Semua status</option>${BANK_STATUSES.map((s) => `<option ${f.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      ${msTrigger({ id: 'bk-status', single: true, icon: 'status', on: !!f.status, title: 'Status ide', selected: f.status,
+        items: [{ value: '', label: 'Semua status' }].concat(BANK_STATUSES.map((s) => ({ value: s, label: s }))), onApply: (v) => { f.status = v; go('ideas'); } })}
       <button class="btn sm ${f.mine ? 'on' : ''}" id="bk-mine" aria-pressed="${f.mine}">Ide saya</button>
       ${f.ind ? `<button class="btn sm on" id="bk-indx" title="Hapus saring industri">${esc(f.ind)} ×</button>` : ''}
     </div>
@@ -129,7 +130,6 @@ function viewIdeas() {
   const qi = $('#bk-q');
   qi.oninput = () => { f.q = qi.value; clearTimeout(S.bkQt); S.bkQt = setTimeout(() => { go('ideas'); const x = $('#bk-q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 250); };
   $$('#bk-kind button').forEach((b) => b.onclick = () => { f.kind = b.dataset.k; go('ideas'); });
-  $('#bk-status').onchange = (e) => { f.status = e.target.value; go('ideas'); };
   $('#bk-mine').onclick = () => { f.mine = !f.mine; go('ideas'); };
   if ($('#bk-indx')) $('#bk-indx').onclick = () => { f.ind = ''; go('ideas'); };
   $$('.bk-ind').forEach((b) => b.onclick = () => { f.ind = f.ind === b.dataset.ind ? '' : b.dataset.ind; go('ideas'); });
@@ -145,10 +145,11 @@ function bankNewModal() {
   modal({
     title: 'Usulkan ide',
     body: `<div class="field"><span>Jenis ide</span><div class="bk-kinds" role="radiogroup">${BANK_KINDS.map(([k, out, , desc]) => `<button type="button" role="radio" data-k="${k}" class="bk-kind ${k === kind ? 'on' : ''}" aria-checked="${k === kind}"><b>${esc(out)}</b><small>${esc(desc)}</small></button>`).join('')}</div></div>
-      <label class="field" id="bk-indf"><span>Industri *</span><select id="bk-ind"><option value="">— pilih industri —</option>${INDUSTRIES.map((i) => `<option>${esc(i)}</option>`).join('')}</select></label>
+      <label class="field" id="bk-indf"><span>Industri *</span><select id="bk-ind" data-pick="plain"><option value="">— pilih industri —</option>${INDUSTRIES.map((i) => `<option>${esc(i)}</option>`).join('')}</select></label>
       <div id="bk-err"></div>`,
     actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="bk-go">Lanjut isi ide</button>',
     onMount: (m, close) => {
+      formPick(m);
       const sync = () => { $$('.bk-kind', m).forEach((b) => { b.classList.toggle('on', b.dataset.k === kind); b.setAttribute('aria-checked', b.dataset.k === kind); }); $('#bk-indf', m).classList.toggle('hidden', kind === 'opt'); };
       $$('.bk-kind', m).forEach((b) => b.onclick = () => { kind = b.dataset.k; sync(); });
       $('#bk-go', m).onclick = async () => {

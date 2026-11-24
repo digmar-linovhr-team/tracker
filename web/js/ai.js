@@ -168,17 +168,18 @@ async function aiSettingsCard() {
   const s = st.settings || {}, u = st.usage || {}, cap = Number(s.cap || 8.5), used = Number(u.cost || 0), pct = Math.min(100, used / (Number(s.budget) || 9) * 100);
   const day = new Date().getDate(), days = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate(), proj = day ? used / day * days : used;
   const models = [['claude-sonnet-5-5', 'Claude Sonnet 5.5'], ['claude-haiku-5-5', 'Claude Haiku 5.5']];
-  const sel = (k) => `<select data-aimodel="${k}">${models.map(([v, l]) => `<option value="${v}" ${s.models && s.models[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const sel = (k) => `<select data-aimodel="${k}" data-pick="plain" data-title="Model Claude" aria-label="Model Claude">${models.map(([v, l]) => `<option value="${v}" ${s.models && s.models[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   box.innerHTML = `<div class="card settings-sect"><div class="card-h"><h2>Penilai AI (Claude)</h2><span class="chip ${st.keySet ? 'good' : 'bad'}">${st.keySet ? 'Tersambung' : 'Kunci API belum dipasang'}</span></div><div class="card-b">
     <p>Claude menilai brief, draft, dan halaman live artikel sesuai Standar SEO Artikel LinovHR. Kunci API tersimpan di server (Apps Script), tidak pernah di browser.</p>
     ${st.keySet ? '' : '<p class="small" style="color:var(--bad)">Pasang di Apps Script → Project Settings → Script Properties: <b>ANTHROPIC_API_KEY</b>.</p>'}
     <b style="font-size:13px">Pemakaian ${esc(u.month || '')}</b><div class="ai-meter"><i style="width:${pct}%;${used >= cap * 0.8 ? 'background:var(--warn)' : ''}"></i></div>
     <div class="muted small">US$${used.toFixed(2)} dari anggaran US$${Number(s.budget || 9).toFixed(0)} · ${u.count || 0} panggilan · perkiraan akhir bulan US$${proj.toFixed(2)} · berhenti otomatis di US$${cap.toFixed(2)}</div>
     <div class="ai-grid">${AI_STAGES.map(([k, l]) => `<div><b>${l}</b>Ambang <input type="number" min="0" max="100" data-aipass="${k}" value="${esc(String((st.pass || {})[k] || ''))}" class="ai-num"> · 1×${sel(k)}</div>`).join('')}</div>
-    <div class="muted small" style="margin:-4px 0 8px">Cek perbaikan memakai ${sel('fix')}</div>
+    <div class="muted small ai-sel-inline" style="margin:-4px 0 8px">Cek perbaikan memakai ${sel('fix')}</div>
     <label class="check"><input type="checkbox" id="ai-gate" ${s.gate !== false ? 'checked' : ''}> Skor / checklist jadi syarat pengajuan (admin tetap bisa menyetujui apa pun skornya)</label>
     <label class="field" style="max-width:260px;margin-top:8px"><span>Berhenti otomatis di (US$ per bulan)</span><input type="number" step="0.5" min="0" id="ai-cap" value="${cap}"></label>
     <div class="row" style="margin-top:12px;flex-wrap:wrap"><button class="btn primary" id="ai-save">Simpan setelan</button></div></div></div>`;
+  formPick(box);
   $('#ai-save', box).onclick = async () => {
     const models2 = {}, pass2 = {};
     $$('[data-aimodel]', box).forEach((x) => { models2[x.dataset.aimodel] = x.value; });

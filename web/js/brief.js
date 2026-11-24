@@ -189,11 +189,12 @@ function newBriefModal(taskId, copyFrom) {
   modal({
     title: copyFrom ? 'Duplikat brief ke task lain' : 'Brief baru',
     body: `<form id="nbf">
-      <label class="field"><span>Task terkait *</span><select name="taskId" required><option value="">Pilih task…</option>${taskOptions(list, taskId)}</select></label>
+      <label class="field"><span>Task terkait *</span><select name="taskId" required data-pick="plain"><option value="">Pilih task…</option>${taskOptions(list, taskId)}</select></label>
       <p class="muted small" style="margin:0">${copyFrom ? `Struktur H2/H3, poin pembahasan, CTA, link, dan extra feature disalin dari brief "${esc(bKw(copyFrom))}". Keyword, H1, meta, kompetitor, FAQ, dan source dikosongkan.` : 'Keyword ditebak dari URL task bila ada.'}</p>
       <div id="nberr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="nbok">${copyFrom ? 'Duplikat' : 'Buat brief'}</button>`,
     onMount: (m, close) => {
+      formPick(m);
       $('#nbok', m).onclick = async () => {
         const f = $('#nbf', m); if (!f.reportValidity()) return;
         const task = list.find((t) => t.id === f.taskId.value);

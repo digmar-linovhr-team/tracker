@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.38.0';
+const CSS_VERSION = '2.41.1';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -770,7 +770,7 @@ function taskRow(t, opts) {
   const options = admin ? STATUSES : STATUSES.filter((x) => x !== 'Done');
   const staticPill = `<span class="pill ${ST_CLASS[t.status] || 'st-backlog'}">${esc(t.status)}</span>`;
   const statusSel = readonly || (done && !admin) ? staticPill
-    : `<select class="pill ${ST_CLASS[t.status] || 'st-backlog'}" data-sel="${id}" aria-label="Status task">${options.map((x) => `<option ${x === t.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
+    : `<select class="pill ${ST_CLASS[t.status] || 'st-backlog'}" data-sel="${id}" data-pick="plain" data-title="Status task" aria-label="Status task">${options.map((x) => `<option ${x === t.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
   return `<div class="trow ${readonly ? 'is-ro' : ''} ${t.status === 'Review' ? 'is-review' : ''} ${S.pending.has(t.id) ? 'is-saving' : ''} ${done ? 'is-done' : ''} ${w.cls === 'bad' ? 'is-late' : ''} prio-${esc(prio || 'none')}" id="task-${id}">
     ${tickHtml(t, readonly)}
     <div class="t-main">
@@ -826,6 +826,7 @@ function bindTaskRows(root) {
   bindBriefChips(root);
   bindReqRows(root);
   bindArtActions(root);
+  formPick(root);
 }
 
 function findTask(id) {
@@ -1260,15 +1261,16 @@ function formPick(root) {
       return it;
     });
     const btn = document.createElement('button');
-    btn.type = 'button'; btn.className = 'fpick'; btn.dataset.ms = id;
+    const pill = sel.classList.contains('pill');   // status di baris task: tampil sebagai pil berwarna
+    btn.type = 'button'; btn.className = pill ? 'fpick-pill ' + Array.from(sel.classList).filter((c) => c !== 'fp-native').join(' ') : 'fpick'; btn.dataset.ms = id;
     btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false');
     if (sel.getAttribute('aria-label')) btn.setAttribute('aria-label', sel.getAttribute('aria-label'));
     const draw = () => {
       const list = items(), ph = sel.options[0] && !sel.options[0].value ? sel.options[0].textContent : 'Pilih…';
       const it = list.find((x) => x.value === sel.value) || (sel.value ? list[0] : { label: ph }) || { label: '' };
       btn.classList.toggle('empty', !sel.value);
-      btn.innerHTML = `${it.avatar && sel.value ? `<span class="avatar">${initials(it.label)}</span>` : ''}${it.code ? `<span class="code-tag">${esc(it.code)}</span>` : ''}${it.dot ? `<span class="ms-dot" style="background:${it.dot}"></span>` : ''}<span class="fp-lbl">${esc(it.label)}</span>${it.sub && sel.value ? `<span class="fp-sub">${esc(it.sub)}</span>` : ''}<span class="fb-chev">${FB.chev}</span>`;
-      MS[id] = { single: true, items: list, selected: sel.value, title: ((sel.closest('label') && sel.closest('label').querySelector('span') || {}).textContent || '').replace(/\s*\*\s*$/, ''),
+      if (pill) btn.innerHTML = `<span class="fp-lbl">${esc(it.label)}</span><span class="fb-chev">${FB.chev}</span>`; else btn.innerHTML = `${it.avatar && sel.value ? `<span class="avatar">${initials(it.label)}</span>` : ''}${it.code ? `<span class="code-tag">${esc(it.code)}</span>` : ''}${it.dot ? `<span class="ms-dot" style="background:${it.dot}"></span>` : ''}<span class="fp-lbl">${esc(it.label)}</span>${it.sub && sel.value ? `<span class="fp-sub">${esc(it.sub)}</span>` : ''}<span class="fb-chev">${FB.chev}</span>`;
+      MS[id] = { single: true, items: list, selected: sel.value, title: sel.dataset.title || ((sel.closest('label') && sel.closest('label').querySelector('span') || {}).textContent || '').replace(/\s*\*\s*$/, ''),
         onApply: (v) => { if (sel.value === v) return; sel.value = v; draw(); sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); } };
     };
     sel.classList.add('fp-native'); sel.tabIndex = -1; sel.setAttribute('aria-hidden', 'true');
@@ -1698,6 +1700,7 @@ function taskModal(t, prefill, opts) {
         const lead = f.lead, cur = lead.value;
         lead.innerHTML = picked.who.map((u) => `<option value="${esc(u)}">${esc(nameOf(u))}</option>`).join('');
         lead.value = picked.who.includes(cur) ? cur : (picked.who[0] || '');
+        if (lead.value !== cur) lead.dispatchEvent(new Event('change'));
         $('#tf-mode-hint', m).textContent = mode === 'each'
           ? `Dibuat ${n} task terpisah — tiap orang punya status, hasil kerja, dan KPI sendiri.`
           : `Satu task. ${nameOf(lead.value)} jadi penanggung jawab utama (KPI); ${n - 1} orang lainnya anggota pendukung yang ikut mengerjakan dan menerima notifikasi.`;
@@ -1852,18 +1855,18 @@ function projectModal(p) {
     title: edit ? 'Edit project' : 'Project baru',
     body: `<form id="pf">
       <div class="grid2"><label class="field"><span>Code</span><input name="code" value="${esc(p.code || '')}" placeholder="mis. B7"></label>
-      <label class="field"><span>Prioritas</span><select name="priority">${PRIORITIES.map((x) => opt(x, p.priority)).join('')}</select></label></div>
+      <label class="field"><span>Prioritas</span><select name="priority" data-pick="plain">${PRIORITIES.map((x) => opt(x, p.priority)).join('')}</select></label></div>
       <label class="field"><span>Nama project *</span><textarea name="project" rows="2" required>${esc(p.project || '')}</textarea></label>
       <label class="field"><span>Keterangan <small class="muted">— tujuan, ruang lingkup, target; link boleh ditempel</small></span><textarea name="desc" rows="4" maxlength="2000" placeholder="mis. Optimasi 48 artikel lama untuk 144 keyword. Target: 30 keyword masuk halaman 1 Google sebelum akhir Desember.">${esc(p.desc || '')}</textarea></label>
       <label class="field"><span>PIC (pisahkan dengan koma)</span><input name="pic" value="${esc(p.pic || '')}" placeholder="${esc(names)}"></label>
       <div class="grid2"><label class="field"><span>Mulai</span><input type="date" name="start" value="${esc(p.start || '')}"></label>
       <label class="field"><span>Selesai</span><input type="date" name="end" value="${esc(p.end || '')}"></label></div>
-      <label class="field"><span>Status</span><select name="status">${STATUSES.map((x) => opt(x, p.status)).join('')}</select></label>
+      <label class="field"><span>Status</span><select name="status" data-pick="plain">${STATUSES.map((x) => opt(x, p.status)).join('')}</select></label>
       ${edit ? '' : `<div class="as-task">
         <label class="check as-task-h"><input type="checkbox" name="asTask" id="as-task"> <span><b>Buat juga sebagai task</b> <small>untuk project yang isinya cukup 1 task</small></span></label>
         <div class="as-task-b hidden" id="as-task-b">
           <div class="grid2">
-            <label class="field"><span>Penanggung jawab *</span><select name="owner"><option value="">Pilih…</option>${S.all.users.filter((u) => u.sheetName && u.active).map((u) => `<option value="${esc(u.username)}">${esc(u.name)}</option>`).join('')}</select></label>
+            <label class="field"><span>Penanggung jawab *</span><select name="owner" data-pick="person"><option value="">Pilih…</option>${S.all.users.filter((u) => u.sheetName && u.active).map((u) => `<option value="${esc(u.username)}">${esc(u.name)}</option>`).join('')}</select></label>
             <div class="grid2"><label class="field"><span>Jam mulai</span><input type="time" name="startTime" value="09:00"></label><label class="field"><span>Jam deadline</span><input type="time" name="endTime" value="18:00"></label></div>
           </div>
           <p class="muted small" style="margin:0">Nama task, code, tanggal, dan prioritas mengikuti project. Status project selanjutnya mengikuti task ini.</p>
@@ -1871,9 +1874,10 @@ function projectModal(p) {
       <div id="perr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">Simpan</button>`,
     onMount: (m, close) => {
+      formPick(m);
       const f0 = $('#pf', m), cb = $('#as-task', m);
       if (cb) {
-        const pickOwner = () => { if (!f0.owner.value) { const u = ownerFromPic(f0.pic.value); if (u) f0.owner.value = u.username; } };
+        const pickOwner = () => { if (!f0.owner.value) { const u = ownerFromPic(f0.pic.value); if (u) { f0.owner.value = u.username; f0.owner.dispatchEvent(new Event('change')); } } };
         cb.onchange = () => { $('#as-task-b', m).classList.toggle('hidden', !cb.checked); f0.owner.required = cb.checked; $('#save', m).textContent = cb.checked ? 'Simpan project & task' : 'Simpan'; if (cb.checked) pickOwner(); };
         f0.pic.addEventListener('change', () => { if (cb.checked) pickOwner(); });
         f0.owner.addEventListener('change', () => { if (!f0.pic.value.trim()) { const u = S.all.users.find((x) => x.username === f0.owner.value); if (u) f0.pic.value = u.name; } });
