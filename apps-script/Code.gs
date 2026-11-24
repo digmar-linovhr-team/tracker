@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 33 });
+  return json_({ ok: true, app: 'project-tracker', version: 34 });
 }
 
 function doPost(e) {
@@ -3305,6 +3305,12 @@ function fbRoute_(a, b) {
     case 'ideaReply': return ideaReply_(me, b);
     case 'ideaFinal': return ideaFinal_(me, b);
     case 'ideaSkip': return ideaSkip_(me, b);
+    case 'bankList': return bankList_();
+    case 'bankSave': return bankSave_(me, b);
+    case 'bankSubmit': return bankSubmit_(me, b);
+    case 'bankDecide': return bankDecide_(me, b);
+    case 'bankDelete': return bankDelete_(me, b);
+    case 'bankUse': return bankUse_(me, b);
     case 'testPush': return { sent: pushTo_(me.username, { title: '🔔 Push uji', body: 'Push notification berjalan di perangkat ini.', tag: 'test-' + Date.now(), view: 'settings' }, '') };
   }
   throw new Error('Aksi tidak dikenal');
@@ -4587,16 +4593,22 @@ function ideaClean_(f, kind) {
   return o;
 }
 function ideaOpen_(t, idea) {
+  if (t._bank) { if (BANK_EDITABLE.indexOf(t.status) < 0) throw new Error('Ide ini sudah ' + String(t.status).toLowerCase() + ', jadi tidak bisa diubah. Minta admin mengembalikannya untuk revisi.'); return; }
   if (idea.final || idea.skipped) throw new Error('Ide sudah final. Minta admin membukanya lagi bila perlu diubah.');
   if (Number(t.stage || 1) >= 3) throw new Error('Brief sudah diajukan, jadi ide tidak bisa diubah lagi.');
 }
 function ideaPut_(me, t, idea, what) {
+  if (t._bank) {
+    var upd = { idea: idea, title: bankTitle_(idea.form), updatedAt: new Date().toISOString() };
+    fsMerge_('ideas/' + t.id, upd); log_(me, 'bank-' + what, t.id, '');
+    return { idea: idea, item: bankOut_(Object.assign({}, t._doc, upd)) };
+  }
   fsMerge_('tasks/' + t.id, { idea: idea });
   log_(me, 'idea-' + what, t.id, '');
   return { idea: idea };
 }
 function ideaSave_(me, b) {
-  var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t); ideaOpen_(t, idea);
+  var t = ideaTarget_(me, b), idea = ideaObj_(t); ideaOpen_(t, idea);
   idea.form = ideaClean_(b.form, t.ideaKind);
   return ideaPut_(me, t, idea, 'save');
 }
@@ -4628,10 +4640,15 @@ function ideaContext_(t) {
     sib = fsList_('tasks').filter(function (x) { return x._id !== t.id && x.outKind === t.outKind && x.industry === t.industry; })
       .map(function (x) { return (x.idea && x.idea.form && x.idea.form.title) || x.task; }).slice(0, 40);
   } catch (e) { sib = []; }
+  // usulan lain di Bank Ide (writer lain bisa sedang mengusulkan topik yang sama)
+  try {
+    fsList_('ideas').filter(function (x) { return x._id !== t.id && x.kind === t.ideaKind && x.industry === t.industry && x.status !== 'Ditolak' && x.status !== 'Dipakai'; })
+      .slice(0, 30).forEach(function (x) { var f = (x.idea && x.idea.form) || {}; sib.push('[usulan Bank Ide oleh ' + (x.authorName || x.author) + '] ' + (f.title || '') + (f.angle ? ' — ' + String(f.angle).slice(0, 160) : f.before ? ' — ' + String(f.before).slice(0, 160) : '')); });
+  } catch (e) { /* abaikan */ }
   return { ind: ind, prompts: prompts, siblings: sib };
 }
 function ideaReview_(me, b) {
-  var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t); ideaOpen_(t, idea);
+  var t = ideaTarget_(me, b), idea = ideaObj_(t); ideaOpen_(t, idea);
   if (idea.reviews.length >= IDEA_MAX_REVIEW) throw new Error('Kuota review ide (' + IDEA_MAX_REVIEW + '×) untuk task ini sudah habis. Finalkan ide, atau minta admin.');
   idea.form = ideaClean_(b.form || idea.form, t.ideaKind);
   if (t.ideaKind === 'case') return ideaCaseReview_(me, t, idea);
@@ -4725,7 +4742,7 @@ function ideaCaseReview_(me, t, idea) {
   return ideaPut_(me, t, idea, 'review');
 }
 function ideaReply_(me, b) {
-  var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t); ideaOpen_(t, idea);
+  var t = ideaTarget_(me, b), idea = ideaObj_(t); ideaOpen_(t, idea);
   var text = String(b.text || '').trim().slice(0, 800);
   if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu.');
   if (text.length < 3) throw new Error('Tulis pesan dulu.');
@@ -4745,6 +4762,85 @@ function ideaReply_(me, b) {
   idea.chat.push({ role: 'user', by: me.username, text: text, at: now });
   idea.chat.push({ role: 'ai', text: reply.slice(0, 1500), at: now, model: r.model });
   return ideaPut_(me, t, idea, 'reply');
+}
+// ---------- Bank Ide: brainstorming topik tanpa task (koleksi ideas/) ----------
+// Status: Draft → Diajukan → Disetujui / Revisi / Ditolak → Dipakai (jadi task). Review & diskusi Claude memakai fungsi tahap ide yang sama.
+var BANK_KIND_OUT = { tl: 'Artikel TL industri', 'case': 'Studi kasus', opt: 'Optimasi artikel' };
+var BANK_EDITABLE = ['Draft', 'Revisi'];
+function bankTitle_(f) { f = f || {}; return String(f.title || f.client || f.url || f.problem || f.before || '').trim().slice(0, 200); }
+function bankOut_(d) { var o = {}; Object.keys(d || {}).forEach(function (k) { if (k !== '_id' && k !== '_doc') o[k] = d[k]; }); o.id = d._id || d.id; return o; }
+function bankGet_(id) { var d = fsGet_('ideas/' + String(id || '')); if (!d) throw new Error('Ide tidak ditemukan. Muat ulang halaman.'); return d; }
+/** Ide di Bank Ide sebagai "task semu" agar fungsi review/diskusi tahap ide bisa dipakai ulang. */
+function bankLoad_(me, id) {
+  var d = bankGet_(id);
+  if (me.role !== 'admin' && d.author !== me.username) throw new Error('Hanya pengusul ide dan admin yang bisa mengubah ide ini.');
+  if (!BANK_KIND_OUT[d.kind]) throw new Error('Jenis ide tidak dikenal');
+  return { id: d._id, _bank: true, _doc: d, status: d.status || 'Draft', outKind: BANK_KIND_OUT[d.kind], ideaKind: d.kind, industry: d.industry || '', idea: d.idea || {}, stage: 1, type: 'Artikel' };
+}
+function ideaTarget_(me, b) { return b.ideaId ? bankLoad_(me, b.ideaId) : ideaLoad_(me, b.taskId); }
+function bankList_() { return { ideas: fsList_('ideas').map(bankOut_) }; }
+function bankSave_(me, b) {
+  var d = b.item || {}, kind = String(d.kind || ''), now = new Date().toISOString();
+  if (!BANK_KIND_OUT[kind]) throw new Error('Pilih jenis ide: Artikel TL industri, Studi kasus, atau Optimasi artikel.');
+  var ind = String(d.industry || '').trim().slice(0, 60);
+  if (kind !== 'opt' && !ind) throw new Error('Pilih industri untuk ide ini.');
+  if (!d.id) {
+    var id = 'I' + newId_().slice(1);
+    var doc = { kind: kind, industry: ind, author: me.username, authorName: me.name || me.username, status: 'Draft',
+      idea: { form: ideaClean_(d.form, kind), reviews: [], chat: [] }, createdAt: now, updatedAt: now, period: String(d.period || '').slice(0, 20) };
+    doc.title = bankTitle_(doc.idea.form);
+    fsSet_('ideas/' + id, doc); log_(me, 'bank-new', id, kind + ' ' + ind);
+    doc._id = id; return { item: bankOut_(doc) };
+  }
+  var t = bankLoad_(me, d.id), idea = ideaObj_(t); ideaOpen_(t, idea);
+  if (kind !== t.ideaKind && idea.reviews.length) throw new Error('Jenis ide tidak bisa diganti setelah direview Claude. Buat ide baru.');
+  idea.form = ideaClean_(d.form || idea.form, kind);
+  var upd = { kind: kind, industry: ind, idea: idea, title: bankTitle_(idea.form), updatedAt: now };
+  fsMerge_('ideas/' + t.id, upd); log_(me, 'bank-save', t.id, '');
+  return { item: bankOut_(Object.assign({}, t._doc, upd)) };
+}
+function bankSubmit_(me, b) {
+  var t = bankLoad_(me, b.ideaId), idea = ideaObj_(t); ideaOpen_(t, idea);
+  if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
+  if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum diajukan.');
+  var upd = { idea: idea, title: bankTitle_(idea.form), status: 'Diajukan', submittedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  fsMerge_('ideas/' + t.id, upd); log_(me, 'bank-submit', t.id, '');
+  return { item: bankOut_(Object.assign({}, t._doc, upd)) };
+}
+/** Admin: setujui / minta revisi / tolak, atau tarik kembali ke Draft (pengusul, sebelum diputuskan). */
+function bankDecide_(me, b) {
+  var d = bankGet_(b.ideaId), act = String(b.decision || ''), note = String(b.note || '').trim().slice(0, 800), now = new Date().toISOString();
+  var next = { approve: 'Disetujui', revise: 'Revisi', reject: 'Ditolak', withdraw: 'Draft' }[act];
+  if (!next) throw new Error('Keputusan tidak dikenal');
+  if (act === 'withdraw') {
+    if (d.author !== me.username && me.role !== 'admin') throw new Error('Hanya pengusul yang bisa menarik ide.');
+    if (d.status !== 'Diajukan') throw new Error('Hanya ide yang sedang diajukan yang bisa ditarik kembali.');
+  } else {
+    if (me.role !== 'admin') throw new Error('Hanya admin yang bisa memutuskan ide.');
+    if (d.status === 'Dipakai') throw new Error('Ide ini sudah dijadikan task.');
+    if ((act === 'revise' || act === 'reject') && note.length < 5) throw new Error('Tulis catatan untuk pengusul (minimal 5 karakter).');
+  }
+  var upd = { status: next, updatedAt: now };
+  if (act !== 'withdraw') upd.decision = { status: next, by: me.username, byName: me.name || me.username, at: now, note: note };
+  fsMerge_('ideas/' + d._id, upd); log_(me, 'bank-' + act, d._id, note);
+  return { item: bankOut_(Object.assign({}, d, upd)) };
+}
+function bankDelete_(me, b) {
+  var d = bankGet_(b.ideaId);
+  if (me.role !== 'admin' && !(d.author === me.username && BANK_EDITABLE.indexOf(d.status) >= 0)) throw new Error('Hanya draf milik Anda yang bisa dihapus.');
+  fsCommit_([{ path: 'ideas/' + d._id, del: true }]); log_(me, 'bank-delete', d._id, '');
+  return { removed: d._id };
+}
+/** Admin: ide yang disetujui dipakai untuk task (task dibuat aplikasi lebih dulu) — ide masuk ke task sebagai ide final. */
+function bankUse_(me, b) {
+  if (me.role !== 'admin') throw new Error('Hanya admin yang bisa menjadikan ide sebagai task.');
+  var d = bankGet_(b.ideaId), t = fsGet_('tasks/' + String(b.taskId || ''));
+  if (!t) throw new Error('Task tidak ditemukan');
+  var now = new Date().toISOString(), i = d.idea || {};
+  fsMerge_('tasks/' + t._id, { idea: { form: i.form || {}, reviews: i.reviews || [], chat: i.chat || [], final: true, finalAt: now, finalBy: me.username, skipped: false, skippedBy: '', fromBank: d._id } });
+  var upd = { status: 'Dipakai', taskId: t._id, usedAt: now, updatedAt: now };
+  fsMerge_('ideas/' + d._id, upd); log_(me, 'bank-use', d._id, t._id);
+  return { item: bankOut_(Object.assign({}, d, upd)) };
 }
 function ideaFinal_(me, b) {
   var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t);

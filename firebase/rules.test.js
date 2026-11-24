@@ -148,6 +148,13 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await assertFails(getDoc(doc(admin, 'serverMeta', 'T1')));
   });
 
+  await it('bank ide: semua anggota membaca; hanya admin menulis langsung (anggota lewat server)', async () => {
+    await assertSucceeds(setDoc(doc(admin, 'ideas', 'I1'), { kind: 'tl', industry: 'Manufaktur', author: 'ari', status: 'Draft' }));
+    await assertSucceeds(getDoc(doc(ari, 'ideas', 'I1')));
+    await assertFails(setDoc(doc(ari, 'ideas', 'I2'), { kind: 'tl', author: 'ari', status: 'Draft' }));
+    await assertFails(updateDoc(doc(ari, 'ideas', 'I1'), { status: 'Disetujui' }));
+  });
+
   await it('backlink: semua anggota mencatat & memperbarui; hapus hanya pembuat/admin; nilai divalidasi', async () => {
     const bl = (u, o) => Object.assign(by(u, { brand: 'LinovHR', kind: 'Backlink', status: 'Prospek', domain: 'contoh.com', notes: '', createdBy: u, createdAt: serverTimestamp() }), o || {});
     await assertSucceeds(setDoc(doc(ari, 'backlinks', 'BL1'), bl('ari')));

@@ -3,7 +3,7 @@
  * Memakai fungsi & state dari app.js. */
 'use strict';
 
-const NB_ICON = { mention: '@', assign: '＋', review: '⏳', returned: '↩', approved: '✓', request: '✉', leave: '🌴', sched: '🗓' };
+const NB_ICON = { bank: '💡', mention: '@', assign: '＋', review: '⏳', returned: '↩', approved: '✓', request: '✉', leave: '🌴', sched: '🗓' };
 let NB = { list: [], open: false };
 
 function bellEnabled() { return S.cfg && S.cfg.backend === 'firebase' && !S.cfg.demo; }

@@ -59,24 +59,32 @@ function ideaApplies(t) { return !!ideaKind(t); }
 /** Ide sudah final / dilewati — brief boleh dibuat. */
 function ideaReady(t) { return !ideaApplies(t) || !!(t.idea && (t.idea.final || t.idea.skipped)); }
 const ideaCan = (t) => S.user.role === 'admin' || L.isOn(t, S.user.username);
-function ideaForm(t) {
-  if (!IDEA.draft[t.id]) {
-    IDEA.draft[t.id] = Object.assign({}, (t.idea && t.idea.form) || {});
-    if (ideaKind(t) === 'opt' && !IDEA.draft[t.id].url) IDEA.draft[t.id].url = t.liveUrl || (/^https?:\/\//.test(String(t.task || '').trim()) ? String(t.task).trim() : '');
-  }
-  return IDEA.draft[t.id];
+/** Draf form (belum disimpan) per kunci — task id atau id Bank Ide. */
+function ideaDraft(key, saved, seed) {
+  if (!IDEA.draft[key]) { IDEA.draft[key] = Object.assign({}, saved || {}); if (seed) seed(IDEA.draft[key]); }
+  return IDEA.draft[key];
 }
+function ideaForm(t) { return ideaDraft(t.id, t.idea && t.idea.form, (f) => { if (ideaKind(t) === 'opt' && !f.url) f.url = t.liveUrl || (/^https?:\/\//.test(String(t.task || '').trim()) ? String(t.task).trim() : ''); }); }
 
-function ideaSection(t) {
-  if (!ideaApplies(t) || !t.id) return '';
-  const K = IDEA_KINDS[ideaKind(t)], IDEA_FIELDS = K.fields, IDEA_VERDICT = K.verdict, IDEA_PT = K.pt;
+/** Sumber tahap ide untuk sebuah task (lihat ideaCoreHtml untuk bentuk src). */
+function ideaTaskSrc(t) {
   const idea = t.idea || {}, can = ideaCan(t), admin = S.user.role === 'admin', id = esc(t.id);
   const locked = !!(idea.final || idea.skipped) || artStage(t) >= 3 || !can;
-  const f = locked ? (idea.form || {}) : ideaForm(t), busy = IDEA.busy[t.id];
+  return { key: t.id, kind: ideaKind(t), idea, locked, ids: { taskId: t.id }, form: () => (locked ? (idea.form || {}) : ideaForm(t)),
+    apply: (r) => patchTask(t.id, { idea: r.idea }), rerender: () => { if (typeof dpRefresh === 'function') dpRefresh(); },
+    head: idea.final ? `<span class="chip good">Ide final${idea.finalBy ? ' · ' + esc(idea.finalBy) : ''}</span>` : idea.skipped ? `<span class="chip">Dilewati admin</span>` : `<span class="chip warn">Belum final</span>`,
+    industry: ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri belum dipilih di task — minta admin mengisinya (Edit task) agar review Claude tepat.</p>',
+    footer: (rv, busy) => locked ? (admin && (idea.final || idea.skipped) && !briefOf(t.id) ? `<div class="idea-act"><button class="btn ghost" data-ideaundo="${id}">Buka lagi ide</button></div>` : '')
+      : `<div class="idea-act">${admin && !idea.final ? `<button class="btn ghost" data-ideaskip="${id}">Lewati tahap ide</button>` : ''}<button class="btn ok" data-ideafinal="${id}" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Diskusikan dengan AI dulu'}">Finalkan ide → mulai brief</button></div>` };
+}
+
+/** HTML inti tahap ide. src: { key, kind, idea, locked, form(), head, industry, footer(rv, busy), wrapId? } */
+function ideaCoreHtml(src) {
+  const K = IDEA_KINDS[src.kind], IDEA_FIELDS = K.fields, IDEA_VERDICT = K.verdict, IDEA_PT = K.pt;
+  const idea = src.idea || {}, locked = src.locked, id = esc(src.key);
+  const f = src.form(), busy = IDEA.busy[src.key];
   const reviews = idea.reviews || [], rv = reviews[reviews.length - 1], chat = idea.chat || [];
   const nRev = reviews.length, nRep = chat.filter((c) => c.role === 'user').length;
-  const head = idea.final ? `<span class="chip good">Ide final${idea.finalBy ? ' · ' + esc(idea.finalBy) : ''}</span>`
-    : idea.skipped ? `<span class="chip">Dilewati admin</span>` : `<span class="chip warn">Belum final</span>`;
   const form = locked
     ? `<div class="idea-ro">${IDEA_FIELDS.filter(([k]) => f[k]).map(([k, l]) => `<div><span>${esc(l)}</span><p>${esc(f[k])}</p></div>`).join('') || '<p class="muted small">Ide belum diisi.</p>'}</div>`
     : `<div class="idea-form">${IDEA_FIELDS.map(([k, l, h, rows]) => `<label class="field"><span>${esc(l)}</span>
@@ -84,8 +92,8 @@ function ideaSection(t) {
         ${h ? `<small class="muted">${esc(h)}</small>` : ''}</label>`).join('')}
         <div class="idea-act"><button class="btn" data-ideasave="${id}" ${busy ? 'disabled' : ''}>Simpan draf</button>
         <button class="btn primary" data-idearev="${id}" ${busy || nRev >= IDEA_MAX_REVIEW ? 'disabled' : ''}>${busy === 'review' ? 'Claude sedang membaca…' : nRev ? 'Review ulang ide' : 'Diskusikan dengan AI'}</button></div></div>`;
-  const pts = rv ? (rv.points || []).map((p) => { const s = IDEA_PT[p.status] || IDEA_PT.pertajam;
-    return `<div class="idea-pt ${s[1]}"><b>${esc(p.label)} <span class="chip ${s[1]}">${esc(s[0])}</span></b><p>${esc(p.note)}</p></div>`; }).join('') : '';
+  const pts = rv ? (rv.points || []).map((p) => { const st = IDEA_PT[p.status] || IDEA_PT.pertajam;
+    return `<div class="idea-pt ${st[1]}"><b>${esc(p.label)} <span class="chip ${st[1]}">${esc(st[0])}</span></b><p>${esc(p.note)}</p></div>`; }).join('') : '';
   const alts = rv ? (rv.alts || []).map((a, i) => `<div class="idea-alt"><div><b>${esc(a.title)}</b><p>${esc(a.desc)}</p></div>${locked ? '' : `<button class="btn sm" data-ideaalt="${i}">Pakai sudut ini</button>`}</div>`).join('') : '';
   const review = rv ? `<div class="idea-rv">
       <div class="idea-verdict ${(IDEA_VERDICT[rv.verdict] || IDEA_VERDICT.pertajam)[1]}"><b>${esc((IDEA_VERDICT[rv.verdict] || IDEA_VERDICT.pertajam)[0])}</b><span>${esc(rv.summary || '')}</span></div>
@@ -95,34 +103,31 @@ function ideaSection(t) {
       ${(rv.prompts || []).length ? `<div class="idea-sh">Prompt AI Overview yang bisa dijawab</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
     </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi usulan ide lalu klik <b>Diskusikan dengan AI</b>. ${esc(K.hint)}</p>`);
   const thread = chat.length ? `<div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : 'me'}"><small>${esc(c.role === 'ai' ? 'Claude' : (c.by || ''))}</small>${esc(c.text)}</div>`).join('')}</div>` : '';
-  const replyBox = rv && !locked ? `<div class="idea-reply"><textarea data-ideareply rows="2" maxlength="800" placeholder="Balas atau tanyakan sesuatu ke Claude…">${esc(IDEA.reply[t.id] || '')}</textarea>
+  const replyBox = rv && !locked ? `<div class="idea-reply"><textarea data-ideareply rows="2" maxlength="800" placeholder="Balas atau tanyakan sesuatu ke Claude…">${esc(IDEA.reply[src.key] || '')}</textarea>
       <button class="btn" data-ideasend="${id}" ${busy || nRep >= IDEA_MAX_REPLY ? 'disabled' : ''}>${busy === 'reply' ? 'Menunggu…' : 'Kirim'}</button></div>
       <div class="idea-quota muted small">Sisa kuota: ${IDEA_MAX_REVIEW - nRev} review · ${IDEA_MAX_REPLY - nRep} balasan</div>` : '';
-  const finalBtns = locked ? (admin && (idea.final || idea.skipped) && !briefOf(t.id) ? `<div class="idea-act"><button class="btn ghost" data-ideaundo="${id}">Buka lagi ide</button></div>` : '')
-    : `<div class="idea-act">${admin && !idea.final ? `<button class="btn ghost" data-ideaskip="${id}">Lewati tahap ide</button>` : ''}<button class="btn ok" data-ideafinal="${id}" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Diskusikan dengan AI dulu'}">Finalkan ide → mulai brief</button></div>`;
-  return `<section class="dp-sec" id="idea-sec"><h3>${esc(K.name)} ${head}</h3>
-    ${ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri belum dipilih di task — minta admin mengisinya (Edit task) agar review Claude tepat.</p>'}
-    ${form}${review}${thread}${replyBox}${finalBtns}</section>`;
+  return `<section class="dp-sec" id="${src.wrapId || 'idea-sec'}"><h3>${esc(src.title || K.name)} ${src.head || ''}</h3>
+    ${src.industry || ''}${form}${review}${thread}${replyBox}${src.footer(rv, busy)}</section>`;
 }
 
-function ideaBind(root, t) {
-  if (!root || !t || !ideaApplies(t)) return;
-  const K = IDEA_KINDS[ideaKind(t)], IDEA_VERDICT = K.verdict;
-  const rerender = () => { if (typeof dpRefresh === 'function') dpRefresh(); };
-  $$('[data-idea]', root).forEach((el) => el.oninput = () => { ideaForm(t)[el.dataset.idea] = el.value; });
-  const rep = $('[data-ideareply]', root); if (rep) rep.oninput = () => { IDEA.reply[t.id] = rep.value; };
+/** Tombol inti tahap ide: simpan draf, review, balas, pakai sudut. */
+function ideaCoreBind(root, src) {
+  const K = IDEA_KINDS[src.kind], IDEA_VERDICT = K.verdict, key = src.key;
+  $$('[data-idea]', root).forEach((el) => el.oninput = () => { src.form()[el.dataset.idea] = el.value; });
+  const rep = $('[data-ideareply]', root); if (rep) rep.oninput = () => { IDEA.reply[key] = rep.value; };
   const run = async (kind, action, extra, okMsg) => {
-    if (IDEA.busy[t.id]) return;
-    IDEA.busy[t.id] = kind; rerender();
+    if (IDEA.busy[key]) return;
+    IDEA.busy[key] = kind; src.rerender();
     try {
-      const r = await api.call(action, Object.assign({ taskId: t.id }, extra || {}));
-      if (r && r.idea) { patchTask(t.id, { idea: r.idea }); IDEA.draft[t.id] = Object.assign({}, r.idea.form || {}); }
+      const r = await api.call(action, Object.assign({}, src.ids, extra || {}));
+      if (r && r.idea) { src.apply(r); IDEA.draft[key] = Object.assign({}, r.idea.form || {}); }
+      else if (r && r.item && src.apply) src.apply(r);
       if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg);
       return r;
     } catch (e) { toast(cleanErr(e), true); return null; }
-    finally { delete IDEA.busy[t.id]; saveCache(); rerender(); }
+    finally { delete IDEA.busy[key]; saveCache(); src.rerender(); }
   };
-  const form = () => Object.assign({}, ideaForm(t));
+  const form = () => Object.assign({}, src.form());
   $$('[data-ideasave]', root).forEach((b) => b.onclick = () => run('save', 'ideaSave', { form: form() }, 'Draf ide disimpan'));
   $$('[data-idearev]', root).forEach((b) => b.onclick = () => {
     const f = form();
@@ -131,16 +136,28 @@ function ideaBind(root, t) {
     run('review', 'ideaReview', { form: f }, (r) => r && r.idea ? `Review Claude: ${(IDEA_VERDICT[r.idea.reviews[r.idea.reviews.length - 1].verdict] || ['–'])[0]}` : '');
   });
   $$('[data-ideasend]', root).forEach((b) => b.onclick = async () => {
-    const text = String(IDEA.reply[t.id] || '').trim();
+    const text = String(IDEA.reply[key] || '').trim();
     if (text.length < 3) { toast('Tulis pesan dulu.', true); return; }
     const r = await run('reply', 'ideaReply', { text, form: form() });
-    if (r) { IDEA.reply[t.id] = ''; rerender(); }
+    if (r) { IDEA.reply[key] = ''; src.rerender(); }
   });
   $$('[data-ideaalt]', root).forEach((b) => b.onclick = () => {
-    const rv = ((t.idea || {}).reviews || []).slice(-1)[0], a = rv && rv.alts[Number(b.dataset.ideaalt)]; if (!a) return;
-    const f = ideaForm(t); f.angle = a.title + ' — ' + a.desc;
-    toast('Sudut pandang diganti. Sesuaikan isinya, lalu Simpan draf atau Review ulang ide.'); rerender();
+    const rv = ((src.idea || {}).reviews || []).slice(-1)[0], a = rv && rv.alts[Number(b.dataset.ideaalt)]; if (!a) return;
+    src.form().angle = a.title + ' — ' + a.desc;
+    toast('Sudut pandang diganti. Sesuaikan isinya, lalu Simpan draf atau Review ulang ide.'); src.rerender();
   });
+  return { run, form };
+}
+
+function ideaSection(t) {
+  if (!ideaApplies(t) || !t.id) return '';
+  return ideaCoreHtml(ideaTaskSrc(t));
+}
+
+function ideaBind(root, t) {
+  if (!root || !t || !ideaApplies(t)) return;
+  const src = ideaTaskSrc(t), K = IDEA_KINDS[src.kind], IDEA_VERDICT = K.verdict;
+  const { run, form } = ideaCoreBind(root, src);
   $$('[data-ideafinal]', root).forEach((b) => b.onclick = async () => {
     const rv = ((t.idea || {}).reviews || []).slice(-1)[0];
     if (rv && rv.verdict !== 'kuat' && !(await confirmBox('Finalkan ide?', `Review terakhir Claude: "${(IDEA_VERDICT[rv.verdict] || ['–'])[0]}". Ide tetap bisa difinalkan bila Anda yakin — admin akan melihat catatannya saat mereview brief.`))) return;

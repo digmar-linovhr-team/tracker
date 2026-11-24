@@ -181,3 +181,11 @@ TZ=Asia/Jakarta node tests/backend.test.js # backend dengan simulasi Sheets/Cale
 ### Tahap Ide untuk Optimasi artikel (v2.40)
 - Task **Artikel** berjenis **Optimasi artikel** melewati tahap Ide berbentuk *Rencana optimasi*: URL artikel, keyword target & kondisi sekarang, diagnosis, kompetitor, rencana perubahan, H1 baru.
 - Claude membaca artikel live (khusus linovhr.com / lawencon.com) lalu menilai ketepatan diagnosis, kecocokan maksud pencarian, dampak rencana, celah kompetitor, dan peluang AI Overview (*Siap dikerjakan / Perlu dipertajam / Diagnosis keliru*), plus data yang perlu dicek dulu.
+
+## Bank Ide — brainstorming topik tanpa task (v2.41)
+- Menu **Bank Ide** (versi Firebase & demo): semua anggota mengusulkan topik *Artikel TL industri*, *Studi kasus*, atau *Optimasi artikel* tanpa harus punya task.
+- Alur: **Usulkan ide** (pilih jenis & industri) → isi form ide yang sama dengan tahap Ide di task → **Diskusikan dengan AI** (review + balasan, kuota 5 review & 10 balasan per ide) → **Ajukan ke admin**. Ide hanya bisa diajukan setelah direview Claude minimal sekali.
+- Claude ikut membaca usulan rekan lain untuk jenis & industri yang sama, sehingga topik ganda ditandai.
+- Admin: **Setujui / Minta revisi / Tolak** (catatan wajib untuk revisi & tolak). Ide yang disetujui → **Jadikan task**: form task terisi (judul, jenis output, industri, pengusul); setelah tersimpan, ide masuk ke `task.idea` sebagai ide final (`fromBank`) sehingga writer langsung menyusun brief.
+- Halaman menampilkan tenggat periode (`BANK_PERIOD` di `web/js/bank.js`), capaian ide disetujui dibanding target bulanan (menu Target), rekap per orang, dan cakupan 17 industri.
+- Data di koleksi `ideas/` — dibaca semua anggota, ditulis lewat Apps Script (`bankSave/bankSubmit/bankDecide/bankDelete/bankUse`, review & balasan memakai `ideaReview/ideaReply` dengan `ideaId`). Bila aturan Firestore belum dipasang, daftar dibaca lewat server (`bankList`). **Perlu Code.gs v34 + aturan Firestore terbaru.**

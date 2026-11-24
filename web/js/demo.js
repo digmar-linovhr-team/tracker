@@ -343,8 +343,8 @@ function reqAction(s, me, id, act, p) {
 
 
 // ---------- tahap Ide (mode demo: jawaban Claude tiruan) ----------
-function demoIdea(s, a, b, me) {
-  const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
+function demoIdea(s, a, b, me, tOver) {
+  const t = tOver || s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
   if (!t) throw new Error('Task tidak ditemukan');
   if (t.type !== 'Artikel' || !['Artikel TL industri', 'Studi kasus', 'Optimasi artikel'].includes(t.outKind)) throw new Error('Tahap ide hanya untuk task Artikel TL industri, Studi kasus, dan Optimasi artikel.');
   const isCase = t.outKind === 'Studi kasus', isOpt = t.outKind === 'Optimasi artikel';
@@ -408,6 +408,75 @@ function demoIdea(s, a, b, me) {
     idea.chat.push({ role: 'user', by: me.username, text, at: now });
     idea.chat.push({ role: 'ai', text: 'Bisa. Buka dengan argumen utama, lalu jadikan data atau tabel sebagai buktinya, dan tutup dengan rekomendasi untuk HR di ' + ind + '. (Jawaban contoh — mode demo.)', at: now });
     return { idea };
+  }
+  throw new Error('Aksi tidak dikenal');
+}
+
+// ---------- Bank Ide (brainstorming topik tanpa task) ----------
+const BANK_KIND_OUT = { tl: 'Artikel TL industri', case: 'Studi kasus', opt: 'Optimasi artikel' };
+const BANK_EDITABLE = ['Draft', 'Revisi'];
+function bankTitleOf(f) { f = f || {}; return String(f.title || f.client || f.url || f.problem || f.before || '').trim().slice(0, 200); }
+function demoBank(s, a, b, me) {
+  s.ideas = s.ideas || [];
+  const now = new Date().toISOString(), admin = me.role === 'admin';
+  const get = (id) => { const d = s.ideas.find((x) => x.id === id); if (!d) throw new Error('Ide tidak ditemukan. Muat ulang halaman.'); return d; };
+  const mine = (d) => { if (!admin && d.author !== me.username) throw new Error('Hanya pengusul ide dan admin yang bisa mengubah ide ini.'); };
+  const open = (d) => { if (!BANK_EDITABLE.includes(d.status)) throw new Error('Ide ini sudah ' + d.status.toLowerCase() + ', jadi tidak bisa diubah. Minta admin mengembalikannya untuk revisi.'); };
+  const keys = (k) => k === 'opt' ? ['url', 'keyword', 'problem', 'competitor', 'plan', 'title'] : k === 'case' ? ['client', 'scale', 'before', 'solution', 'result', 'permit', 'title'] : ['problem', 'reason', 'angle', 'reader', 'title', 'data'];
+  const clean = (f, k) => { const o = {}; keys(k).forEach((x) => { o[x] = String((f || {})[x] || '').trim().slice(0, 1200); }); return o; };
+  if (a === 'ideaSave' || a === 'ideaReview' || a === 'ideaReply') {
+    const d = get(b.ideaId); mine(d); open(d);
+    const pseudo = { id: d.id, type: 'Artikel', outKind: BANK_KIND_OUT[d.kind], industry: d.industry, idea: d.idea };
+    const r = demoIdea(s, a, b, me, pseudo);
+    d.idea = pseudo.idea; d.title = bankTitleOf(d.idea.form); d.updatedAt = now;
+    return { idea: r.idea, item: d };
+  }
+  if (a === 'bankList') return { ideas: s.ideas };
+  if (a === 'bankSave') {
+    const x = b.item || {};
+    if (!BANK_KIND_OUT[x.kind]) throw new Error('Pilih jenis ide: Artikel TL industri, Studi kasus, atau Optimasi artikel.');
+    const ind = String(x.industry || '').trim();
+    if (x.kind !== 'opt' && !ind) throw new Error('Pilih industri untuk ide ini.');
+    if (!x.id) {
+      const u = s.users.find((y) => y.username === me.username) || {};
+      const d = { id: nid('I'), kind: x.kind, industry: ind, author: me.username, authorName: u.name || me.username, status: 'Draft',
+        idea: { form: clean(x.form, x.kind), reviews: [], chat: [] }, createdAt: now, updatedAt: now, period: x.period || '' };
+      d.title = bankTitleOf(d.idea.form); s.ideas.push(d); return { item: d };
+    }
+    const d = get(x.id); mine(d); open(d);
+    if (x.kind !== d.kind && d.idea.reviews.length) throw new Error('Jenis ide tidak bisa diganti setelah direview Claude. Buat ide baru.');
+    Object.assign(d, { kind: x.kind, industry: ind, updatedAt: now }); d.idea.form = clean(x.form || d.idea.form, x.kind); d.title = bankTitleOf(d.idea.form);
+    return { item: d };
+  }
+  if (a === 'bankSubmit') {
+    const d = get(b.ideaId); mine(d); open(d);
+    if (b.form) d.idea.form = clean(b.form, d.kind);
+    if (!d.idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum diajukan.');
+    Object.assign(d, { status: 'Diajukan', submittedAt: now, updatedAt: now, title: bankTitleOf(d.idea.form) }); return { item: d };
+  }
+  if (a === 'bankDecide') {
+    const d = get(b.ideaId), act = b.decision, note = String(b.note || '').trim();
+    const next = { approve: 'Disetujui', revise: 'Revisi', reject: 'Ditolak', withdraw: 'Draft' }[act];
+    if (!next) throw new Error('Keputusan tidak dikenal');
+    if (act === 'withdraw') { if (d.author !== me.username && !admin) throw new Error('Hanya pengusul yang bisa menarik ide.'); if (d.status !== 'Diajukan') throw new Error('Hanya ide yang sedang diajukan yang bisa ditarik kembali.'); }
+    else {
+      if (!admin) throw new Error('Hanya admin yang bisa memutuskan ide.');
+      if (d.status === 'Dipakai') throw new Error('Ide ini sudah dijadikan task.');
+      if ((act === 'revise' || act === 'reject') && note.length < 5) throw new Error('Tulis catatan untuk pengusul (minimal 5 karakter).');
+      d.decision = { status: next, by: me.username, byName: (s.users.find((y) => y.username === me.username) || {}).name || me.username, at: now, note };
+    }
+    d.status = next; d.updatedAt = now; return { item: d };
+  }
+  if (a === 'bankDelete') {
+    const d = get(b.ideaId);
+    if (!admin && !(d.author === me.username && BANK_EDITABLE.includes(d.status))) throw new Error('Hanya draf milik Anda yang bisa dihapus.');
+    s.ideas = s.ideas.filter((x) => x.id !== d.id); return { removed: d.id };
+  }
+  if (a === 'bankUse') {
+    if (!admin) throw new Error('Hanya admin yang bisa menjadikan ide sebagai task.');
+    const d = get(b.ideaId), t = s.tasks.find((x) => x.id === b.taskId); if (!t) throw new Error('Task tidak ditemukan');
+    t.idea = { form: Object.assign({}, d.idea.form), reviews: d.idea.reviews.slice(), chat: d.idea.chat.slice(), final: true, finalAt: now, finalBy: me.username, fromBank: d.id };
+    Object.assign(d, { status: 'Dipakai', taskId: t.id, usedAt: now, updatedAt: now }); return { item: d };
   }
   throw new Error('Aksi tidak dikenal');
 }
@@ -724,7 +793,10 @@ function handle(action, b, session) {
     }
     case 'aiSettings': { if (me.role !== 'admin') throw new Error('Hanya admin'); s.aiCfg = Object.assign({}, s.aiCfg || {}, b.settings || {}); return handle('aiStatus', {}, session); }
     case 'aiCheck': case 'aiFix': case 'aiMark': case 'aiAllow': return demoAi(s, action, b, me);
-    case 'ideaSave': case 'ideaReview': case 'ideaReply': case 'ideaFinal': case 'ideaSkip': return demoIdea(s, action, b, me);
+    case 'ideaSave': case 'ideaReview': case 'ideaReply': if (b.ideaId) return demoBank(s, action, b, me); return demoIdea(s, action, b, me);
+    case 'ideaFinal': case 'ideaSkip': return demoIdea(s, action, b, me);
+    case 'ideas': return { ideas: s.ideas || [] };
+    case 'bankList': case 'bankSave': case 'bankSubmit': case 'bankDecide': case 'bankDelete': case 'bankUse': return demoBank(s, action, b, me);
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {

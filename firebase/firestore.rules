@@ -111,6 +111,12 @@ service cloud.firestore {
       allow delete: if admin() || (active() && old().createdBy == uname());
     }
 
+    // ---------- Bank Ide (brainstorming topik) — semua anggota membaca; penulisan lewat server (Apps Script) ----------
+    match /ideas/{id} {
+      allow read: if active();
+      allow write: if admin();
+    }
+
     // ---------- jadwal kerja ----------
     match /schedule/{id} {
       allow read: if active();

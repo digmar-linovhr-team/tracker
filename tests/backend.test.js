@@ -1328,4 +1328,63 @@ it('Claude menerima brief lengkap & artikel berstruktur (tabel, daftar, gambar)'
   assert.ok(!sandbox.aiCheckSchema_('brief').properties.coverage && !sandbox.aiCheckSchema_('brief').required.includes('coverage'));
 });
 
+if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → keputusan admin → jadi task; topik rekan di industri sama ikut dibaca', () => {
+  const realFetch = sandbox.UrlFetchApp.fetch, sent = [];
+  const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
+  sandbox.UrlFetchApp.fetch = (url, opt) => {
+    if (/api\.anthropic\.com/.test(url)) {
+      const body = JSON.parse(opt.payload); sent.push(body);
+      const out = /berdiskusi dengan writer/.test(body.system) ? { reply: 'Fokus ke garmen boleh, tapi sebut alasannya.' }
+        : { verdict: 'pertajam', summary: 'Arah benar, perlu data.', points: [{ key: 'fit', status: 'kuat', note: 'Khas pabrik.' }, { key: 'data', status: 'lemah', note: 'Belum ada data.' }],
+          alts: [{ title: 'Lembur sebagai masalah data', desc: 'Mulai dari sumber absensi.' }], questions: ['Berapa pabrik 3 shift?'], prompts: [] };
+      return resp(200, { content: [{ type: 'text', text: JSON.stringify(out) }], usage: { input_tokens: 1200, output_tokens: 300 }, stop_reason: 'end_turn' });
+    }
+    return realFetch(url, opt);
+  };
+  props.ANTHROPIC_API_KEY = 'kunci-uji';
+  const ammar = { username: 'ammar', name: 'Ammar', role: 'member' }, fahmi = { username: 'fahmi', name: 'Fahmi', role: 'member' }, adm = { username: 'admin', name: 'Admin', role: 'admin' };
+  assert.throws(() => sandbox.bankSave_(ammar, { item: { kind: 'tl', form: {} } }), /Pilih industri/);
+  let r = sandbox.bankSave_(ammar, { item: { kind: 'tl', industry: 'Manufaktur', form: { title: 'Lembur pabrik 3 shift' } } });
+  const id = r.item.id;
+  assert.strictEqual(r.item.status, 'Draft'); assert.strictEqual(r.item.title, 'Lembur pabrik 3 shift'); assert.ok(/^I/.test(id));
+  const form = { problem: 'Pabrik 3 shift sulit menghitung lembur karena data absensi tersebar.', angle: 'Lembur pabrik adalah masalah data kehadiran, bukan rumus.', title: 'Lembur pabrik 3 shift' };
+  assert.throws(() => sandbox.ideaReview_(fahmi, { ideaId: id, form }), /pengusul ide dan admin/);
+  assert.throws(() => sandbox.bankSubmit_(ammar, { ideaId: id }), /Diskusikan ide dengan AI dulu/);
+  r = sandbox.ideaReview_(ammar, { ideaId: id, form });
+  assert.strictEqual(r.idea.reviews.length, 1); assert.strictEqual(r.item.status, 'Draft'); assert.strictEqual(sandbox.fsGet_('ideas/' + id).idea.reviews[0].verdict, 'pertajam');
+  r = sandbox.ideaReply_(ammar, { ideaId: id, text: 'Fokus ke garmen saja?' });
+  assert.strictEqual(r.idea.chat.length, 2);
+  // ide kedua oleh Fahmi di industri yang sama: Claude membaca usulan Ammar
+  const id2 = sandbox.bankSave_(fahmi, { item: { kind: 'tl', industry: 'Manufaktur', form: {} } }).item.id;
+  sandbox.ideaReview_(fahmi, { ideaId: id2, form: { problem: 'Upah lembur pabrik sering salah dihitung saat shift malam.', angle: 'Kalkulator lembur otomatis menghemat biaya sengketa.', title: 'Lembur shift malam' } });
+  assert.ok(/usulan Bank Ide oleh Ammar\] Lembur pabrik 3 shift/.test(sent[sent.length - 1].messages[0].content), 'usulan rekan ikut dibaca Claude');
+  // ajukan → terkunci → tarik → ajukan lagi
+  r = sandbox.bankSubmit_(ammar, { ideaId: id, form });
+  assert.strictEqual(r.item.status, 'Diajukan');
+  assert.throws(() => sandbox.ideaSave_(ammar, { ideaId: id, form }), /sudah diajukan/);
+  assert.throws(() => sandbox.bankDecide_(ammar, { ideaId: id, decision: 'approve' }), /Hanya admin/);
+  assert.strictEqual(sandbox.bankDecide_(ammar, { ideaId: id, decision: 'withdraw' }).item.status, 'Draft');
+  sandbox.bankSubmit_(ammar, { ideaId: id });
+  assert.throws(() => sandbox.bankDecide_(adm, { ideaId: id, decision: 'revise', note: '' }), /Tulis catatan/);
+  r = sandbox.bankDecide_(adm, { ideaId: id, decision: 'revise', note: 'Tambahkan data BPS.' });
+  assert.strictEqual(r.item.status, 'Revisi'); assert.strictEqual(r.item.decision.note, 'Tambahkan data BPS.');
+  assert.doesNotThrow(() => sandbox.ideaSave_(ammar, { ideaId: id, form: Object.assign({}, form, { data: 'BPS 2025' }) }), 'revisi bisa diubah');
+  sandbox.bankSubmit_(ammar, { ideaId: id });
+  assert.strictEqual(sandbox.bankDecide_(adm, { ideaId: id, decision: 'approve' }).item.status, 'Disetujui');
+  // jadi task: ide masuk sebagai ide final
+  sandbox.fsSet_('tasks/TBK1', { owner: 'ammar', task: 'Lembur pabrik 3 shift', type: 'Artikel', stage: 1, status: 'Backlog', outKind: 'Artikel TL industri', industry: 'Manufaktur', updatedAt: new Date() });
+  assert.throws(() => sandbox.bankUse_(ammar, { ideaId: id, taskId: 'TBK1' }), /Hanya admin/);
+  r = sandbox.bankUse_(adm, { ideaId: id, taskId: 'TBK1' });
+  assert.strictEqual(r.item.status, 'Dipakai'); assert.strictEqual(r.item.taskId, 'TBK1');
+  const tk = sandbox.fsGet_('tasks/TBK1');
+  assert.strictEqual(tk.idea.final, true); assert.strictEqual(tk.idea.fromBank, id); assert.strictEqual(tk.idea.form.data, 'BPS 2025'); assert.strictEqual(tk.idea.reviews.length, 1);
+  assert.throws(() => sandbox.bankDecide_(adm, { ideaId: id, decision: 'reject', note: 'tidak jadi' }), /sudah dijadikan task/);
+  // hapus: pengusul hanya draf miliknya
+  assert.throws(() => sandbox.bankDelete_(ammar, { ideaId: id2 }), /draf milik Anda/);
+  assert.strictEqual(sandbox.bankDelete_(fahmi, { ideaId: id2 }).removed, id2);
+  assert.strictEqual(sandbox.fsGet_('ideas/' + id2), null);
+  assert.ok(sandbox.bankList_().ideas.some((x) => x.id === id && x.status === 'Dipakai'));
+  sandbox.UrlFetchApp.fetch = realFetch; delete props.ANTHROPIC_API_KEY;
+});
+
 console.log(`\n${n} uji backend lulus`);

@@ -48,6 +48,7 @@ const ICONS = {
   briefs: svg('<path d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1z"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 11h8M8 15h5"/>'),
   review: svg('<path d="M9 11l2 2 4-4"/><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/>'),
   target: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>'),
+  ideas: svg('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/>'),
   backlinks: svg('<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
@@ -256,6 +257,7 @@ function renderNav() {
   const items = [];
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
+  if (typeof bankAvailable === 'function' && bankAvailable()) items.push(['ideas', 'Bank Ide', 'Ide', typeof bankBadge === 'function' ? bankBadge() : 0, 'info']);
   items.push(['target', 'Target', 'Target']);
   if (blAvailable()) items.push(['backlinks', 'Backlink', 'Backlink']);
   items.push(['team', 'Tim', 'Tim']);
@@ -281,7 +283,7 @@ function saveCache() {
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
-function resetSession() { S.backlinks = null; S.blAt = 0; S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
+function resetSession() { S.bank = null; S.bankAt = 0; S.bkf = null; S.bkNote = null; S.backlinks = null; S.blAt = 0; S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -311,6 +313,7 @@ async function loadData(quiet) {
     if (br) S.briefs = br;
     else if (!S.user.sheetName && S.user.role !== 'admin') { try { S.briefs = (await api.call('briefs')).briefs || []; } catch (e) { /* abaikan */ } }
     if (S.backlinks && typeof loadBacklinks === 'function') await loadBacklinks(true);
+    if (typeof loadBank === 'function' && bankAvailable()) loadBank(true).then((ch) => { if (ch) { renderNav(); if (S.view === 'ideas' && !$('#modal-root .modal')) softRender(); } });
     if (typeof socialNotify === 'function') socialNotify();
     if (S.user.role === 'admin' && typeof loadSched === 'function') loadSched(S.sched && S.sched.week, true).then((ok) => { if (ok) { renderNav(); if (S.view === 'review') softRender(); } });
     S.lastSync = new Date();
@@ -360,6 +363,7 @@ function go(view) {
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
     target: ['Target', 'Capaian hasil kerja dibanding target bulanan & tahunan'],
     backlinks: ['Backlink', 'Pipeline outreach backlink LinovHR & Lawencon'],
+    ideas: ['Bank Ide', 'Brainstorming topik artikel bersama Claude sebelum jadi task'],
     briefs: ['Brief', 'Brief artikel & konten sosmed'],
     brief: ['Brief', 'Brief'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']
@@ -368,7 +372,7 @@ function go(view) {
   $('#view-sub').textContent = titles[view][1];
   // halaman Review & Brief selalu disegarkan di belakang layar agar pengajuan terbaru langsung terlihat
   if ((view === 'review' || view === 'briefs') && (!S.lastSync || Date.now() - S.lastSync > 15000) && !S.pending.size) refreshInBackground(0);
-  ({ mine: viewMine, dashboard: viewDashboard, target: viewTarget, backlinks: viewBacklinks, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, target: viewTarget, backlinks: viewBacklinks, ideas: viewIdeas, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
   if (typeof dpRefresh === 'function') dpRefresh();
   if (view === 'brief' && typeof draftBanner === 'function') draftBanner();
 }
@@ -1615,7 +1619,7 @@ function renderTaskTable() {
 
 const TYPE_HINT = { 'Non-artikel': 'Alur biasa: Mulai → Ajukan review → Done.', Artikel: 'Alur 8 tahap: brief → review brief → menulis → review artikel → publish → cek AI → review cek AI → Done. KPI dihitung dengan jam kerja.', Sosmed: 'Konten sosmed: alur biasa (Mulai → Ajukan review → Done). Brief-nya dibuat dari menu Brief › Sosmed.', Request: 'Task dari menu Brief › Request: penerima menerima/klarifikasi → mengajukan hasil → pembuat request menyetujui.' };
 const taskType = (t) => L.isArticle(t) ? 'Artikel' : t && (t.type === 'Sosmed' || t.type === 'Request') ? t.type : 'Non-artikel';
-function taskModal(t, prefill) {
+function taskModal(t, prefill, opts) {
   const all = S.all, edit = !!t && !prefill;
   t = t || { owner: S.f.towners.length === 1 ? S.f.towners[0] : '', code: S.f.tcodes.length === 1 ? S.f.tcodes[0] : '', startTime: '09:00', endTime: '18:00', priority: 'Medium', status: 'Backlog' };
   if (edit && !t.id) return toast('Task ini belum punya Task ID. Jalankan menu Setup di spreadsheet.', true);
@@ -1754,7 +1758,7 @@ function taskModal(t, prefill) {
           data.members = picked.who.filter((u) => u !== data.owner);
         }
         close();
-        saveTaskOptimistic(data, edit ? t : null);
+        saveTaskOptimistic(data, edit ? t : null, undefined, opts && opts.onCreated);
       };
     }
   });
@@ -1779,7 +1783,7 @@ function peopleChips(people, wl, selected, id) {
   return `<div class="pp-chips" id="${id}" role="group">${people.map((u) => { const w = wl[u.username], on = selected.includes(u.username);
     return `<button type="button" class="pp-chip ${on ? 'on' : ''}" data-u="${esc(u.username)}" aria-pressed="${on}"><b>${esc(u.name)}</b><small class="ld-${w ? w.level : 'light'}" title="${esc(workloadText(w))}">${w && w.active ? `${w.active} aktif${w.overdue ? ` · ${w.overdue} telat` : ''}` : 'Kosong'}</small></button>`; }).join('')}</div>`;
 }
-async function saveTaskOptimistic(data, orig, batch) {
+async function saveTaskOptimistic(data, orig, batch, onCreated) {
   const owner = S.all.users.find((u) => u.username === data.owner) || {};
   const snapAll = S.all.tasks.slice(), snapMine = S.mine.tasks.slice();
   const id = orig ? orig.id : 'tmp-' + Date.now();
@@ -1804,6 +1808,7 @@ async function saveTaskOptimistic(data, orig, batch) {
       S.all.tasks = S.all.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(nt);
       S.mine.tasks = S.mine.tasks.filter((x) => x.id !== id && x.id !== nt.id).concat(L.isOn(nt, S.user.username) ? [nt] : []);
       syncProjects([nt.code, orig && orig.code], r.projects);
+      if (onCreated && !orig) { try { await onCreated(nt); } catch (e) { toast(cleanErr(e), true); } }
     }
     saveCache(); softRender();
   } catch (err) {

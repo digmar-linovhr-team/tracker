@@ -11,7 +11,8 @@
   var DOMAIN = FB.emailDomain || 'linovhr-tracker.firebaseapp.com';   // email sintetis akun: <username>@DOMAIN
   var app = null, auth = null, db = null, FV = null;
   var S = null, me = '', isAdmin = false, unsubs = [], readyP = null, listeners = {}, changeTimer = null, writing = 0;
-  var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1, aiCheck: 1, aiFix: 1, aiMark: 1, aiAllow: 1, aiStatus: 1, aiSettings: 1, ideaSave: 1, ideaReview: 1, ideaReply: 1, ideaFinal: 1, ideaSkip: 1 };
+  var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1, aiCheck: 1, aiFix: 1, aiMark: 1, aiAllow: 1, aiStatus: 1, aiSettings: 1, ideaSave: 1, ideaReview: 1, ideaReply: 1, ideaFinal: 1, ideaSkip: 1,
+    bankList: 1, bankSave: 1, bankSubmit: 1, bankDecide: 1, bankDelete: 1, bankUse: 1 };
 
   function emit(ch, d) { (listeners[ch] || []).forEach(function (fn) { try { fn(d); } catch (e) { console.error(e); } }); }
   function emailOf(u) { return String(u).trim().toLowerCase() + '@' + DOMAIN; }
@@ -39,7 +40,8 @@
     return v;
   }
   function docData(d) { return plain(d.data({ serverTimestamps: 'estimate' })); }
-  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {}, backlinks: {} };
+  var softFail = {};   // koleksi tambahan yang aturannya belum terpasang → dibaca lewat server
+  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {}, backlinks: {}, ideas: {} };
 
   function nameOf(u) { var x = raw.users[u]; return x ? x.name : u; }
   function rebuild() {
@@ -60,7 +62,7 @@
     var holidays = {};
     Object.keys(raw.holidays).forEach(function (d) { holidays[d] = raw.holidays[d].name || 'Libur'; });
     var list = function (col) { return Object.keys(raw[col]).map(function (id) { return Object.assign({}, raw[col][id], { id: id }); }); };
-    S = { users: users, tasks: tasks, projects: projects, briefs: briefs, sched: sched, sreqs: list('schedRequests'), holidays: holidays, leaves: list('leaves'), comments: list('comments'), backlinks: list('backlinks') };
+    S = { users: users, tasks: tasks, projects: projects, briefs: briefs, sched: sched, sreqs: list('schedRequests'), holidays: holidays, leaves: list('leaves'), comments: list('comments'), backlinks: list('backlinks'), ideas: list('ideas') };
   }
   function changed() {
     rebuild();
@@ -82,7 +84,7 @@
             if (col === 'notifications' && !first && c.type === 'added' && !raw[col][key].read) emit('notif:new', Object.assign({ id: key }, raw[col][key]));
           });
           if (first) { first = false; resolve(); } else changed();
-        }, function (err) { console.error('Langganan ' + name + ' gagal', err); if (first && soft) { first = false; resolve(); } else if (first) reject(err); else emit('error', err); }));
+        }, function (err) { console.error('Langganan ' + name + ' gagal', err); if (soft) softFail[col] = true; if (first && soft) { first = false; resolve(); } else if (first) reject(err); else emit('error', err); }));
       }));
     };
     add('users', db.collection('users'), 'users');
@@ -101,6 +103,7 @@
     }
     add('comments', db.collection('comments'), 'comments');
     add('backlinks', db.collection('backlinks'), 'backlinks', null, true);
+    add('ideas', db.collection('ideas'), 'ideas', null, true);
     add('notifications', db.collection('notifications').where('to', '==', me), 'notifications');
     if (isAdmin) add('devices', db.collection('devices'), 'devices');
     return Promise.all(pending).then(rebuild);
@@ -109,7 +112,7 @@
     unsubs.forEach(function (u) { try { u(); } catch (e) { /* abaikan */ } });
     unsubs = [];
     Object.keys(raw).forEach(function (k) { raw[k] = {}; });
-    S = null;
+    S = null; softFail = {};
   }
 
   /** Tunggu sesi login & data awal. */
@@ -308,6 +311,18 @@
     }
     return out;
   }
+  /** Notifikasi Bank Ide: ide diajukan → admin; keputusan admin → pengusul. */
+  function bankNotifs(action, p, r) {
+    var it = r && r.item; if (!it || !S) return [];
+    var myName = (S.users.find(function (u) { return u.username === me; }) || {}).name || me, title = it.title || 'ide tanpa judul';
+    if (action === 'bankSubmit') return S.users.filter(function (u) { return u.role === 'admin' && u.active !== false && !u.orgOnly && u.username !== me; })
+      .map(function (u) { return { to: u.username, type: 'bank', text: myName + ' mengajukan ide: ' + title, view: 'ideas' }; });
+    if (action === 'bankDecide' && p.decision !== 'withdraw' && it.author && it.author !== me) {
+      var w = { approve: 'menyetujui', revise: 'meminta revisi', reject: 'menolak' }[p.decision] || 'memutuskan';
+      return [{ to: it.author, type: 'bank', text: myName + ' ' + w + ' ide Anda: ' + title + (p.note ? ' — ' + String(p.note).slice(0, 80) : ''), view: 'ideas' }];
+    }
+    return [];
+  }
   async function sendNotifs(list) {
     if (!list.length) return;
     var b = db.batch(), ids = [], ts = FV.serverTimestamp();
@@ -402,7 +417,14 @@
     payload = payload || {};
     await ensureReady();
     if (action === 'saveUser' && !S.users.some(function (u) { return u.username === String((payload.user || {}).username || '').toLowerCase(); })) action = 'saveUserNew';
-    if (SERVER_ACTIONS[action]) return server('fb:' + action, payload);
+    if (action === 'ideas' && softFail.ideas) return server('fb:bankList', {});
+    if (SERVER_ACTIONS[action]) {
+      var sr = await server('fb:' + action, payload);
+      if (sr && sr.item && raw.ideas) { raw.ideas[sr.item.id] = omit(sr.item, { id: 1 }); rebuild(); }
+      if (sr && sr.removed && raw.ideas) { delete raw.ideas[sr.removed]; rebuild(); }
+      try { await sendNotifs(bankNotifs(action, payload, sr)); } catch (e) { console.warn('Notifikasi tidak terkirim', e); }
+      return sr;
+    }
     if (action === 'aiConfig') { var cf = await aiSettingsDoc();
       return { gate: cf.gate !== false, pass: Object.assign({ brief: 70, draft: 75, live: 80 }, cf.pass || {}) }; }
     if (action === 'notifications') return { notifications: listNotifs() };
