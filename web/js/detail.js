@@ -203,6 +203,7 @@ function dpTaskTop(t) {
       ${canEditResults(t) ? `<button type="button" class="btn sm ghost" data-res="${esc(t.id)}">${list.length || note ? 'Ubah hasil kerja' : '+ Tambah hasil kerja'}</button>` : ''}
     </section>
     ${brief ? `<section class="dp-sec"><h3>${brief.type === 'Request' ? 'Request' : 'Brief'}</h3><div class="dp-brief">${briefChips(t, true)}</div></section>` : ''}
+    ${typeof ideaSection === 'function' ? ideaSection(t) : ''}
     ${typeof aiSection === 'function' ? aiSection(t) : ''}`;
 }
 function dpLink(label, url) {
@@ -241,6 +242,7 @@ function dpBindTop(t) {
   $$('[data-dpret]', root).forEach((b) => b.onclick = () => returnModal(b.dataset.dpret));
   $$('[data-dpedit]', root).forEach((b) => b.onclick = () => { const x = (S.all && S.all.tasks.find((y) => y.id === b.dataset.dpedit)) || t; taskModal(x); });
   if (typeof aiBind === 'function') aiBind(root, t);
+  if (typeof ideaBind === 'function') ideaBind(root, t);
 }
 
 /** Linimasa (catatan sistem) & komentar dipisah saat utas tampil di panel task. */

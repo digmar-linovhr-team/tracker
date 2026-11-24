@@ -78,7 +78,8 @@ function normBrief(d) {
   return d;
 }
 function newBriefData(task) {
-  return normBrief({ v: 2, kwMain: guessKeyword(task), contentType: 'Informasional', sections: [blankH2(), blankH2(), blankH2()] });
+  const d = normBrief({ v: 2, kwMain: guessKeyword(task), contentType: 'Informasional', sections: [blankH2(), blankH2(), blankH2()] });
+  return typeof ideaBriefSeed === 'function' ? ideaBriefSeed(task, d) : d;
 }
 function guessKeyword(task) {
   const s = String(task.task || '').trim();
@@ -196,6 +197,9 @@ function newBriefModal(taskId, copyFrom) {
       $('#nbok', m).onclick = async () => {
         const f = $('#nbf', m); if (!f.reportValidity()) return;
         const task = list.find((t) => t.id === f.taskId.value);
+        if (typeof ideaReady === 'function' && !ideaReady(task) && S.user.role !== 'admin') {
+          $('#nberr', m).innerHTML = '<div class="error">Task TL industri: finalkan ide dulu di panel task (tahap Ide) sebelum membuat brief.</div>'; return;
+        }
         let data = newBriefData(task);
         if (copyFrom) {
           const src = normBrief(JSON.parse(JSON.stringify(copyFrom.data || {})));

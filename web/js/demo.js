@@ -215,7 +215,7 @@ function build() {
     { id: 'KMD4', taskId: op.id, author: 'wisnu', kind: 'user', text: 'Ari, untuk report minggu ini tolong tambahkan data AI Overview juga ya. Contoh format: https://docs.google.com/spreadsheets/d/contoh', mentions: [], createdAt: ago(3) }];
   // jenis output (Grand Plan) & contoh backlink
   [['employee-engagement', 'Artikel TL industri', 'Manufaktur'], ['onboarding-karyawan', 'Artikel TL industri', 'Logistik'], ['payroll-outsourcing', 'Optimasi artikel'],
-    ['hr-analytics', 'Studi kasus', 'Ritel'], ['hris-indonesia', 'Artikel Lawencon'], ['aplikasi-absensi', 'Optimasi artikel'], ['offboarding', 'Artikel TL industri', 'Kesehatan']]
+    ['hr-analytics', 'Studi kasus', 'Ritel'], ['hris-indonesia', 'Artikel Lawencon'], ['aplikasi-absensi', 'Optimasi artikel'], ['offboarding', 'Artikel TL industri', 'Kesehatan'], ['talent-management-strategy', 'Artikel TL industri', 'Pertambangan']]
     .forEach(([frag, kind, ind]) => { const t = tasks.find((x) => x.task.includes(frag)); if (t) { t.outKind = kind; if (ind) t.industry = ind; } });
   const bl = (id, o) => Object.assign({ id, brand: 'LinovHR', kind: 'Backlink', domain: '', sourceUrl: '', targetUrl: '', anchor: '', dr: '', rel: 'Dofollow', via: '', status: 'Prospek', pic: 'arya', date: '', notes: '',
     createdBy: 'arya', createdAt: stamp(-10, 9, 0), updatedAt: stamp(-1, 9, 0), updatedBy: 'arya' }, o);
@@ -341,6 +341,49 @@ function reqAction(s, me, id, act, p) {
   return { brief: b, task: t };
 }
 
+
+// ---------- tahap Ide (mode demo: jawaban Claude tiruan) ----------
+function demoIdea(s, a, b, me) {
+  const t = s.tasks.find((x) => x.id === b.taskId && (me.role === 'admin' || onTask(x, me.username)));
+  if (!t) throw new Error('Task tidak ditemukan');
+  if (t.type !== 'Artikel' || t.outKind !== 'Artikel TL industri') throw new Error('Tahap ide hanya untuk task Artikel TL industri.');
+  const idea = t.idea = Object.assign({ form: {}, reviews: [], chat: [] }, t.idea || {});
+  const clean = (f) => { const o = {}; ['problem', 'reason', 'angle', 'reader', 'title', 'data'].forEach((k) => { o[k] = String((f || {})[k] || '').trim().slice(0, 1200); }); return o; };
+  const now = new Date().toISOString();
+  if (a === 'ideaSkip') { if (me.role !== 'admin') throw new Error('Hanya admin yang bisa melewati tahap ide.'); idea.skipped = true; idea.skippedBy = me.username; return { idea }; }
+  if (a === 'ideaFinal' && b.undo) { if (me.role !== 'admin') throw new Error('Hanya admin yang bisa membuka lagi ide.'); idea.final = false; idea.skipped = false; return { idea }; }
+  if (idea.final || idea.skipped) throw new Error('Ide sudah final. Minta admin membukanya lagi bila perlu diubah.');
+  if (b.form) idea.form = clean(b.form);
+  if (a === 'ideaSave') return { idea };
+  if (a === 'ideaFinal') { if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum difinalkan.'); idea.final = true; idea.finalAt = now; idea.finalBy = me.username; return { idea }; }
+  const ind = t.industry || 'industri ini';
+  if (a === 'ideaReview') {
+    if (idea.reviews.length >= 5) throw new Error('Kuota review ide (5×) untuk task ini sudah habis.');
+    const second = idea.reviews.length >= 1;
+    idea.reviews.push({ at: now, by: me.username, model: 'claude-sonnet-5-5', verdict: second ? 'kuat' : 'pertajam',
+      summary: second ? 'Sudut pandang sudah tajam dan khas ' + ind + '. Siap dijadikan brief.' : 'Masalahnya relevan untuk ' + ind + ', tapi sudut pandangnya masih mirip artikel kompetitor.',
+      points: [
+        { key: 'fit', label: 'Kecocokan dengan industri', status: 'kuat', note: 'Masalah yang diangkat memang dialami perusahaan ' + ind + ', bukan masalah HR umum.' },
+        { key: 'logic', label: 'Konsistensi alasan', status: 'kuat', note: 'Masalah, alasan, dan sudut pandang saling nyambung.' },
+        { key: 'unique', label: 'Pembeda', status: second ? 'kuat' : 'pertajam', note: second ? 'Sudut kalkulator/kerangka praktis belum dibahas kompetitor.' : 'Argumen serupa sudah dibahas 2 kompetitor. Tambahkan kerangka atau data yang belum ada.' },
+        { key: 'data', label: 'Data pendukung', status: idea.form.data ? 'pertajam' : 'lemah', note: idea.form.data ? 'Pastikan regulasi yang dikutip masih berlaku dan pasalnya tepat.' : 'Belum ada data. Cari regulasi sektor dan data BPS/asosiasi industri.' },
+        { key: 'aio', label: 'Peluang AI Overview', status: 'kuat', note: 'Bisa menjawab 2 prompt AIO untuk industri ini.' }],
+      alts: [{ title: 'Kerangka keputusan untuk HR ' + ind, desc: 'Tabel praktis yang mudah dikutip AI Overview.' }, { title: 'Biaya tersembunyi masalah ini di ' + ind, desc: 'Hubungkan dengan biaya, risiko, dan produktivitas.' }],
+      questions: ['Apakah ada contoh klien LinovHR di ' + ind + ' yang bisa dijadikan contoh singkat?', 'Data apa yang membuktikan masalah ini makin besar?'],
+      prompts: ['Software HR untuk perusahaan ' + ind.toLowerCase() + ' apa?'] });
+    return { idea };
+  }
+  if (a === 'ideaReply') {
+    const text = String(b.text || '').trim().slice(0, 800);
+    if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu.');
+    if (text.length < 3) throw new Error('Tulis pesan dulu.');
+    if (idea.chat.filter((c) => c.role === 'user').length >= 10) throw new Error('Kuota balasan (10×) untuk task ini sudah habis.');
+    idea.chat.push({ role: 'user', by: me.username, text, at: now });
+    idea.chat.push({ role: 'ai', text: 'Bisa. Buka dengan argumen utama, lalu jadikan data atau tabel sebagai buktinya, dan tutup dengan rekomendasi untuk HR di ' + ind + '. (Jawaban contoh — mode demo.)', at: now });
+    return { idea };
+  }
+  throw new Error('Aksi tidak dikenal');
+}
 
 // ---------- backlink ----------
 const BL_STATUS = ['Prospek', 'Outreach terkirim', 'Negosiasi', 'Tayang', 'Ditolak', 'Hilang'];
@@ -538,6 +581,8 @@ function handle(action, b, session) {
       if (!t) throw new Error('Task tidak ditemukan');
       if (t.type === 'Artikel' && me.role !== 'admin' && (t.stage || 1) >= 3) throw new Error('Brief sudah diajukan ke admin, jadi tidak bisa diubah lagi.');
       if (s.briefs.some((x) => x.taskId === br.taskId && x.id !== br.id)) throw new Error('Task ini sudah punya brief. Buka brief yang ada dari menu Brief.');
+      if (me.role !== 'admin' && !s.briefs.some((x) => x.id === br.id) && t.type === 'Artikel' && t.outKind === 'Artikel TL industri' && !(t.idea && (t.idea.final || t.idea.skipped)))
+        throw new Error('Task TL industri: finalkan ide dulu (tahap Ide) sebelum membuat brief.');
       if (JSON.stringify(br.data || {}).length > 45000) throw new Error('Isi brief terlalu panjang');
       if (br.status === 'Siap ditulis' && ((br.data && br.data.competitors) || []).filter((c) => c && c.url).length < 2) throw new Error('Lengkapi dulu: minimal 2 link kompetitor.');
       const now = new Date().toISOString();
@@ -652,6 +697,7 @@ function handle(action, b, session) {
     }
     case 'aiSettings': { if (me.role !== 'admin') throw new Error('Hanya admin'); s.aiCfg = Object.assign({}, s.aiCfg || {}, b.settings || {}); return handle('aiStatus', {}, session); }
     case 'aiCheck': case 'aiFix': case 'aiMark': case 'aiAllow': return demoAi(s, action, b, me);
+    case 'ideaSave': case 'ideaReview': case 'ideaReply': case 'ideaFinal': case 'ideaSkip': return demoIdea(s, action, b, me);
   }
   if (me.role !== 'admin') throw new Error('Hanya admin yang boleh melakukan ini');
   switch (action) {
