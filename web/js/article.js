@@ -27,8 +27,9 @@ function artActions(t, readonly) {
   if (readonly || !mine || !t.id) return `<span class="pill ${ST_CLASS[t.status] || 'st-backlog'}">${esc(st >= 9 ? 'Done' : L.STAGES[st])}</span>`;
   const wait = (txt) => `<span class="art-wait">${HOURGLASS_SVG}${txt}</span>`;
   switch (st) {
-    case 1: return `<button class="btn sm primary" data-art="start" data-id="${id}">Mulai: susun brief</button>`;
-    case 2: return briefOf(t.id)
+    case 1: return `<button class="btn sm primary" data-art="start" data-id="${id}">${typeof ideaReady === 'function' && !ideaReady(t) ? 'Mulai: susun ide' : 'Mulai: susun brief'}</button>`;
+    case 2: if (!briefOf(t.id) && typeof ideaReady === 'function' && !ideaReady(t)) return `<button class="btn sm primary" data-ideaopen="${id}">Susun ide</button>`;
+      return briefOf(t.id)
       ? `<button class="btn sm primary" data-art="submitBrief" data-id="${id}">Ajukan brief</button>`
       : `<button class="btn sm primary" data-newbrief="${id}">+ Buat brief</button>`;
     case 3: return wait('Menunggu review brief');
@@ -44,8 +45,14 @@ function artLinks(t) {
   return (t.liveUrl ? resChip({ label: 'Artikel live', url: t.liveUrl }) : '') + (t.aiCheckUrl ? resChip({ label: 'Hasil cek AI', url: t.aiCheckUrl }) : '');
 }
 
+/** Buka panel task dan gulir ke bagian Ide. */
+function ideaOpen(id) {
+  openTask(id);
+  setTimeout(() => { const el = document.getElementById('idea-sec'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 350);
+}
 function bindArtActions(root) {
   $$('[data-art]', root).forEach((b) => b.onclick = () => artStep(b.dataset.id, b.dataset.art));
+  $$('[data-ideaopen]', root).forEach((b) => b.onclick = () => ideaOpen(b.dataset.ideaopen));
 }
 
 /** Tombol langkah: validasi ringan di sini, lalu kirim ke server. */
@@ -111,12 +118,12 @@ async function advanceStage(id, step, url) {
   if (b && step === 'submitBrief') { b.status = 'Diajukan'; if (S.bEdit && S.bEdit.id === b.id) S.bEdit.b.status = 'Diajukan'; }
   syncProjects([t.code]);
   S.pending.add(id); softRender();
-  toast({ start: 'Silakan susun brief.', submitBrief: 'Brief diajukan ke admin.', submitArticle: 'Artikel diajukan ke admin untuk direview.', publish: 'Tercatat sudah publish. Lanjut cek ulang dengan AI.', submitAiCheck: 'Hasil cek AI diajukan ke admin.' }[step]);
+  toast({ start: typeof ideaReady === 'function' && !ideaReady(t) ? 'Silakan susun ide dulu.' : 'Silakan susun brief.', submitBrief: 'Brief diajukan ke admin.', submitArticle: 'Artikel diajukan ke admin untuk direview.', publish: 'Tercatat sudah publish. Lanjut cek ulang dengan AI.', submitAiCheck: 'Hasil cek AI diajukan ke admin.' }[step]);
   try {
     const r = await api.call('advanceStage', { taskId: id, step, url: url || '' });
     if (r && r.task) patchTask(id, { stage: r.task.stage, status: r.task.status, reviewAt: r.task.reviewAt, startedAt: r.task.startedAt, doneAt: r.task.doneAt, liveUrl: r.task.liveUrl, aiCheckUrl: r.task.aiCheckUrl, stageLog: r.task.stageLog });
     S.pending.delete(id); saveCache(); softRender();
-    if (step === 'start' && !briefOf(id)) newBriefModal(id);
+    if (step === 'start' && !briefOf(id)) { if (typeof ideaReady === 'function' && !ideaReady(findTask(id) || t)) ideaOpen(id); else newBriefModal(id); }
   } catch (e) {
     S.pending.delete(id); patchTask(id, before);
     if (b) { b.status = bBefore; if (S.bEdit && S.bEdit.id === b.id) S.bEdit.b.status = bBefore; }

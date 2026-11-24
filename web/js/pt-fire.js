@@ -11,7 +11,7 @@
   var DOMAIN = FB.emailDomain || 'linovhr-tracker.firebaseapp.com';   // email sintetis akun: <username>@DOMAIN
   var app = null, auth = null, db = null, FV = null;
   var S = null, me = '', isAdmin = false, unsubs = [], readyP = null, listeners = {}, changeTimer = null, writing = 0;
-  var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1, aiCheck: 1, aiFix: 1, aiMark: 1, aiAllow: 1, aiStatus: 1, aiSettings: 1 };
+  var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1, aiCheck: 1, aiFix: 1, aiMark: 1, aiAllow: 1, aiStatus: 1, aiSettings: 1, ideaSave: 1, ideaReview: 1, ideaReply: 1, ideaFinal: 1, ideaSkip: 1 };
 
   function emit(ch, d) { (listeners[ch] || []).forEach(function (fn) { try { fn(d); } catch (e) { console.error(e); } }); }
   function emailOf(u) { return String(u).trim().toLowerCase() + '@' + DOMAIN; }
