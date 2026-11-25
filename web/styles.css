@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.42.2"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.42.3"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1767,5 +1767,11 @@ input, select, textarea { border-radius: 12px; }
   .dh-list > .dh-tk:nth-child(n+5) { display: none; }
 }
 /* Tabel riwayat: tetap bisa digeser ke samping dan ada ruang di kanan */
-#hist { overflow-x: auto; padding-right: 20px; }
+#hist .hist-scroll { overflow-x: auto; padding-right: 20px; }
 #hist .tbl { min-width: 980px; }
+.pager { display: flex; align-items: center; gap: 6px; padding: 14px 4px 0; border-top: 1px solid var(--border); margin-top: 4px; flex-wrap: wrap; }
+.pg { min-width: 32px; height: 32px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.pg:hover:not(:disabled):not(.on) { background: var(--surface-2); }
+.pg.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.pg:disabled { opacity: .4; cursor: default; }
+.pg-gap { color: var(--muted); padding: 0 2px; }

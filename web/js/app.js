@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.42.2';
+const CSS_VERSION = '2.42.3';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -960,10 +960,10 @@ function viewDashboard() {
     ${admin && team ? workloadCard(users.filter((u) => u.active && (!f.persons.length || f.persons.includes(u.username))), admin ? S.all.tasks : []) : ''}
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
     ${requestKpiCard(reqTasks, range, team)}
-    <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="hist"></div></div>
+    <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px" id="hist"></div></div>
     <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.<br><b>Task artikel</b>: dihitung dengan jam kerja (Senin–Jumat ${pad(L.WORK.startH)}:00–${L.WORK.endH}:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, dikurangi lama review admin. <b>Terlambat</b> bila waktu kerja melebihi jatah (jadwal mulai → deadline) lebih dari ${L.GRACE_MS / 36e5} jam kerja.</p>`;
 
-  $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; go('dashboard'); });
+  $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; S.histPage = 1; go('dashboard'); });
   const so = $('#showoff'); if (so) so.onclick = () => { f.showOff = !f.showOff; go('dashboard'); };
 
   dashHeroBind({ team, tasks });
@@ -1052,16 +1052,25 @@ function renderBoard(tasks, range) {
 }
 
 function renderHistory(sum, admin) {
-  const rows = sum.rows.filter((x) => L.isDone(x.t)).sort((a, b) => (b.e.doneAt || 0) - (a.e.doneAt || 0)).slice(0, 60);
-  if (!rows.length) { $('#hist').innerHTML = '<div class="empty"><b>Belum ada task selesai</b>di periode ini.</div>'; return; }
-  $('#hist').innerHTML = `<table class="tbl"><thead><tr><th>Task</th>${admin ? '<th>PIC</th>' : ''}<th>Mulai kerja</th><th>Done</th><th class="num">Durasi kerja</th><th class="num">Rencana</th><th class="num">Selisih</th><th class="num" title="Task artikel: lama di review admin (jam kerja), tidak mengurangi nilai anggota">Review admin</th><th>Hasil</th></tr></thead><tbody>
+  const all = sum.rows.filter((x) => L.isDone(x.t)).sort((a, b) => (b.e.doneAt || 0) - (a.e.doneAt || 0));
+  if (!all.length) { $('#hist').innerHTML = '<div class="empty"><b>Belum ada task selesai</b>di periode ini.</div>'; return; }
+  const PER = 10, pages = Math.ceil(all.length / PER);
+  const page = S.histPage = Math.min(Math.max(1, S.histPage || 1), pages);
+  const rows = all.slice((page - 1) * PER, page * PER);
+  const nums = [...new Set([1, page - 1, page, page + 1, pages])].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+  const pager = pages < 2 ? '' : `<div class="pager"><span class="muted small">${(page - 1) * PER + 1}–${Math.min(page * PER, all.length)} dari ${all.length} task</span><span style="flex:1"></span>
+    <button type="button" class="pg" data-pg="${page - 1}" ${page === 1 ? 'disabled' : ''} aria-label="Halaman sebelumnya">‹</button>
+    ${nums.map((n, i) => `${i && n - nums[i - 1] > 1 ? '<span class="pg-gap">…</span>' : ''}<button type="button" class="pg${n === page ? ' on' : ''}" data-pg="${n}" ${n === page ? 'aria-current="page"' : ''}>${n}</button>`).join('')}
+    <button type="button" class="pg" data-pg="${page + 1}" ${page === pages ? 'disabled' : ''} aria-label="Halaman berikutnya">›</button></div>`;
+  $('#hist').innerHTML = `<div class="hist-scroll"><table class="tbl"><thead><tr><th>Task</th>${admin ? '<th>PIC</th>' : ''}<th>Mulai kerja</th><th>Done</th><th class="num">Durasi kerja</th><th class="num">Rencana</th><th class="num">Selisih</th><th class="num" title="Task artikel: lama di review admin (jam kerja), tidak mengurangi nilai anggota">Review admin</th><th>Hasil</th></tr></thead><tbody>
     ${rows.map(({ t, e }) => `<tr><td class="clip" title="${esc(t.task)}">${t.code ? `<span class="chip code">${esc(t.code)}</span> ` : ''}${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</td>
       ${admin ? `<td>${esc(t.ownerName)}</td>` : ''}<td class="nw">${fmtS(e.startedAt || e.plannedStart)}</td><td class="nw">${fmtS(e.doneAt)}</td>
       ${e.article ? `<td class="num nw" title="Jam kerja, tanpa waktu review admin">${L.humanWork(e.durationMs)}</td><td class="num nw">${L.humanWork(e.plannedMs)}</td>
       <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanWork(e.slackMs)}</td><td class="num nw">${L.humanWork(e.reviewMs)}</td>`
       : `<td class="num nw">${L.humanDuration(e.durationMs)}</td><td class="num nw">${L.humanDuration(e.plannedMs)}</td>
       <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanDuration(e.slackMs)}</td><td class="num nw muted">–</td>`}<td class="nw">${outcomeChip(t, true)}</td></tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table></div>${pager}`;
+  $$('#hist [data-pg]').forEach((b) => b.onclick = () => { S.histPage = Number(b.dataset.pg); renderHistory(sum, admin); });
 }
 
 /** Filter orang ⇄ project (boleh pilih banyak) yang saling menyesuaikan.
