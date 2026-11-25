@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.42.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.42.1"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1747,3 +1747,9 @@ input, select, textarea { border-radius: 12px; }
 .dh-leg { grid-template-columns: 1fr; gap: 7px; }
 .dh-tabs { display: flex; width: 100%; align-self: stretch; } .dh-tabs button { flex: 1; padding: 6px 8px; }
 .dh-tabs button { min-width: 0; font-size: 13px; padding: 6px 4px; }
+/* Kotak angka: angka besar, satuan kecil, label tenang */
+.tile .lbl { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.tile .val { font-size: 28px; font-weight: 700; line-height: 1.15; margin-top: 8px; letter-spacing: -.025em; }
+.tile .val small { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--text-2); margin: 0; }
+.tile .sub { font-size: 12px; margin-top: 4px; }
+@media (max-width: 760px) { .tile .val { font-size: 22px; } .tile .val small { font-size: 12.5px; } }

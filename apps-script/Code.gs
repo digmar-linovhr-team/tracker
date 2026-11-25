@@ -5357,7 +5357,7 @@ function aiSaveSettings_(me, s) {
     var min = Math.round(ms / 60000), out;
     if (min < 60) out = min + ' menit';
     else if (min < 48 * 60) { var h = Math.floor(min / 60), m = min % 60; out = h + ' jam' + (m && h < 10 ? ' ' + m + ' mnt' : ''); }
-    else { var d = Math.floor(min / 1440), hh = Math.round((min % 1440) / 60); out = d + ' hari' + (hh ? ' ' + hh + ' jam' : ''); }
+    else { var th = Math.round(min / 60), d = Math.floor(th / 24), hh = th % 24; out = d + ' hari' + (hh ? ' ' + hh + ' jam' : ''); }
     return (neg ? '-' : '') + out;
   }
 
@@ -5368,7 +5368,7 @@ function aiSaveSettings_(me, s) {
     var min = Math.round(ms / 60000), dayMin = (WORK.endH - WORK.startH) * 60, out;
     if (min < 60) out = min + ' menit';
     else if (min < dayMin) { var h = Math.floor(min / 60), m = min % 60; out = h + ' jam' + (m ? ' ' + m + ' mnt' : ''); }
-    else { var d = Math.floor(min / dayMin), hh = Math.round((min % dayMin) / 60); out = d + ' hari kerja' + (hh ? ' ' + hh + ' jam' : ''); }
+    else { var th = Math.round(min / 60), dh = Math.round(dayMin / 60), d = Math.floor(th / dh), hh = th % dh; out = d + ' hari kerja' + (hh ? ' ' + hh + ' jam' : ''); }
     return (neg ? '-' : '') + out;
   }
 
