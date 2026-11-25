@@ -43,7 +43,7 @@ function renderRequestList() {
     return true;
   }).sort((a, b) => (reqTodo(b) ? 1 : 0) - (reqTodo(a) ? 1 : 0) || (a.status === 'Selesai') - (b.status === 'Selesai') || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
   if (!list.length) {
-    $('#blist').innerHTML = `<div class="card empty"><b>${all.length ? (f.tab === 'todo' ? 'Tidak ada yang perlu Anda tindak lanjuti' : 'Tidak ada request yang cocok') : 'Belum ada request'}</b>Minta bantuan anggota lain — mis. copy landing page, desain banner, atau data — lewat tombol “+ Request”. Task-nya otomatis masuk ke penerima.</div>`;
+    $('#blist').innerHTML = `<div class="card empty"><b>${all.length ? (f.tab === 'todo' ? 'Tidak ada yang perlu Anda tindak lanjuti' : 'Tidak ada request yang cocok') : 'Belum ada request'}</b>Minta bantuan anggota lain, mis. copy landing page, desain banner, atau data — lewat tombol “+ Request”. Task-nya otomatis masuk ke penerima.</div>`;
     return;
   }
   $('#blist').innerHTML = `<div class="card tlist brief-list req-list">
@@ -77,7 +77,7 @@ function requestModal(b) {
       <label class="field"><span>Judul *</span><input name="title" required maxlength="200" value="${esc(d.title)}" placeholder="mis. Copy landing page modul Reimbursement"></label>
       <div class="grid2">
         <label class="field"><span>Untuk *</span><select name="owner" required data-pick="person"><option value="">Pilih anggota…</option>${people.map((u) => opt(u.username, a.owner, u.name + (u.position ? ' — ' + u.position : ''))).join('')}</select></label>
-        <label class="field"><span>Project (opsional)</span><select name="code" data-pick="project"><option value="">— tanpa project —</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
+        <label class="field"><span>Project (opsional)</span><select name="code" data-pick="project"><option value="">Tanpa project</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
       </div>
       <div class="grid3">
         <label class="field"><span>Deadline *</span><input type="date" name="endDate" required value="${esc(a.endDate || '')}"></label>
@@ -188,7 +188,7 @@ function reqActionsHtml(b, t, st, isOwner, isCreator, admin) {
         ${isCreator || admin ? '<button class="btn" id="rq-reopen">Minta revisi</button>' : ''}</div>`;
   if (isOwner) {
     if (st === 'Konfirmasi' || st === 'Klarifikasi') return `<div class="rq-box"><b>${st === 'Klarifikasi' ? 'Menunggu jawaban ' + esc(who) : 'Request untuk Anda'}</b>
-        <span>${st === 'Klarifikasi' ? 'Waktu klarifikasi tidak dihitung ke KPI Anda. Anda tetap bisa menerima bila sudah jelas.' : 'Baca kebutuhannya. Bila ada yang belum jelas, tanyakan dulu — waktu klarifikasi tidak dihitung ke KPI.'}</span>
+        <span>${st === 'Klarifikasi' ? 'Waktu klarifikasi tidak dihitung ke KPI Anda. Anda tetap bisa menerima bila sudah jelas.' : 'Baca kebutuhannya. Bila ada yang belum jelas, tanyakan dulu. Waktu klarifikasi tidak dihitung ke KPI.'}</span>
         <button class="btn primary" id="rq-accept">Terima & mulai kerjakan</button>
         ${st === 'Konfirmasi' ? '<label class="field" style="margin-top:10px"><span>Minta klarifikasi</span><textarea id="rq-q" rows="2" maxlength="2000" placeholder="mis. Perlu versi bahasa Inggris juga?"></textarea></label><button class="btn sm" id="rq-ask">Kirim pertanyaan</button>' : ''}</div>`;
     if (st === 'Dikerjakan' || st === 'Dikembalikan') return `<div class="rq-box ${st === 'Dikembalikan' ? 'bad' : ''}"><b>${st === 'Dikembalikan' ? 'Dikembalikan untuk diperbaiki' : 'Sedang Anda kerjakan'}</b>
@@ -249,7 +249,7 @@ function bindReqActions(b, t) {
 
 /** Jalankan aksi request lalu perbarui brief & task di layar. */
 async function reqAct(id, act, payload, btn) {
-  const labels = { accept: 'Request diterima. Selamat mengerjakan!', submit: 'Hasil diajukan.', approve: 'Disetujui — request selesai.', return: 'Dikembalikan ke penerima.', reopen: 'Request dibuka lagi untuk revisi.', message: 'Pesan terkirim.' };
+  const labels = { accept: 'Request diterima. Selamat mengerjakan!', submit: 'Hasil diajukan.', approve: 'Disetujui. Request selesai.', return: 'Dikembalikan ke penerima.', reopen: 'Request dibuka lagi untuk revisi.', message: 'Pesan terkirim.' };
   try {
     const r = await busy(btn || null, () => api.call('requestAction', { briefId: id, act, payload }));
     if (r.task) { patchTask(r.task.id, { status: r.task.status, startedAt: r.task.startedAt, reviewAt: r.task.reviewAt, doneAt: r.task.doneAt, notes: r.task.notes, endDate: r.task.endDate, endTime: r.task.endTime, stageLog: r.task.stageLog }); if (!findTask(r.task.id)) upsertTaskLocal(r.task); }

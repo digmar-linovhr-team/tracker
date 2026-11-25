@@ -168,7 +168,7 @@ function viewTarget() {
     </div>
     <div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Cakupan industri ${f.y}</h2><span class="muted small">artikel TL industri & studi kasus yang Done</span></div>
       <div class="card-b"><div class="tg-ind">${INDUSTRIES.map((x) => `<span class="chip ${ind[x] ? 'good' : ''}">${ind[x] ? '✓' : '○'} ${esc(x)}${ind[x] ? ` · ${ind[x]}` : ''}</span>`).join('')}</div></div></div>
-    <p class="def">Cara menghitung — <b>Task</b> dihitung pada bulan disetujui (Done), sesuai <b>Jenis output</b> di form task: TL industri, Studi kasus, Optimasi (optimasi artikel + draf optimasi). Task <b>Sosmed</b> otomatis masuk Post sosmed. Artikel biasa, Artikel Lawencon, dan task Request tidak masuk target. <b>Backlink</b> dihitung pada tanggal tayang (status Tayang), LinovHR & Lawencon, termasuk mention. Persentase capaian total tidak menghitung kelebihan satu target untuk menutup kekurangan target lain.</p>`;
+    <p class="def"><b>Cara menghitung.</b> <b>Task</b> dihitung pada bulan disetujui (Done), sesuai <b>Jenis output</b> di form task: TL industri, Studi kasus, Optimasi (optimasi artikel + draf optimasi). Task <b>Sosmed</b> otomatis masuk Post sosmed. Artikel biasa, Artikel Lawencon, dan task Request tidak masuk target. <b>Backlink</b> dihitung pada tanggal tayang (status Tayang), LinovHR & Lawencon, termasuk mention. Persentase capaian total tidak menghitung kelebihan satu target untuk menutup kekurangan target lain.</p>`;
   formPick($('#view'));
   $$('#tg-y button').forEach((b) => b.onclick = () => { f.y = Number(b.dataset.y); go('target'); });
   $('#tg-m').onchange = (e) => { f.m = Number(e.target.value); go('target'); };
@@ -223,7 +223,7 @@ function viewBacklinks() {
       ${tile('Dalam proses', S.backlinks.filter((b) => BL_OPEN.includes(b.status)).length, 'prospek · outreach · negosiasi', 'var(--warn)')}
     </div>
     ${S.backlinks.length ? `<div class="bl-board" style="--cols:${cols.length}">${cols.map((s) => `<section class="bl-col"><h3><span class="chip ${BL_CHIP[s]}">${esc(s)}</span><span class="muted small">${by[s].length}</span></h3>
-        ${by[s].length ? by[s].slice(0, s === 'Tayang' ? 40 : 200).map(card).join('') + (s === 'Tayang' && by[s].length > 40 ? `<p class="muted small">+${by[s].length - 40} lainnya — gunakan pencarian.</p>` : '') : '<p class="muted small bl-none">Kosong</p>'}</section>`).join('')}</div>`
+        ${by[s].length ? by[s].slice(0, s === 'Tayang' ? 40 : 200).map(card).join('') + (s === 'Tayang' && by[s].length > 40 ? `<p class="muted small">+${by[s].length - 40} lainnya. Gunakan pencarian.</p>` : '') : '<p class="muted small bl-none">Kosong</p>'}</section>`).join('')}</div>`
       : `<div class="card"><div class="empty"><b>Belum ada backlink</b>Catat target outreach sejak masih prospek. Saat statusnya diubah ke Tayang, backlink otomatis dihitung ke target bulanan.<br><br><button class="btn primary" id="bl-add2">+ Backlink pertama</button></div></div>`}
     <p class="def">Alur: <b>Prospek</b> (calon situs) → <b>Outreach terkirim</b> → <b>Negosiasi</b> → <b>Tayang</b>. Hanya yang berstatus Tayang yang dihitung ke target, pada tanggal tayangnya. Backlink yang dicabut: ubah ke <b>Hilang</b> (jangan dihapus) agar riwayatnya tetap ada. Semua anggota bisa menambah dan mengubah; yang bisa menghapus hanya pembuatnya dan admin.</p>`;
   const qi = $('#bl-q');
@@ -272,23 +272,23 @@ function backlinkModal(b, forceStatus) {
       </div>
       <div class="grid2">
         <label class="field"><span>Status</span><select name="status" data-pick="plain">${BL_STATUSES.map((s) => opt(s, b.status)).join('')}</select></label>
-        <label class="field"><span>Tanggal tayang <small class="muted">— wajib bila Tayang</small></span><input type="date" name="date" value="${esc(b.date || '')}"></label>
+        <label class="field"><span>Tanggal tayang <small class="muted">wajib bila Tayang</small></span><input type="date" name="date" value="${esc(b.date || '')}"></label>
       </div>
       <div class="grid2">
         <label class="field"><span>Domain sumber *</span><input name="domain" value="${esc(b.domain || '')}" placeholder="contoh.com" required></label>
         <label class="field"><span>DR <small class="muted">(Ahrefs)</small></span><input type="number" name="dr" min="0" max="100" value="${esc(b.dr === null ? '' : b.dr)}"></label>
       </div>
-      <label class="field"><span>URL halaman sumber <small class="muted">— halaman yang memasang link</small></span><input type="url" name="sourceUrl" value="${esc(b.sourceUrl || '')}" placeholder="https://contoh.com/artikel/…"></label>
-      <label class="field"><span>URL tujuan <small class="muted">— halaman ${esc(b.brand)} yang ditautkan</small></span><input type="url" name="targetUrl" value="${esc(b.targetUrl || '')}" placeholder="https://www.linovhr.com/…"></label>
+      <label class="field"><span>URL halaman sumber <small class="muted">halaman yang memasang link</small></span><input type="url" name="sourceUrl" value="${esc(b.sourceUrl || '')}" placeholder="https://contoh.com/artikel/…"></label>
+      <label class="field"><span>URL tujuan <small class="muted">halaman ${esc(b.brand)} yang ditautkan</small></span><input type="url" name="targetUrl" value="${esc(b.targetUrl || '')}" placeholder="https://www.linovhr.com/…"></label>
       <div class="grid2">
         <label class="field"><span>Anchor text</span><input name="anchor" value="${esc(b.anchor || '')}" maxlength="200"></label>
         <label class="field"><span>Link</span><select name="rel" data-pick="plain">${['Dofollow', 'Nofollow'].map((s) => opt(s, b.rel)).join('')}</select></label>
       </div>
       <div class="grid2">
-        <label class="field"><span>Cara dapat</span><select name="via" data-pick="plain">${opt('', b.via, '— pilih —')}${BL_VIA.map((s) => opt(s, b.via)).join('')}</select></label>
+        <label class="field"><span>Cara dapat</span><select name="via" data-pick="plain">${opt('', b.via, 'Pilih')}${BL_VIA.map((s) => opt(s, b.via)).join('')}</select></label>
         <label class="field"><span>PIC</span><select name="pic" data-pick="plain">${people.map((u) => opt(u.username, b.pic, u.name)).join('')}</select></label>
       </div>
-      <label class="field"><span>Catatan <small class="muted">— kontak, harga, syarat, dll.</small></span><textarea name="notes" rows="2" maxlength="2000">${esc(b.notes || '')}</textarea></label>
+      <label class="field"><span>Catatan <small class="muted">kontak, harga, syarat, dll.</small></span><textarea name="notes" rows="2" maxlength="2000">${esc(b.notes || '')}</textarea></label>
       <div id="blerr"></div></form>`,
     actions: `${canDelete ? '<button class="btn danger" id="bl-del" style="margin-right:auto">Hapus</button>' : ''}<button class="btn" data-close>Batal</button><button class="btn primary" id="bl-save">${edit ? 'Simpan' : 'Tambah'}</button>`,
     onMount: (m, close) => {

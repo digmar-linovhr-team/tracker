@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.43.0';
+const CSS_VERSION = '2.44.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -50,6 +50,7 @@ const ICONS = {
   target: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>'),
   ideas: svg('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/>'),
   backlinks: svg('<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
 const fsvg = (d) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -269,10 +270,26 @@ function renderNav() {
     items.push(['sect', 'Admin'], ['review', 'Review', 'Review', reviews, 'info'], ['tasks', 'Semua Task', 'Semua'], ['projects', 'Project', 'Project', 0, '', 'secondary'], ['users', 'Pengguna', 'Akun', 0, '', 'secondary']);
   }
   items.push(['sect', ''], ['settings', 'Pengaturan', 'Setelan']);
+  // HP: 4 menu utama di bilah bawah, sisanya di "Lainnya"
+  const have = new Set(items.map((i) => i[0]));
+  const main = (admin ? ['mine', 'dashboard', 'review', 'tasks', 'briefs'] : ['mine', 'dashboard', 'ideas', 'briefs', 'schedule']).filter((v) => have.has(v)).slice(0, 4);
+  const rest = items.filter((i) => i[0] !== 'sect' && !main.includes(i[0]));
+  const restCount = rest.reduce((n, i) => n + (Number(i[3]) || 0), 0), restOn = rest.some((i) => i[0] === S.view);
+  S.navMore = rest;
   $('#nav').innerHTML = items.map((i) => i[0] === 'sect'
     ? `<div class="sect">${esc(i[1])}</div>`
-    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : i[4] === 'good' ? 'Ada request atau konten yang perlu Anda lihat' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('');
-  $$('#nav button').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
+    : `<button data-v="${i[0]}" class="${S.view === i[0] || (i[0] === 'briefs' && S.view === 'brief') ? 'active' : ''} ${i[5] || ''} ${main.includes(i[0]) ? '' : 'mob-more'}"><span class="ico">${ICONS[i[0]]}</span><span class="lbl-full">${i[1]}</span><span class="lbl-short">${i[2]}</span>${i[3] ? `<span class="count ${i[4] || ''}" title="${i[4] === 'info' ? 'Menunggu review' : i[4] === 'good' ? 'Ada request atau konten yang perlu Anda lihat' : 'Terlambat'}">${i[3]}</span>` : ''}</button>`).join('')
+    + `<button type="button" data-more class="nav-more ${restOn ? 'active' : ''}" aria-haspopup="dialog"><span class="ico">${ICONS.more}</span><span class="lbl-full">Lainnya</span><span class="lbl-short">Lainnya</span>${restCount ? `<span class="count info">${restCount}</span>` : ''}</button>`;
+  $$('#nav button[data-v]').forEach((b) => b.addEventListener('click', () => go(b.dataset.v)));
+  $('#nav [data-more]').addEventListener('click', navMoreSheet);
+}
+
+/** HP: daftar menu lain dalam lembar dari bawah. */
+function navMoreSheet() {
+  const items = S.navMore || [];
+  modal({ title: 'Menu lainnya', body: `<div class="more-grid">${items.map((i) => `<button type="button" class="more-it ${S.view === i[0] ? 'on' : ''}" data-v="${i[0]}"><span class="ico">${ICONS[i[0]] || ''}</span><span>${esc(i[1])}</span>${i[3] ? `<span class="count ${i[4] || ''}">${i[3]}</span>` : ''}</button>`).join('')}</div>`,
+    actions: '<button class="btn" data-close>Tutup</button>',
+    onMount: (m, close) => { $$('.more-it', m).forEach((b) => b.onclick = () => { close(); go(b.dataset.v); }); } });
 }
 
 // ---------- cache lokal: aplikasi langsung tampil dengan data terakhir ----------
@@ -283,7 +300,12 @@ function saveCache() {
 function readCache() {
   try { const c = JSON.parse(localStorage.getItem(cacheKey()) || 'null'); return c && Date.now() - c.at < 7 * 864e5 ? c : null; } catch (e) { return null; }
 }
-function resetSession() { S.bank = null; S.bankAt = 0; S.bkf = null; S.bkNote = null; S.backlinks = null; S.blAt = 0; S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
+const F_DEFAULT = JSON.stringify(S.f);
+function resetSession() {
+  // filter, pencarian, pilihan, dan draf milik akun sebelumnya tidak boleh terbawa ke akun berikutnya di perangkat yang sama
+  S.f = JSON.parse(F_DEFAULT); S.tsel = null; S.tf = null; S.blf = null; S.org = null; S.socNew = null; S.dhTab = null; S.histPage = 1; S.navMore = null; S.bf = { tab: 'all', q: '' };
+  if (typeof IDEA !== 'undefined') { IDEA.draft = {}; IDEA.reply = {}; IDEA.busy = {}; }
+  S.bank = null; S.bankAt = 0; S.bkf = null; S.bkNote = null; S.backlinks = null; S.blAt = 0; S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
   try { Object.keys(localStorage).filter((k) => k.startsWith('pt.cache.')).forEach((k) => localStorage.removeItem(k)); } catch (e) { /* abaikan */ }
 }
@@ -429,7 +451,7 @@ function scheduleText(t) {
 const OB_STEPS = [
   ['account', 'Ganti password & isi email', 'Email dipakai untuk Google Calendar dan pengingat deadline.', 'settings', 'Buka Pengaturan'],
   ['wfo', 'Pilih hari WFO', 'Selasa wajib, lalu pilih Senin atau Kamis.', 'schedule', 'Buka Jadwal'],
-  ['guide', 'Baca panduan alur kerja', 'Cara kerja task, artikel, brief, request, dan KPI — 3 menit.', 'guide', 'Baca panduan'],
+  ['guide', 'Baca panduan alur kerja', 'Cara kerja task, artikel, brief, request, dan KPI. Bacanya 3 menit.', 'guide', 'Baca panduan'],
   ['org', 'Kenali tim di menu Struktur', 'Siapa atasan Anda dan apa keahlian tiap orang.', 'org', 'Buka Struktur'],
   ['task', 'Selesaikan task pertama', 'Mulai task, lalu ajukan review saat selesai.', '', '']
 ];
@@ -459,10 +481,10 @@ function guideModal() {
   modal({
     title: 'Panduan alur kerja', wide: true,
     body: `<div class="guide">
-      <section><h3>1 · Task biasa</h3><p>Task muncul di <b>Task Saya</b>. Tekan <b>Mulai</b> saat mengerjakan, lampirkan link hasil kerja, lalu ubah status ke <b>Review</b>. Admin memeriksa dan menandai <b>Done</b> — atau mengembalikan dengan catatan revisi.</p></section>
+      <section><h3>1 · Task biasa</h3><p>Task muncul di <b>Task Saya</b>. Tekan <b>Mulai</b> saat mengerjakan, lampirkan link hasil kerja, lalu ubah status ke <b>Review</b>. Admin memeriksa dan menandai <b>Done</b>, atau mengembalikan dengan catatan revisi.</p></section>
       <section><h3>2 · Artikel (8 tahap)</h3><p>Ditugaskan → <b>susun brief</b> → review brief → <b>tulis artikel</b> → review artikel → <b>publish</b> → cek ulang dengan AI → review cek AI → selesai. Tombol tahap berikutnya ada di baris task. KPI artikel dihitung dengan jam kerja (Senin–Jumat 09.00–18.00); lama review admin tidak dihitung.</p></section>
-      <section><h3>3 · Brief sosmed & Request</h3><p>Di menu <b>Brief</b>: brief sosmed (carousel/video) bisa dibuat siapa saja lalu ditugaskan ke desainer. <b>Request</b> untuk meminta bantuan rekan — penerima boleh minta klarifikasi dulu (waktunya tidak dihitung), lalu pembuat request yang menyetujui hasilnya.</p></section>
-      <section><h3>4 · Jadwal, cuti & izin</h3><p>Di menu <b>Jadwal</b>: Selasa WFO wajib, pilih Senin atau Kamis; Rabu & Jumat WFH. Perubahan setelah Jumat 17.00 diajukan ke admin. Cuti, sakit, dan izin juga diajukan di sana — deadline task di hari itu otomatis mundur.</p></section>
+      <section><h3>3 · Brief sosmed & Request</h3><p>Di menu <b>Brief</b>: brief sosmed (carousel/video) bisa dibuat siapa saja lalu ditugaskan ke desainer. <b>Request</b> untuk meminta bantuan rekan. Penerima boleh minta klarifikasi dulu (waktunya tidak dihitung), lalu pembuat request yang menyetujui hasilnya.</p></section>
+      <section><h3>4 · Jadwal, cuti & izin</h3><p>Di menu <b>Jadwal</b>: Selasa WFO wajib, pilih Senin atau Kamis; Rabu & Jumat WFH. Perubahan setelah Jumat 17.00 diajukan ke admin. Cuti, sakit, dan izin juga diajukan di sana, dan deadline task di hari itu otomatis mundur.</p></section>
       <section><h3>5 · KPI</h3><p><b>Tepat waktu</b>: selesai sebelum deadline. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ 80% waktu rencana. <b>Terlambat</b>: selesai setelah deadline. Lihat performa Anda di <b>Dashboard</b>.</p></section>
       <section><h3>6 · Pengingat</h3><p>Isi email di <b>Pengaturan</b> agar task masuk Google Calendar, dapat email pengingat 24 jam sebelum deadline, dan ringkasan setiap pagi.</p></section></div>`,
     actions: '<button class="btn primary" data-close>Mengerti</button>',
@@ -498,7 +520,7 @@ function banners() {
   const out = [];
   const todo = typeof reqTodoCount === 'function' ? (S.briefs || []).filter((b) => b.type === 'Request' && b.createdBy === S.user.username && reqTodo(b)) : [];
   if (todo.length) {
-    out.push(`<div class="banner"><div><b>${todo.length} request Anda perlu ditindaklanjuti</b> — ${esc(todo.slice(0, 2).map((b) => reqTodo(b) + ': ' + reqTitle(b)).join(' · '))}</div><button class="btn sm primary" id="go-req">Buka</button></div>`);
+    out.push(`<div class="banner"><div><b>${todo.length} request Anda perlu ditindaklanjuti</b>: ${esc(todo.slice(0, 2).map((b) => reqTodo(b) + ': ' + reqTitle(b)).join(' · '))}</div><button class="btn sm primary" id="go-req">Buka</button></div>`);
   }
   if (S.user.sheetName && !S.user.email) {
     out.push(`<div class="banner"><div><b>Masukkan email Anda</b> agar task otomatis masuk Google Calendar dan pengingat deadline dikirim ke email.</div><button class="btn sm primary" data-go="settings">Isi email</button></div>`);
@@ -564,8 +586,10 @@ function whenInfo(t) {
     const k = L.articleKpi(t, now);
     if (k.allowanceMs !== null && k.netMs !== null) {
       const left = k.allowanceMs - k.netMs;
-      return { cls: k.late ? 'bad' : left < 2 * 36e5 ? 'warn' : 'normal', main: left >= 0 ? `Sisa ${L.humanWork(left)}` : `Lewat ${L.humanWork(-left)}`,
-        sub: (end ? 'Deadline ' + shortDT(end) + ' · ' : '') + 'jam kerja', pct: k.allowanceMs ? Math.min(100, (k.netMs / k.allowanceMs) * 100) : null };
+      // deadline sudah lewat di kalender tapi jatah jam kerja belum habis (mis. malam hari / akhir pekan): jangan tampil "Sisa 0 menit"
+      const past = end && now > end && left >= 0;
+      return { cls: k.late ? 'bad' : left < 2 * 36e5 || past ? 'warn' : 'normal', main: past ? 'Deadline lewat' : left >= 0 ? `Sisa ${L.humanWork(left)}` : `Lewat ${L.humanWork(-left)}`,
+        sub: past ? 'Deadline ' + shortDT(end) + (left > 6e4 ? ` · sisa ${L.humanWork(left)}` : '') : (end ? 'Deadline ' + shortDT(end) + ' · ' : '') + 'jam kerja', pct: k.allowanceMs ? Math.min(100, (k.netMs / k.allowanceMs) * 100) : null };
     }
   }
   if (!s && !end) return { cls: 'muted', main: 'Belum dijadwalkan', sub: [t.startRaw, t.endRaw].filter(Boolean).join(' → ') };
@@ -638,7 +662,7 @@ function resKind(url) {
 const isHttp = (u) => /^https?:\/\/\S+$/i.test(String(u || '').trim());
 function resChip(x, compact) {
   const k = resKind(x.url), label = x.label || k.name;
-  return `<a class="res-chip ${compact ? 'compact' : ''}" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" title="${esc(label + ' — ' + x.url)}"><span class="res-ico" style="color:${k.color}">${k.ico}</span>${compact ? '' : `<span class="res-lbl">${esc(label)}</span>`}</a>`;
+  return `<a class="res-chip ${compact ? 'compact' : ''}" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" title="${esc(label + ' · ' + x.url)}"><span class="res-ico" style="color:${k.color}">${k.ico}</span>${compact ? '' : `<span class="res-lbl">${esc(label)}</span>`}</a>`;
 }
 function resultsOf(t) { return Array.isArray(t.results) ? t.results : []; }
 function canEditResults(t) {
@@ -729,7 +753,7 @@ function askReview(id) {
   if (!noResult) return setStatus(id, 'Review');
   modal({
     title: 'Ajukan review',
-    body: '<p style="margin-top:0">Task ini belum punya keterangan maupun link hasil kerja. Tambahkan supaya admin bisa langsung mengecek.</p><p class="muted small" style="margin-bottom:0">Tidak wajib — lewati bila tidak diperlukan.</p>',
+    body: '<p style="margin-top:0">Task ini belum punya keterangan maupun link hasil kerja. Tambahkan supaya admin bisa langsung mengecek.</p><p class="muted small" style="margin-bottom:0">Tidak wajib, lewati bila tidak diperlukan.</p>',
     actions: '<button class="btn" id="rv-skip">Ajukan langsung</button><button class="btn primary" id="rv-add">Isi hasil kerja</button>',
     onMount: (m, close) => {
       $('#rv-skip', m).onclick = () => { close(); setStatus(id, 'Review'); };
@@ -781,7 +805,7 @@ function taskRow(t, opts) {
         ${showProj ? `<span class="t-proj" title="${esc(pname)}">${esc(pname)}</span>` : ''}
         ${prio === 'high' && !done ? '<span class="flag">Prioritas tinggi</span>' : ''}
         ${teamTag(t)}
-        ${t.repeat ? `<span class="t-rep" title="Task berulang — salinan baru dibuat otomatis pukul 06.00">↻ ${esc(repeatLabel(t.repeat, t.startDate))}</span>` : t.repeatOf ? '<span class="t-rep muted" title="Dibuat otomatis dari task berulang">↻ otomatis</span>' : ''}
+        ${t.repeat ? `<span class="t-rep" title="Task berulang: salinan baru dibuat otomatis pukul 06.00">↻ ${esc(repeatLabel(t.repeat, t.startDate))}</span>` : t.repeatOf ? '<span class="t-rep muted" title="Dibuat otomatis dari task berulang">↻ otomatis</span>' : ''}
         ${typeof cmChip === 'function' ? cmChip(t) : ''}
         ${t.leaveDays && !done ? `<span class="t-leave" title="Deadline mundur karena cuti/izin yang disetujui">Deadline +${t.leaveDays} hari kerja (cuti)</span>` : ''}
         ${t.notes ? `<span class="t-note" title="${esc(t.notes)}">Catatan: ${esc(t.notes.split('\n').pop())}</span>` : ''}
@@ -961,7 +985,7 @@ function viewDashboard() {
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
     ${requestKpiCard(reqTasks, range, team)}
     <div class="card"><div class="card-h"><h2>Riwayat task selesai</h2><span class="muted small">waktu pengerjaan per task</span></div><div class="card-b" style="padding-top:6px" id="hist"></div></div>
-    <p class="def">Definisi — <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b> — lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.<br><b>Task artikel</b>: dihitung dengan jam kerja (Senin–Jumat ${pad(L.WORK.startH)}:00–${L.WORK.endH}:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, dikurangi lama review admin. <b>Terlambat</b> bila waktu kerja melebihi jatah (jadwal mulai → deadline) lebih dari ${L.GRACE_MS / 36e5} jam kerja.</p>`;
+    <p class="def"><b>Definisi.</b> <b>Waktu pengerjaan</b>: dari tombol "Mulai" ditekan (atau jadwal mulai bila tidak ditekan) sampai anggota <b>mengajukan review</b>. Lama review admin tidak dihitung. <b>Overperforming</b>: selesai sebelum deadline dan memakai ≤ ${Math.round(L.OVERPERFORM_RATIO * 100)}% durasi rencana. <b>Tepat waktu</b>: selesai sebelum/tepat deadline. Jam default bila kolom jam kosong: mulai ${L.DEFAULT_START}, deadline ${L.DEFAULT_END}.<br><b>Task artikel</b>: dihitung dengan jam kerja (Senin–Jumat ${pad(L.WORK.startH)}:00–${L.WORK.endH}:00 WIB). Waktu kerja = sejak ditugaskan/jadwal mulai sampai Done, dikurangi lama review admin. <b>Terlambat</b> bila waktu kerja melebihi jatah (jadwal mulai → deadline) lebih dari ${L.GRACE_MS / 36e5} jam kerja.</p>`;
 
   $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; S.histPage = 1; go('dashboard'); });
   const so = $('#showoff'); if (so) so.onclick = () => { f.showOff = !f.showOff; go('dashboard'); };
@@ -971,21 +995,7 @@ function viewDashboard() {
   renderHistory(sum, admin);
 }
 
-function legendOutcome() {
-  return [['--good', 'Overperforming'], ['--info', 'Tepat waktu'], ['--bad', 'Terlambat'], ['--warn', 'Overdue'], ['--brand', 'Menunggu review'], ['--muted', 'Masih berjalan']]
-    .map(([c, l]) => `<span><i class="dot" style="background:${css(c)}"></i>${l}</span>`).join('');
-}
 
-function renderDist(sum) {
-  const rows = [['Overperforming', sum.over, '--good'], ['Tepat waktu', sum.ontime, '--info'], ['Selesai terlambat', sum.late, '--bad'],
-    ['Overdue aktif', sum.overdue, '--warn'], ['Menunggu review', sum.review, '--brand'], ['Masih berjalan', sum.open, '--muted']];
-  const max = Math.max(1, ...rows.map((r) => r[1]));
-  $('#dist').innerHTML = rows.map(([l, n, c]) => `
-    <div style="margin-bottom:14px">
-      <div class="row" style="justify-content:space-between;font-size:13px;margin-bottom:5px"><span class="row" style="gap:7px"><i class="dot" style="background:${css(c)}"></i>${l}</span><b style="font-variant-numeric:tabular-nums">${n}</b></div>
-      <div class="bar" style="height:8px"><i style="width:${(n / max) * 100}%;background:${css(c)}"></i></div>
-    </div>`).join('') + `<p class="muted small" style="margin:6px 0 0">Total ${sum.total} task dalam periode ini.</p>`;
-}
 
 function chartDefaults() {
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
@@ -994,24 +1004,6 @@ function chartDefaults() {
   Chart.defaults.borderColor = css('--border');
 }
 
-function renderPersonChart(tasks, range) {
-  chartDefaults();
-  const people = L.byPerson(tasks, range).sort((a, b) => a.name.localeCompare(b.name));
-  const ds = [['over', 'Overperforming', '--good'], ['ontime', 'Tepat waktu', '--info'], ['late', 'Terlambat', '--bad'], ['overdue', 'Overdue', '--warn'], ['review', 'Menunggu review', '--brand'], ['open', 'Masih berjalan', '--muted']]
-    .map(([k, l, c]) => ({ label: l, data: people.map((p) => p[k]), backgroundColor: css(c), borderColor: css('--surface'), borderWidth: { right: 2 }, borderRadius: 4, borderSkipped: false, barThickness: 16 }));
-  S.charts.push(new Chart($('#c1'), {
-    type: 'bar', data: { labels: people.map((p) => p.name), datasets: ds },
-    options: {
-      indexAxis: 'y', maintainAspectRatio: false, animation: false,
-      // grafik horizontal: baris dipilih dari posisi vertikal kursor (axis 'y'), bukan horizontal
-      interaction: { mode: 'index', axis: 'y', intersect: false },
-      plugins: { legend: { display: false }, tooltip: { mode: 'index', axis: 'y', intersect: false,
-        filter: (it) => it.raw > 0,
-        callbacks: { footer: (items) => items.length ? 'Total: ' + items[0].chart.data.datasets.reduce((n, d) => n + (d.data[items[0].dataIndex] || 0), 0) + ' task' : '' } } },
-      scales: { x: { stacked: true, ticks: { precision: 0 }, grid: { color: css('--border') } }, y: { stacked: true, grid: { display: false } } }
-    }
-  }));
-}
 
 function renderWeeklyChart(tasks) {
   chartDefaults();
@@ -1107,7 +1099,7 @@ function msTrigger(cfg) {
   const lead = n && person
     ? `<span class="ms-stack">${sel.slice(0, 3).map((s) => `<span class="avatar">${initials(s.label)}</span>`).join('')}</span>`
     : `<span class="fb-ico">${FB[cfg.icon]}</span>`;
-  const title = n ? sel.map((s) => person ? s.label : s.value + (s.label ? ' — ' + s.label : '')).join('\n') : cfg.allLabel;
+  const title = n ? sel.map((s) => person ? s.label : s.value + (s.label ? ' · ' + s.label : '')).join('\n') : cfg.allLabel;
   return `<button type="button" class="fb-sel fb-ms ${n ? 'on' : ''}" data-ms="${cfg.id}" aria-haspopup="listbox" aria-expanded="false" title="${esc(title)}">${lead}${label}<span class="fb-chev">${FB.chev}</span></button>`;
 }
 
@@ -1324,7 +1316,7 @@ function viewTeam() {
     <div class="wl-grid">${users.map((u) => { const st = stat(u); return `
       <button class="card wl-card ${picked.has(u.username) ? 'on' : ''} ${involved.has(u.username) ? '' : 'dim'}" data-person="${esc(u.username)}" aria-pressed="${picked.has(u.username)}" ${involved.has(u.username) ? '' : `title="Tidak terlibat di project ${esc(f.teamCodes.join(', '))}"`}>
         <div class="row" style="gap:10px"><span class="avatar">${initials(u.name)}</span>
-          <div style="min-width:0;text-align:left"><b class="wl-name">${esc(u.name)}${u.username === S.user.username ? ' <span class="muted">(Anda)</span>' : ''}</b><small class="wl-pos">${esc(u.position || '—')}</small></div></div>
+          <div style="min-width:0;text-align:left"><b class="wl-name">${esc(u.name)}${u.username === S.user.username ? ' <span class="muted">(Anda)</span>' : ''}</b><small class="wl-pos">${esc(u.position || '-')}</small></div></div>
         <div class="wl-stats">
           <span title="Sedang berjalan"><b>${st.running}</b> berjalan</span>
           ${st.overdue ? `<span class="bad" title="Terlambat"><b>${st.overdue}</b> terlambat</span>` : ''}
@@ -1383,7 +1375,7 @@ function dupBanner() {
   const d = (S.all && S.all.dupIds) || [];
   if (!d.length) return '';
   const names = S.all.tasks.filter((t) => d.includes(t.id)).map((t) => t.ownerName + ': ' + String(t.task).replace(/^https?:\/\/(www\.)?/, '').slice(0, 50));
-  return `<div class="banner warn"><div><b>${d.length} Task ID ganda</b> — ada baris task yang disalin di spreadsheet, sehingga review/status bisa mengenai baris yang salah. Hapus baris salinannya di spreadsheet (jalankan menu <b>Setup</b> untuk melihat lokasinya).<br><span class="small">${esc([...new Set(names)].slice(0, 6).join(' · '))}</span></div></div>`;
+  return `<div class="banner warn"><div><b>${d.length} Task ID ganda</b>: ada baris task yang disalin di spreadsheet, sehingga review/status bisa mengenai baris yang salah. Hapus baris salinannya di spreadsheet (jalankan menu <b>Setup</b> untuk melihat lokasinya).<br><span class="small">${esc([...new Set(names)].slice(0, 6).join(' · '))}</span></div></div>`;
 }
 function viewReview() {
   const sp = typeof schPending === 'function' ? schPending().length : 0;
@@ -1430,7 +1422,7 @@ function returnModal(id) {
   const t = findTask(id); if (!t) return;
   modal({
     title: L.isArticle(t) ? 'Kembalikan ' + ({ 3: 'brief', 5: 'artikel', 8: 'hasil cek AI' }[artStage(t)] || 'task') : 'Kembalikan task',
-    body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
+    body: `<p style="margin-top:0">${esc(t.ownerName)} · <b>${esc(t.task.replace(/^https?:\/\/(www\.)?/, ''))}</b></p>
       <label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="rv-reason" rows="3" placeholder="mis. Tambahkan meta description dan 2 internal link"></textarea></label>`,
     actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="rv-send">Kembalikan</button>',
     onMount: (m, close) => { $('#rv-send', m).onclick = () => { const reason = $('#rv-reason', m).value.trim(); close(); decideReview(t.id, 'return', reason); }; }
@@ -1458,7 +1450,7 @@ async function decideReview(id, decision, reason) {
   syncProjects([t.code]);
   S.pending.add(id);
   softRender(); renderNav();
-  toast(decision === 'approve' ? (art && st !== 8 ? `Disetujui — ${t.ownerName} lanjut ke tahap ${L.STAGES[ART_REVIEW_NEXT[st]]}.` : `Disetujui — task ${t.ownerName} ditandai Done.`) : `Dikembalikan ke ${t.ownerName}.`);
+  toast(decision === 'approve' ? (art && st !== 8 ? `Disetujui. ${t.ownerName} lanjut ke tahap ${L.STAGES[ART_REVIEW_NEXT[st]]}.` : `Disetujui. Task ${t.ownerName} ditandai Done.`) : `Dikembalikan ke ${t.ownerName}.`);
   try {
     const r = await api.call('reviewTask', { taskId: id, decision, reason: reason || '', owner: t.owner });
     if (r && r.task) patchTask(id, { status: r.task.status, doneAt: r.task.doneAt, reviewAt: r.task.reviewAt, notes: r.task.notes, stage: r.task.stage, stageLog: r.task.stageLog });
@@ -1581,14 +1573,14 @@ function renderTaskTable() {
       </div>
       <div class="task-actions">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button><button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</div>
     </div>`).join('');
-  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th class="cm-col" aria-label="Komentar"></th><th>PIC</th><th>Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th>Keterangan</th><th></th></tr></thead><tbody>
+  } else $('#tt').innerHTML = `<table class="tbl"><thead><tr><th class="pick-col"><input type="checkbox" class="pick" data-pickall ${allOn ? 'checked' : ''} aria-label="Pilih semua task yang tampil" title="Pilih semua task yang tampil (${list.length})"></th><th>Code</th><th>Task</th><th class="cm-col" aria-label="Komentar"></th><th>PIC</th><th class="tt-start">Mulai</th><th>Deadline</th><th>Status</th><th>Hasil</th><th>Prioritas</th><th></th></tr></thead><tbody>
     ${list.map((t) => { const s = L.schedule(t); return `<tr class="${S.tsel.has(t.id) ? 'picked' : ''}" data-tid="${esc(t.id || '')}">
       <td class="pick-col">${pick(t)}</td>
       <td>${t.code ? `<span class="chip code">${esc(t.code)}</span>` : ''}</td>
-      <td class="clip" title="${esc(t.task)}${t.repeat ? ' — ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td class="cm-col">${cmChip(t)}</td><td>${esc(t.ownerName)}${L.members(t).length ? `<span class="muted small" title="Anggota pendukung"> +${L.members(t).length}</span>` : ''}</td>
-      <td class="nw">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}</td>
-      <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td><td class="small nw">${L.isDone(t) ? outcomeChip(t) : timing(t)}</td>
-      <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="btn sm" data-edit="${esc(t.id)}">Edit</button> <button class="btn sm danger" data-del="${esc(t.id)}">Hapus</button>`}</td></tr>`; }).join('')}
+      <td class="clip" title="${esc(t.task)}${t.repeat ? ' · ' + esc(repeatLabel(t.repeat, t.startDate)) : ''}">${t.repeat ? `<span class="t-rep-ic" title="${esc(repeatLabel(t.repeat, t.startDate))}">↻</span> ` : ''}${prettyTitle(t.task)}</td><td class="cm-col">${cmChip(t)}</td><td>${esc(t.ownerName)}${L.members(t).length ? `<span class="muted small" title="Anggota pendukung"> +${L.members(t).length}</span>` : ''}</td>
+      <td class="nw tt-start">${s.start ? fmtS(s.start) : esc(t.startRaw || '–')}</td><td class="nw tt-dl">${s.end ? fmtS(s.end) : esc(t.endRaw || '–')}<div class="small">${L.isDone(t) ? outcomeChip(t, true) : timing(t)}</div></td>
+      <td class="nw">${L.isArticle(t) ? artStageChip(t) : statusChip(t.status)}</td><td class="nw">${resCell(t)}</td><td class="nw">${priorityChip(t.priority)}</td>
+      <td style="white-space:nowrap">${String(t.id).startsWith('tmp-') ? '<span class="muted small">Menyimpan…</span>' : `<button class="ul-ib" data-edit="${esc(t.id)}" title="Edit task" aria-label="Edit task">${UL_ICON.edit}</button><button class="ul-ib ul-del" data-del="${esc(t.id)}" title="Hapus task" aria-label="Hapus task">${UL_ICON.trash}</button>`}</td></tr>`; }).join('')}
   </tbody></table>`;
   $$('[data-ext]', $('#tt')).forEach((a) => a.onclick = (e) => { e.preventDefault(); api.openExternal(a.dataset.ext); });
   bindBriefChips($('#tt'));
@@ -1629,7 +1621,7 @@ function taskModal(t, prefill, opts) {
   modal({
     title: edit ? 'Edit task' : 'Task baru', wide: true,
     body: `<form id="tf">
-      ${edit ? '' : `<div class="field"><span>Ditugaskan ke * <small class="muted">— boleh pilih lebih dari satu</small></span>${peopleChips(people, wl, t.owner ? [t.owner] : [], 'tf-who')}</div>
+      ${edit ? '' : `<div class="field"><span>Ditugaskan ke * <small class="muted">boleh pilih lebih dari satu</small></span>${peopleChips(people, wl, t.owner ? [t.owner] : [], 'tf-who')}</div>
       ${`<div class="field hidden" id="tf-split"><span>Cara membagi</span><div class="seg seg-pick" id="tf-mode" role="radiogroup" aria-label="Cara membagi">
           <button type="button" role="radio" data-mode="each" class="on" aria-checked="true">Masing-masing dapat task sendiri</button><button type="button" role="radio" data-mode="together" aria-checked="false">Dikerjakan bersama</button></div>
           <small class="muted" id="tf-mode-hint" style="display:block;margin-top:5px"></small>
@@ -1637,20 +1629,20 @@ function taskModal(t, prefill, opts) {
       <div class="grid2">
         ${edit ? `<label class="field"><span>Penanggung jawab *</span><select name="owner" required data-pick="person"><option value="">Pilih…</option>${people.map((u) => { const w = wl[u.username], txt = workloadText(w); return `<option value="${esc(u.username)}" ${u.username === t.owner ? 'selected' : ''} data-sub="${esc(txt)}" data-load="${w ? w.level : 'light'}">${esc(u.name)}</option>`; }).join('')}</select></label>`
           : ''}
-        <label class="field"><span>Project</span><select name="code" data-pick="project"><option value="">— tanpa project —</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
+        <label class="field"><span>Project</span><select name="code" data-pick="project"><option value="">Tanpa project</option>${all.projects.filter((p) => p.code).map((p) => opt(p.code, t.code, p.code + ' — ' + p.project.slice(0, 50))).join('')}</select></label>
       </div>
-      ${edit ? `<div class="field ${t.type === 'Request' ? 'hidden' : ''}" id="tf-mem"><span>Anggota pendukung <small class="muted">— ikut mengerjakan & menerima notifikasi; KPI tetap milik penanggung jawab</small></span>${peopleChips(people, wl, L.members(t), 'tf-members')}</div>`
+      ${edit ? `<div class="field ${t.type === 'Request' ? 'hidden' : ''}" id="tf-mem"><span>Anggota pendukung <small class="muted">ikut mengerjakan & menerima notifikasi; KPI tetap milik penanggung jawab</small></span>${peopleChips(people, wl, L.members(t), 'tf-members')}</div>`
         : ''}
       <label class="field"><span>Nama task / URL *</span><textarea name="task" rows="2" required>${esc(t.task || '')}</textarea></label>
       <div class="field"><span>Jenis task</span><div class="seg seg-pick" id="tf-type" role="radiogroup" aria-label="Jenis task">
         ${['Non-artikel', 'Artikel', 'Sosmed'].map((k) => `<button type="button" role="radio" data-type="${k}" class="${taskType(t) === k ? 'on' : ''}" aria-checked="${taskType(t) === k}">${k}</button>`).join('')}</div>
         <small class="muted" id="tf-type-hint" style="display:block;margin-top:5px">${TYPE_HINT[taskType(t)]}</small></div>
       <label class="field ${taskType(t) === 'Artikel' ? '' : 'hidden'}" id="tf-live"><span>URL live artikel</span><input type="url" name="liveUrl" value="${esc(t.liveUrl || '')}" placeholder="https://www.linovhr.com/blog/…">
-        <small class="muted" style="display:block;margin-top:5px">Alamat artikel yang tayang sekarang. Dipakai untuk "Cek dengan AI" halaman live — isi bila berbeda dari URL di nama task.</small></label>
+        <small class="muted" style="display:block;margin-top:5px">Alamat artikel yang tayang sekarang. Dipakai untuk "Cek dengan AI" halaman live. Isi bila berbeda dari URL di nama task.</small></label>
       <div class="grid2 ${taskType(t) === 'Sosmed' ? 'hidden' : ''}" id="tf-out">
-        <label class="field"><span>Jenis output <small class="muted">— dihitung ke menu Target</small></span><select name="outKind" data-pick="plain"><option value="">— Belum dipilih —</option>${TASK_OUT_KINDS.map((k) => opt(k, t.outKind || '')).join('')}</select>
+        <label class="field"><span>Jenis output <small class="muted">dihitung ke menu Target</small></span><select name="outKind" data-pick="plain"><option value="">Belum dipilih</option>${TASK_OUT_KINDS.map((k) => opt(k, t.outKind || '')).join('')}</select>
           <small class="muted" id="tf-out-hint" style="display:block;margin-top:5px">${taskType(t) === 'Artikel' ? 'Task Artikel tanpa jenis dihitung sebagai Artikel biasa.' : 'Kosongkan bila task ini bukan hasil kerja yang ditargetkan.'}</small></label>
-        <label class="field ${OUT_NEEDS_INDUSTRY.includes(t.outKind) ? '' : 'hidden'}" id="tf-ind"><span>Industri</span><select name="industry" data-pick="plain"><option value="">— pilih industri —</option>${INDUSTRIES.concat(t.industry && !INDUSTRIES.includes(t.industry) ? [t.industry] : []).map((k) => opt(k, t.industry || '')).join('')}</select></label>
+        <label class="field ${OUT_NEEDS_INDUSTRY.includes(t.outKind) ? '' : 'hidden'}" id="tf-ind"><span>Industri</span><select name="industry" data-pick="plain"><option value="">Pilih industri</option>${INDUSTRIES.concat(t.industry && !INDUSTRIES.includes(t.industry) ? [t.industry] : []).map((k) => opt(k, t.industry || '')).join('')}</select></label>
       </div>
       <div class="grid4">
         <label class="field"><span>Tanggal mulai</span><input type="date" name="startDate" value="${esc(t.startDate || '')}"></label>
@@ -1671,7 +1663,7 @@ function taskModal(t, prefill, opts) {
         <small class="muted" id="tf-rep-hint"></small></div>
       <label class="field"><span>Catatan</span><textarea name="notes" rows="2">${esc(t.notes || '')}</textarea></label>
       <label class="field"><span>Keterangan hasil (dari anggota)</span><textarea name="resultNote" rows="2" maxlength="2000">${esc(t.resultNote || '')}</textarea></label>
-      <label class="field"><span>Link hasil kerja — satu link per baris, boleh diberi nama: <code>Nama | URL</code></span><textarea name="results" rows="2" placeholder="Brief konten | https://docs.google.com/document/d/…">${esc(resultsOf(t).map((x) => x.label ? x.label + ' | ' + x.url : x.url).join('\n'))}</textarea></label>
+      <label class="field"><span>Link hasil kerja: satu link per baris, boleh diberi nama: <code>Nama | URL</code></span><textarea name="results" rows="2" placeholder="Brief konten | https://docs.google.com/document/d/…">${esc(resultsOf(t).map((x) => x.label ? x.label + ' | ' + x.url : x.url).join('\n'))}</textarea></label>
       <div id="terr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">${edit ? 'Simpan' : 'Buat task'}</button>`,
     onMount: (m, close) => {
@@ -1681,7 +1673,7 @@ function taskModal(t, prefill, opts) {
       const repHint = () => {
         const r = f.repeat.value, el = $('#tf-rep-hint', m);
         if (!r) { el.textContent = ''; return; }
-        if (!f.startDate.value) { el.textContent = 'Isi tanggal mulai dulu — pola pengulangan mengikuti tanggal mulai.'; return; }
+        if (!f.startDate.value) { el.textContent = 'Isi tanggal mulai dulu, karena pola pengulangan mengikuti tanggal mulai.'; return; }
         const span = f.endDate.value && f.startDate.value ? Math.max(0, Math.round((L.at(f.endDate.value, '12:00') - L.at(f.startDate.value, '12:00')) / 864e5)) : 0;
         el.textContent = `${repeatLabel(r, f.startDate.value)} pukul 06.00 dibuat salinan task ini (status Backlog${r !== 'daily' && span ? `, deadline +${span} hari` : ', deadline di hari yang sama'}). Ubah status jadi Hold untuk menjeda.`;
       };
@@ -1700,7 +1692,7 @@ function taskModal(t, prefill, opts) {
         lead.value = picked.who.includes(cur) ? cur : (picked.who[0] || '');
         if (lead.value !== cur) lead.dispatchEvent(new Event('change'));
         $('#tf-mode-hint', m).textContent = mode === 'each'
-          ? `Dibuat ${n} task terpisah — tiap orang punya status, hasil kerja, dan KPI sendiri.`
+          ? `Dibuat ${n} task terpisah. Tiap orang punya status, hasil kerja, dan KPI sendiri.`
           : `Satu task. ${nameOf(lead.value)} jadi penanggung jawab utama (KPI); ${n - 1} orang lainnya anggota pendukung yang ikut mengerjakan dan menerima notifikasi.`;
         $('#save', m).textContent = n > 1 && mode === 'each' ? `Buat ${n} task` : 'Buat task';
       };
@@ -1734,7 +1726,7 @@ function taskModal(t, prefill, opts) {
         const data = Object.fromEntries(new FormData(f).entries());
         delete data.lead;
         if (data.repeat && !data.startDate) { $('#terr', m).innerHTML = '<div class="error">Task berulang butuh tanggal mulai.</div>'; return; }
-        if (data.repeat && type === 'Artikel') { $('#terr', m).innerHTML = '<div class="error">Task artikel tidak bisa diulang otomatis — tiap artikel punya brief sendiri.</div>'; return; }
+        if (data.repeat && type === 'Artikel') { $('#terr', m).innerHTML = '<div class="error">Task artikel tidak bisa diulang otomatis, karena tiap artikel punya brief sendiri.</div>'; return; }
         const s = L.at(data.startDate, data.startTime), e = L.at(data.endDate, data.endTime);
         if (s && e && e < s) { $('#terr', m).innerHTML = '<div class="error">Deadline tidak boleh sebelum waktu mulai.</div>'; return; }
         data.liveUrl = String(data.liveUrl || '').trim();
@@ -1771,7 +1763,7 @@ function parseResultsText(txt) {
     const line = raw.trim(); if (!line) continue;
     const i = line.lastIndexOf('|');
     const label = i >= 0 ? line.slice(0, i).trim() : '', url = i >= 0 ? line.slice(i + 1).trim() : line;
-    if (!isHttp(url)) return { error: 'Link hasil kerja tidak valid: "' + line.slice(0, 60) + '" — harus diawali http:// atau https://' };
+    if (!isHttp(url)) return { error: 'Link hasil kerja tidak valid: "' + line.slice(0, 60) + '". Harus diawali http:// atau https://' };
     list.push({ label, url });
   }
   if (list.length > 10) return { error: 'Maksimal 10 link hasil kerja per task.' };
@@ -1800,7 +1792,7 @@ async function saveTaskOptimistic(data, orig, batch, onCreated) {
   syncProjects([local.code, orig && orig.code]);
   softRender();
   if (!batch) toast(orig ? 'Task diperbarui' : 'Task dibuat & dibagikan');
-  else { S.batchMade = (S.batchMade || 0) + 1; if (S.batchMade >= batch) { toast(`${batch} task dibuat — satu untuk tiap orang`); S.batchMade = 0; } }
+  else { S.batchMade = (S.batchMade || 0) + 1; if (S.batchMade >= batch) { toast(`${batch} task dibuat, satu untuk tiap orang`); S.batchMade = 0; } }
   try {
     const r = await api.call('saveTask', { task: data });
     S.pending.delete(id);
@@ -1837,7 +1829,7 @@ function viewProjects() {
   $$('[data-pt]').forEach((b) => b.onclick = () => taskModal(taskFromProject(all.projects.find((p) => String(p.row) === b.dataset.pt)), true));
   $$('[data-pd]').forEach((b) => b.onclick = async () => {
     const p = all.projects.find((x) => String(x.row) === b.dataset.pd);
-    if (!(await confirmBox('Hapus project?', `${p.code} — ${p.project} akan dihapus dari tab Main Project. Task terkait tidak ikut terhapus.`))) return;
+    if (!(await confirmBox('Hapus project?', `${p.code} · ${p.project} akan dihapus dari tab Main Project. Task terkait tidak ikut terhapus.`))) return;
     await busy(null, () => api.call('deleteProject', { row: p.row, code: p.code }));
     S.all.projects = S.all.projects.filter((x) => x.row !== p.row);
     toast('Project dihapus'); softRender(); refreshInBackground(800);
@@ -1855,7 +1847,7 @@ function projectModal(p) {
       <div class="grid2"><label class="field"><span>Code</span><input name="code" value="${esc(p.code || '')}" placeholder="mis. B7"></label>
       <label class="field"><span>Prioritas</span><select name="priority" data-pick="plain">${PRIORITIES.map((x) => opt(x, p.priority)).join('')}</select></label></div>
       <label class="field"><span>Nama project *</span><textarea name="project" rows="2" required>${esc(p.project || '')}</textarea></label>
-      <label class="field"><span>Keterangan <small class="muted">— tujuan, ruang lingkup, target; link boleh ditempel</small></span><textarea name="desc" rows="4" maxlength="2000" placeholder="mis. Optimasi 48 artikel lama untuk 144 keyword. Target: 30 keyword masuk halaman 1 Google sebelum akhir Desember.">${esc(p.desc || '')}</textarea></label>
+      <label class="field"><span>Keterangan <small class="muted">tujuan, ruang lingkup, target; link boleh ditempel</small></span><textarea name="desc" rows="4" maxlength="2000" placeholder="mis. Optimasi 48 artikel lama untuk 144 keyword. Target: 30 keyword masuk halaman 1 Google sebelum akhir Desember.">${esc(p.desc || '')}</textarea></label>
       <label class="field"><span>PIC (pisahkan dengan koma)</span><input name="pic" value="${esc(p.pic || '')}" placeholder="${esc(names)}"></label>
       <div class="grid2"><label class="field"><span>Mulai</span><input type="date" name="start" value="${esc(p.start || '')}"></label>
       <label class="field"><span>Selesai</span><input type="date" name="end" value="${esc(p.end || '')}"></label></div>
@@ -1948,7 +1940,7 @@ function viewUsers() {
     return `<div class="ul-row">
       <div class="ul-who"><span class="avatar">${initials(u.name)}</span><div class="ul-txt"><span class="ul-name">${esc(u.name)}</span><span class="ul-2${u.position ? '' : ' muted'}">${u.position ? esc(u.position) : (u.role === 'admin' && !u.sheetName ? 'Admin sistem' : 'Jabatan belum diisi')}</span></div></div>
       <div class="ul-txt ul-c"><span class="ul-k">Kontak</span>${email}<span class="ul-2">@${esc(u.username)}</span></div>
-      <div class="ul-txt ul-c ul-boss"><span class="ul-k">Atasan</span>${boss ? `<span class="ul-1">${esc(boss)}</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}` : `<span class="ul-1 muted">—</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}`}</div>
+      <div class="ul-txt ul-c ul-boss"><span class="ul-k">Atasan</span>${boss ? `<span class="ul-1">${esc(boss)}</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}` : `<span class="ul-1 muted">-</span>${u.division ? `<span class="ul-2">${esc(u.division)}</span>` : ''}`}</div>
       <div class="ul-act">${!u.active ? `<button class="btn sm" data-uon="${esc(u.username)}">Aktifkan kembali</button><button class="ul-ib ul-del" data-udel="${esc(u.username)}" title="Hapus permanen" aria-label="Hapus ${esc(u.name)}">${UL_ICON.trash}</button>` : `${tags}${u.orgOnly ? '' : `<button class="ul-ib" data-ur="${esc(u.username)}" title="Reset password" aria-label="Reset password ${esc(u.name)}">${UL_ICON.key}</button>`}${u.username === S.user.username ? '' : `<button class="ul-ib" data-uoff="${esc(u.username)}" title="Nonaktifkan" aria-label="Nonaktifkan ${esc(u.name)}">${UL_ICON.off}</button>`}<button class="ul-ib" data-ue="${esc(u.username)}" title="Edit" aria-label="Edit ${esc(u.name)}">${UL_ICON.edit}</button>`}</div>
     </div>`;
   };
@@ -1959,7 +1951,7 @@ function viewUsers() {
       <div class="ul-row ul-h"><span>Anggota</span><span>Kontak</span><span>Atasan</span><span></span></div>
       ${list.map(row).join('')}
     </div>
-    <p class="def">Email dipakai untuk Google Calendar &amp; pengingat. Password tersimpan sebagai hash dan tidak bisa dilihat siapa pun — pakai ikon kunci untuk membuat password sementara baru.</p>`;
+    <p class="def">Email dipakai untuk Google Calendar &amp; pengingat. Password tersimpan sebagai hash dan tidak bisa dilihat siapa pun. Pakai ikon kunci untuk membuat password sementara baru.</p>`;
   $('#newu').onclick = () => userModal(null);
   $$('[data-utab]').forEach((b) => b.onclick = () => { S.usersTab = b.dataset.utab; softRender(); });
   const setActive = async (un, on) => {
@@ -1990,7 +1982,7 @@ function deleteUserModal(u) {
   modal({
     title: `Hapus ${u.name}?`,
     body: `<div class="udel">
-      ${needType ? `<div class="banner warn"><div><b>${u.name} punya ${tasks.length} task${open ? ` (${open} belum selesai)` : ''}.</b> Task & KPI-nya akan hilang dari aplikasi. Tab <b>${esc(u.sheetName)}</b> di spreadsheet tidak dihapus — diganti nama jadi <b>(arsip) ${esc(u.sheetName)}</b> dan disembunyikan.</div></div>` : `<p>Akun <b>@${esc(u.username)}</b> belum punya task. Akun dan tab kosongnya akan dihapus.</p>`}
+      ${needType ? `<div class="banner warn"><div><b>${u.name} punya ${tasks.length} task${open ? ` (${open} belum selesai)` : ''}.</b> Task & KPI-nya akan hilang dari aplikasi. Tab <b>${esc(u.sheetName)}</b> di spreadsheet tidak dihapus, hanya diganti nama jadi <b>(arsip) ${esc(u.sheetName)}</b> dan disembunyikan.</div></div>` : `<p>Akun <b>@${esc(u.username)}</b> belum punya task. Akun dan tab kosongnya akan dihapus.</p>`}
       <p class="muted small">Tindakan ini tidak bisa dibatalkan dari aplikasi. Bila hanya ingin mencabut akses, biarkan akun tetap nonaktif.</p>
       ${needType ? `<label class="field"><span>Ketik <b>${esc(u.username)}</b> untuk konfirmasi</span><input id="udel-c" autocomplete="off" placeholder="${esc(u.username)}"></label>` : ''}
       <div id="udel-e"></div></div>`,
@@ -2040,7 +2032,7 @@ function userModal(u) {
       </section>
       <section class="uf-sec"><h3>Posisi di struktur</h3>
         <div class="grid2 uf-g">
-          <label class="field"><span>Atasan langsung</span><select name="reportsTo" data-pick="person"><option value="">— tidak ada (puncak struktur) —</option>${users.filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
+          <label class="field"><span>Atasan langsung</span><select name="reportsTo" data-pick="person"><option value="">Tidak ada (puncak struktur)</option>${users.filter((x) => x.active && x.username !== u.username).sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${esc(x.username)}" ${x.username === u.reportsTo ? 'selected' : ''}>${esc(x.name)}${x.position ? ' — ' + esc(x.position) : ''}</option>`).join('')}</select></label>
           <label class="field"><span>Divisi</span><input name="division" list="div-list" maxlength="60" value="${esc(u.division || '')}" placeholder="mis. SEO dan konten"><datalist id="div-list">${uniq('division')}</datalist></label>
         </div>
         <div class="grid2 uf-g">
@@ -2062,7 +2054,7 @@ function userModal(u) {
         ${edit ? ufToggle('active', 'Aktif', u.orgOnly ? 'Tampil di aplikasi' : 'Tampil di aplikasi dan bisa login', u.active) : ''}
         <div id="uf-tasks" class="${u.orgOnly ? 'hidden' : ''}">${ufToggle('hasTasks', 'Punya daftar task', edit && u.sheetName ? 'Tab di spreadsheet sudah dibuat' : 'Membuat tab baru di spreadsheet', !edit || u.sheetName, edit && u.sheetName ? 'disabled' : '')}</div>
         ${ufToggle('wfoExempt', 'Jadwal fleksibel', 'Tidak wajib WFO Selasa maupun 2 hari seminggu', u.wfoExempt)}
-        ${ufToggle('orgOnly', 'Tanpa akun', 'Hanya tampil di menu Struktur (mis. owner/direksi) — tidak bisa login dan tidak punya task', u.orgOnly)}
+        ${ufToggle('orgOnly', 'Tanpa akun', 'Hanya tampil di menu Struktur (mis. owner/direksi), tidak bisa login dan tidak punya task', u.orgOnly)}
       </section>
       <div id="uerr"></div></form>`,
     actions: `<button class="btn" data-close>Batal</button><button class="btn primary" id="save">Simpan</button>`,
@@ -2155,7 +2147,7 @@ function viewSettings() {
       <div class="row" style="flex-wrap:wrap"><button class="btn" id="cpw">Ganti password</button><button class="btn" id="guide">Panduan alur kerja</button><button class="btn danger" id="lo">Keluar</button></div>
     </div></div>
     ${c.apiLocked && !c.demo ? '' : `<div class="card settings-sect"><div class="card-h"><h2>Server</h2></div><div class="card-b">
-      <p>${c.demo ? 'Sedang dalam <b>mode demo</b> — data tidak tersimpan ke spreadsheet.' : `Terhubung ke:<br><code class="small" style="word-break:break-all">${esc(c.apiUrl)}</code>`}</p>
+      <p>${c.demo ? 'Sedang dalam <b>mode demo</b>. Data tidak tersimpan ke spreadsheet.' : `Terhubung ke:<br><code class="small" style="word-break:break-all">${esc(c.apiUrl)}</code>`}</p>
       <button class="btn" id="srv">${c.demo ? 'Keluar dari mode demo' : 'Ganti alamat server'}</button>
     </div></div>`}
     <p class="def">Project Tracker v${esc(c.version)}</p>`;
@@ -2167,7 +2159,7 @@ function viewSettings() {
       const r = await busy($('#ef button'), () => api.call('setMyEmail', { email: e.target.email.value.trim() }));
       if (S.onboarding && S.onboarding.steps) S.onboarding.steps.account = true;
       S.user = Object.assign(S.user, r.user);
-      toast(S.cfg.demo ? 'Email disimpan (mode demo)' : 'Email disimpan — task akan muncul di Google Calendar dalam beberapa menit');
+      toast(S.cfg.demo ? 'Email disimpan (mode demo)' : 'Email disimpan. Task akan muncul di Google Calendar dalam beberapa menit');
     } catch (err) { /* toast sudah tampil */ }
   };
   $$('[data-rem]').forEach((x) => x.onchange = async () => {

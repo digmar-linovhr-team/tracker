@@ -114,6 +114,30 @@ const server = http.createServer((req, res) => {
   d = await fsGet('tasks/' + rq);
   ok(val(d, 'createdBy') === 'ari' && val(d, 'owner') === 'nadia', 'task request tersimpan dengan pembuat & penerima');
 
+  // penerima menerima request: waktu mulai & riwayat memakai jam server (aturan anti-manipulasi KPI)
+  const nadia = await open('nadia');
+  await wait(800);
+  const rqBrief = await nadia.evaluate((id) => (S.briefs.find((b) => b.taskId === id) || {}).id, rq);
+  const acc = await nadia.evaluate((bid) => api.call('requestAction', { briefId: bid, act: 'accept' }).then(() => 'ok', (e) => e.message), rqBrief);
+  await wait(800);
+  d = await fsGet('tasks/' + rq);
+  const lg = val(d, 'stageLog'), last = lg && lg.values && lg.values[lg.values.length - 1];
+  ok(acc === 'ok' && d.fields.startedAt.timestampValue && last && last.mapValue.fields.t.timestampValue, 'request diterima: waktu mulai & riwayat tercatat dengan jam server (' + acc + ')');
+  ok(await nadia.evaluate((id) => { const t = S.mine.tasks.find((x) => x.id === id); return t && /^\d{4}-\d\d-\d\dT/.test(t.startedAt) && typeof L.stageLog(t).slice(-1)[0].t.getTime === 'function'; }, rq), 'aplikasi membaca waktu server sebagai tanggal biasa');
+
+  // artikel: maju tahap tercatat; ajukan brief tanpa cek AI ditolak
+  const art = await ari.evaluate(() => (S.mine.tasks.find((t) => t.type === 'Artikel' && (t.stage || 1) === 1) || {}).id);
+  ok(art, 'ada artikel tahap 1 milik ari');
+  const st1 = await ari.evaluate((id) => api.call('advanceStage', { taskId: id, step: 'start' }).then(() => 'ok', (e) => e.message), art);
+  await wait(800);
+  d = await fsGet('tasks/' + art);
+  const lg2 = val(d, 'stageLog').values;
+  ok(st1 === 'ok' && val(d, 'stage') === '2' && lg2[lg2.length - 1].mapValue.fields.t.timestampValue, 'artikel maju ke tahap 2 dan riwayatnya bertambah (' + st1 + ')');
+  const fake = await ari.evaluate((id) => window.PTFire.db().collection('tasks').doc(id).update({ stageLog: [{ s: 1, t: '2026-11-01T02:00:00.000Z' }, { s: 3, t: '2026-11-01T03:00:00.000Z' }], updatedBy: 'ari', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => 'tersimpan', (e) => e.code), art);
+  ok(fake === 'permission-denied', 'menulis ulang riwayat tahap lewat console ditolak');
+  const jump = await ari.evaluate((id) => window.PTFire.db().collection('tasks').doc(id).update({ stage: 3, status: 'Review', stageLog: firebase.firestore.FieldValue.arrayUnion({ s: 3, t: firebase.firestore.Timestamp.now() }), reviewAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: 'ari', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => 'tersimpan', (e) => e.code), art);
+  ok(jump === 'permission-denied', 'ajukan brief tanpa cek AI lewat console ditolak');
+
   // akun tanpa dokumen private (belum pernah isi email) bisa menyimpan email
   await fetch(FS + 'private/ari', { method: 'DELETE', headers: { Authorization: 'Bearer owner' } }); await wait(800);
   const em = await ari.evaluate(() => api.call('setMyEmail', { email: 'ari.baru@contoh.com' }).then(() => 'ok', (e) => e.message));

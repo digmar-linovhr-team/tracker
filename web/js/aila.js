@@ -116,9 +116,10 @@
   }
   async function perbaruiLabel() {
     var el = document.getElementById('aila-chip'); if (!el) return;
-    var menyala = false;
+    var menyala = false, c = cfg();
+    // tanpa token AILA belum dipakai di perangkat ini: jangan mengetuk localhost (menghindari error koneksi di console)
+    if (!c.token) { el.className = 'chip'; el.textContent = 'Belum diatur'; return; }
     try { menyala = (await fetch(ALAMAT + '/status')).ok; } catch (e) { /* mati */ }
-    var c = cfg();
     el.className = 'chip ' + (menyala && c.token && c.aktif ? 'good' : menyala ? 'warn' : '');
     el.textContent = !menyala ? 'AILA tidak terdeteksi' : !c.token ? 'Token belum diisi' : c.aktif ? 'Tersambung' : 'Dimatikan';
   }

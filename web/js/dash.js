@@ -139,11 +139,13 @@ function dashHero(o) {
   let mine = dhMyTasks(tab);
   const rv = dhReviewList(o.admin), idea = dhIdeas(o.admin);
   const nAll = dhMyTasks('all').length;
-  return `<div class="dh ${idea ? '' : 'no-idea'}">
-    <section class="card dh-tasks"><div class="card-h"><h2>Task saya${nAll ? ` <span class="dh-n">${nAll}</span>` : ''}</h2><button type="button" class="dh-round" data-go="mine" title="Buka Task Saya" aria-label="Buka Task Saya">›</button></div>
+  const hasTasks = !!S.user.sheetName || nAll > 0;
+  const taskCard = `<section class="card dh-tasks"><div class="card-h"><h2>Task saya${nAll ? ` <span class="dh-n">${nAll}</span>` : ''}</h2><button type="button" class="dh-round" data-go="mine" title="Buka Task Saya" aria-label="Buka Task Saya">›</button></div>
       <div class="card-b"><div class="seg dh-tabs" role="tablist">${[['today', 'Hari ini'], ['week', 'Minggu ini'], ['all', 'Semua']].map(([k, l]) => `<button type="button" role="tab" data-dtab="${k}" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}">${l}</button>`).join('')}</div>
         <div class="dh-list">${mine.slice(0, 40).map(dhTaskCard).join('') || `<p class="muted small dh-empty">${nAll ? 'Tidak ada task untuk pilihan ini.' : 'Tidak ada task aktif.'}</p>`}</div>
-        ${mine.length > 4 ? `<button type="button" class="btn sm dh-more" data-go="mine">Lihat semua (${mine.length})</button>` : ''}</div></section>
+        ${mine.length > 4 ? `<button type="button" class="btn sm dh-more" data-go="mine">Lihat semua (${mine.length})</button>` : ''}</div></section>`;
+  return `<div class="dh ${idea ? '' : 'no-idea'} ${hasTasks ? '' : 'no-task'}">
+    ${hasTasks ? taskCard : ''}
     <section class="card dh-status"><div class="card-h"><h2>Status task</h2><span class="muted small">${esc(o.periodLabel)}</span></div><div class="card-b">${dhDonut(o.sum)}</div></section>
     <section class="card dh-line"><div class="card-h"><h2>Selesai vs terlambat</h2></div><div class="card-b"><div class="dh-chart"><canvas id="dh-line" aria-label="Grafik task selesai tepat waktu dan terlambat per minggu"></canvas></div><div class="dh-sum" id="dh-line-sum"></div></div></section>
     <section class="card dh-rvs"><div class="card-h"><h2>${rv.title}</h2>${rv.chip}</div><div class="card-b">${rv.body}${rv.all}</div></section>

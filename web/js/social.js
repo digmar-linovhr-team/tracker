@@ -185,7 +185,7 @@ function viewSocial() {
       <div class="bed-actions" id="bactions"></div>
     </div>
     ${E.error ? `<div class="banner warn"><div>${esc(E.error)}</div><button class="btn sm" id="breload">Muat ulang brief</button></div>` : ''}
-    ${edit ? '' : `<div class="banner"><div>${st === 'Selesai' ? 'Konten ini sudah disetujui admin — brief hanya bisa dilihat.' : 'Hanya bisa dilihat. Brief ini bisa diubah oleh pembuatnya, penanggung jawab, dan admin.'}</div></div>`}
+    ${edit ? '' : `<div class="banner"><div>${st === 'Selesai' ? 'Konten ini sudah disetujui admin, jadi brief hanya bisa dilihat.' : 'Hanya bisa dilihat. Brief ini bisa diubah oleh pembuatnya, penanggung jawab, dan admin.'}</div></div>`}
     ${edit && !E.isNew ? `<div class="dv-wrap dv-wrap-ed">${docBar(true, false)}</div>` : ''}
     <div class="bed-main bed-one" id="bmain">
       ${secCard(1, 'Konten', `
@@ -193,7 +193,7 @@ function viewSocial() {
         <div class="field"><span>Bentuk</span><div class="seg seg-pick" role="radiogroup" aria-label="Bentuk konten">${['Carousel', 'Video'].map((x) => `<button type="button" role="radio" aria-checked="${d.format === x}" class="${d.format === x ? 'on' : ''}" data-sfmt="${x}" ${ro}>${x}</button>`).join('')}</div></div>
         <div class="field"><span>Platform</span><div class="chips-pick">${(ro ? d.platforms : SOC_PLATFORMS.concat(d.platforms.filter((x) => !SOC_PLATFORMS.includes(x)))).map((x) => `<label class="cpick ${d.platforms.includes(x) ? 'on' : ''}"><input type="checkbox" data-plat="${esc(x)}" ${d.platforms.includes(x) ? 'checked' : ''} ${ro}>${esc(x)}</label>`).join('')}
           ${ro ? '' : '<input type="text" class="extra-in" data-platin="1" placeholder="+ lainnya (Enter)" aria-label="Platform lain">'}</div></div>
-        <div class="field"><span>Ukuran <em class="muted">— boleh lebih dari satu</em></span><div class="chips-pick" id="soc-sizes">${sizeChips(d, ro)}</div>
+        <div class="field"><span>Ukuran <em class="muted">boleh lebih dari satu</em></span><div class="chips-pick" id="soc-sizes">${sizeChips(d, ro)}</div>
           <small class="muted soc-hint">Rekomendasi feed Instagram & LinkedIn: <b>4:5 · 1080×1350</b>. Reels / TikTok / Story: <b>9:16 · 1080×1920</b>.</small></div>`)}
       ${secCard(2, video ? 'Scene per scene' : 'Brief visual per slide', `
         ${items.map((x, i) => video ? sceneBlock(x, i, items.length, ro) : slideBlock(x, i, items.length, ro)).join('')}
@@ -227,7 +227,7 @@ function refsBlock(x, i, ro) {
     const links = x.refs.filter((r) => String(r).trim());
     return links.length ? `<div class="sx-src"><span class="sx-src-h">Referensi</span><div class="t-res">${links.map((r) => isHttp(r) ? resChip({ label: '', url: r.trim() }) : `<span class="muted small">${esc(r)}</span>`).join('')}</div></div>` : '';
   }
-  return `<div class="sx-src"><span class="sx-src-h">Referensi <em class="muted">— link Google, Instagram, Pinterest, TikTok, dll.</em></span>
+  return `<div class="sx-src"><span class="sx-src-h">Referensi <em class="muted">link Google, Instagram, Pinterest, TikTok, dll.</em></span>
     ${x.refs.map((r, k) => `<div class="li-row"><input type="text" data-sl="${i}" data-ref="${k}" value="${esc(r)}" placeholder="https://…" aria-label="Link referensi">${isHttp(r) ? `<a class="ibtn" href="${esc(r.trim())}" target="_blank" rel="noopener noreferrer" aria-label="Buka referensi" title="Buka">↗</a>` : ''}${x.refs.length > 1 ? `<button type="button" class="ibtn" data-rmref="${i}" data-k="${k}" aria-label="Hapus referensi">×</button>` : ''}</div>`).join('')}
     <button type="button" class="btn sm ghost" data-addref="${i}">+ Referensi</button></div>`;
 }
@@ -309,7 +309,7 @@ function renderSocAssign() {
   box.innerHTML = `
     <div class="grid2">
       <label class="field"><span>Penanggung jawab *</span><select data-as="owner" data-pick="person"><option value="">${people.length ? 'Pilih orang…' : 'Memuat daftar anggota…'}</option>${people.map((u) => opt(u.username, a.owner, u.name + (u.position ? ' — ' + u.position : ''))).join('')}</select></label>
-      <label class="field"><span>Project (opsional)</span><select data-as="code" data-pick="project"><option value="">— tanpa project —</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
+      <label class="field"><span>Project (opsional)</span><select data-as="code" data-pick="project"><option value="">Tanpa project</option>${socProjects().map((p) => opt(p.code, a.code, p.code + ' — ' + String(p.project).slice(0, 50))).join('')}</select></label>
     </div>
     <div class="grid3">
       <label class="field"><span>Deadline *</span><input type="date" data-as="endDate" value="${esc(a.endDate)}"></label>

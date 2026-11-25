@@ -92,7 +92,7 @@ function aiCard(t, stage) {
       ${admin && !rv.allowRecheck ? `<button class="btn ghost" data-aiallow="${stage}">Izinkan cek ulang</button>` : ''}
       ${rv.allowRecheck ? '<span class="muted small">Admin mengizinkan cek ulang.</span>' : ''}
     </div>
-    ${stage === 'brief' && n ? `<div class="ai-note">Brief bisa diajukan setelah <b>semua</b> saran beres — diperbaiki (lalu klik "Cek perbaikan") atau ditandai tidak relevan dengan alasan. Sekarang ${rv.fixed || 0} dari ${n}.</div>`
+    ${stage === 'brief' && n ? `<div class="ai-note">Brief bisa diajukan setelah <b>semua</b> saran beres: diperbaiki (lalu klik "Cek perbaikan") atau ditandai tidak relevan dengan alasan. Sekarang ${rv.fixed || 0} dari ${n}.</div>`
       : !rv.pass && n ? `<div class="ai-note">Bisa diajukan bila skor ≥ ${rv.passMark}, atau ≥ 80% saran ${(rv.suggestions || []).some((s) => s.prio) ? '<b>wajib & sebaiknya</b> ' : ''}sudah diperbaiki / ditandai tidak relevan (sekarang ${Math.round(aiProgress(rv) * 100)}%).</div>` : ''}
   </div>`;
 }
@@ -110,7 +110,7 @@ function aiBind(root, t) {
     } catch (e) { toast(cleanErr(e), true); }
     finally { delete AI.busy[key]; saveCache(); rerender(); }
   };
-  $$('[data-aicheck]', root).forEach((b) => b.onclick = () => run(b, 'aiCheck', b.dataset.aicheck, null, (rv) => `Skor ${rv.score} — ${rv.pass ? 'lulus' : 'belum lulus (ambang ' + rv.passMark + ')'}`));
+  $$('[data-aicheck]', root).forEach((b) => b.onclick = () => run(b, 'aiCheck', b.dataset.aicheck, null, (rv) => `Skor ${rv.score}: ${rv.pass ? 'lulus' : 'belum lulus (ambang ' + rv.passMark + ')'}`));
   $$('[data-aifix]', root).forEach((b) => b.onclick = () => run(b, 'aiFix', b.dataset.aifix, null, (rv) => `${rv.fixed || 0} dari ${rv.suggestions.length} saran sudah beres`));
   $$('[data-aiallow]', root).forEach((b) => b.onclick = () => run(b, 'aiAllow', b.dataset.aiallow, null, 'Cek ulang diizinkan untuk task ini'));
   const stage = AI.tab[t.id] || aiStageNow(t);
@@ -174,7 +174,7 @@ async function aiSettingsCard() {
     ${st.keySet ? '' : '<p class="small" style="color:var(--bad)">Pasang di Apps Script → Project Settings → Script Properties: <b>ANTHROPIC_API_KEY</b>.</p>'}
     <b style="font-size:13px">Pemakaian ${esc(u.month || '')}</b><div class="ai-meter"><i style="width:${pct}%;${used >= cap * 0.8 ? 'background:var(--warn)' : ''}"></i></div>
     <div class="muted small">US$${used.toFixed(2)} dari anggaran US$${Number(s.budget || 9).toFixed(0)} · ${u.count || 0} panggilan · perkiraan akhir bulan US$${proj.toFixed(2)} · berhenti otomatis di US$${cap.toFixed(2)}</div>
-    <div class="ai-grid">${AI_STAGES.map(([k, l]) => `<div><b>${l}</b>Ambang <input type="number" min="0" max="100" data-aipass="${k}" value="${esc(String((st.pass || {})[k] || ''))}" class="ai-num"> · 1×${sel(k)}</div>`).join('')}</div>
+    <div class="ai-grid">${AI_STAGES.map(([k, l]) => `<div><b>${l}</b>Ambang <input type="number" min="0" max="100" inputmode="numeric" aria-label="Ambang lulus ${esc(l)}" data-aipass="${k}" value="${esc(String((st.pass || {})[k] || ''))}" class="ai-num"> · 1×${sel(k)}</div>`).join('')}</div>
     <div class="muted small ai-sel-inline" style="margin:-4px 0 8px">Cek perbaikan memakai ${sel('fix')}</div>
     <label class="check"><input type="checkbox" id="ai-gate" ${s.gate !== false ? 'checked' : ''}> Skor / checklist jadi syarat pengajuan (admin tetap bisa menyetujui apa pun skornya)</label>
     <label class="field" style="max-width:260px;margin-top:8px"><span>Berhenti otomatis di (US$ per bulan)</span><input type="number" step="0.5" min="0" id="ai-cap" value="${cap}"></label>

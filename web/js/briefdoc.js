@@ -38,7 +38,7 @@ function socialDocMode(b) {
 function docBar(edit, reading) {
   if (!edit && !reading) return '';
   return `<div class="dv-bar">${edit ? `<div class="dv-seg" role="tablist" aria-label="Tampilan brief"><button type="button" role="tab" data-dvmode="read" class="${reading ? 'on' : ''}" aria-selected="${reading}">Mode baca</button><button type="button" role="tab" data-dvmode="edit" class="${reading ? '' : 'on'}" aria-selected="${!reading}">Mode ubah</button></div>` : ''}
-    <span class="dv-sp"></span>${reading ? '<button type="button" class="btn sm" id="dv-copy" title="Salin seluruh brief — bisa ditempel ke Google Docs atau email dengan format rapi">Salin teks</button>' : ''}</div>`;
+    <span class="dv-sp"></span>${reading ? '<button type="button" class="btn sm" id="dv-copy" title="Salin seluruh brief, bisa ditempel ke Google Docs atau email dengan format rapi">Salin teks</button>' : ''}</div>`;
 }
 function bindDocBar(rerender) {
   const E = S.bEdit;
@@ -56,7 +56,7 @@ function bindDocBar(rerender) {
     try {
       if (window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]);
       else await navigator.clipboard.writeText(text);
-      toast('Brief disalin — tempel di Google Docs atau email');
+      toast('Brief disalin. Tempel di Google Docs atau email');
     } catch (e) {
       try { await navigator.clipboard.writeText(text); toast('Brief disalin sebagai teks'); } catch (e2) { toast('Browser menolak menyalin. Pilih teks lalu tekan Ctrl/⌘ + C.', true); }
     }
@@ -99,10 +99,10 @@ function articleDocHtml(b, task) {
     ${filled(d.metaTitle) || filled(d.metaDesc) ? `<div class="dv-serp"><small>Tampilan di Google · meta title ${fv(d.metaTitle).length}/60 · description ${fv(d.metaDesc).length}/155</small>
       <div class="u">www.linovhr.com${path ? ' › ' + esc(path) : ''}</div><div class="tt">${esc(fv(d.metaTitle) || fv(d.h1))}</div><div class="ds">${esc(fv(d.metaDesc))}</div></div>` : ''}
     <h2 class="dv-part">Kerangka artikel</h2>
-    ${filled(d.intro) ? `<p class="dv-intro"><em>Pembuka —</em> ${txtHtml(d.intro)}</p>` : ''}
+    ${filled(d.intro) ? `<p class="dv-intro"><em>Pembuka:</em> ${txtHtml(d.intro)}</p>` : ''}
     ${body || '<p class="dv-muted">Belum ada subjudul.</p>'}
     ${faq.length ? `<h3>FAQ</h3>${faq.map((f) => `<p><b>${esc(fv(f.q))}</b>${filled(f.a) ? '<br>' + txtHtml(f.a) : ''}</p>`).join('')}` : ''}
-    ${comps.length ? `<h2 class="dv-part">Riset kompetitor</h2>${comps.map((c, i) => `<p><b>${i + 1}. ${dvLink(c.url) || 'tanpa link'}</b>${filled(c.insight) ? ' — ' + txtHtml(c.insight) : ''}</p>`).join('')}` : ''}
+    ${comps.length ? `<h2 class="dv-part">Riset kompetitor</h2>${comps.map((c, i) => `<p><b>${i + 1}. ${dvLink(c.url) || 'tanpa link'}</b>${filled(c.insight) ? ': ' + txtHtml(c.insight) : ''}</p>`).join('')}` : ''}
     ${inl.length || ext.length ? `<h2 class="dv-part">Link yang dipakai</h2><ul>${inl.map((l) => `<li>Internal: <b>${esc(fv(l.anchor) || '–')}</b> → ${dvLink(l.url, fv(l.url))}</li>`).join('')}${ext.map((l) => `<li>External: <b>${esc(fv(l.anchor) || '–')}</b> → ${dvLink(l.url)}</li>`).join('')}</ul>` : ''}
     ${d.extras.length || filled(d.extraNote) ? `<h2 class="dv-part">Elemen tambahan</h2><p>${esc(d.extras.join(', '))}${d.extras.length && filled(d.extraNote) ? '. ' : ''}${filled(d.extraNote) ? txtHtml(d.extraNote) : ''}</p>` : ''}
     ${srcs.length ? `<div class="dv-foot"><b>Sumber</b><ol>${srcs.map((x) => `<li>${dvLink(x)}</li>`).join('')}</ol></div>` : ''}

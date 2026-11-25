@@ -64,7 +64,7 @@ function orgCard(u, extra) {
   const me = u.username === S.user.username, sel = S.org.sel === u.username;
   return `<button type="button" class="oc-card ${sel ? 'sel' : ''} ${extra || ''}" data-org="${esc(u.username)}" aria-pressed="${sel}">
     <span class="avatar ${dvCls(u.division)}">${initials(u.name)}</span>
-    <span class="oc-txt"><b>${esc(u.name)}${me ? ' <em class="oc-me">Anda</em>' : ''}</b><small>${esc(u.position || (u.orgOnly ? '' : '—'))}</small>${extra === 'wide' && u.skills ? `<small class="oc-sk">${esc(u.skills)}</small>` : ''}</span>
+    <span class="oc-txt"><b>${esc(u.name)}${me ? ' <em class="oc-me">Anda</em>' : ''}</b><small>${esc(u.position || (u.orgOnly ? '' : '-'))}</small>${extra === 'wide' && u.skills ? `<small class="oc-sk">${esc(u.skills)}</small>` : ''}</span>
   </button>`;
 }
 
@@ -153,8 +153,8 @@ function orgProfile(username, people) {
   return `<div class="op-head"><span class="avatar big ${dvCls(u.division)}">${initials(u.name)}</span>
       <b>${esc(u.name)}</b><span class="muted small">${esc(u.position || 'Posisi belum diisi')}</span>
       <span class="op-tags">${u.division ? `<span class="oc-dv ${dvCls(u.division)}">${esc(u.division)}</span>` : ''}${me ? '<span class="chip accent">Anda</span>' : ''}${u.orgOnly ? '<span class="chip">Tanpa akun</span>' : ''}</span></div>
-    ${row('Atasan', boss ? chip(boss) : '<span class="muted">—</span>')}
-    ${row('Tim langsung', kids.length ? `<div class="op-chips">${kids.map(chip).join('')}</div>` : '<span class="muted">—</span>')}
+    ${row('Atasan', boss ? chip(boss) : '<span class="muted">-</span>')}
+    ${row('Tim langsung', kids.length ? `<div class="op-chips">${kids.map(chip).join('')}</div>` : '<span class="muted">-</span>')}
     ${row('Keahlian', `${u.skills ? esc(u.skills) : '<span class="muted">Belum diisi</span>'}${me ? ' <button type="button" class="btn sm ghost" id="op-skill">Ubah</button>' : ''}`)}
     ${u.hasTasks ? row('Task aktif', `${active} task <button type="button" class="btn sm ghost" id="op-tasks" data-u="${esc(u.username)}">Lihat task-nya</button>`) : ''}
     ${u.joined ? row('Bergabung', esc(fmtMonth(u.joined))) : ''}

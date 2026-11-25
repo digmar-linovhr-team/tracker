@@ -55,11 +55,40 @@ service cloud.firestore {
         (old().get('stage', 0) == 4 && d().stage == 5) || (old().get('stage', 0) == 6 && d().stage == 7) ||
         (old().get('stage', 0) == 7 && d().stage == 8));
     }
+    // Waktu yang ditulis anggota (mulai, diajukan, selesai) harus jam server saat itu juga, bukan waktu karangan.
+    function timesOk() {
+      return (unchanged('startedAt') || (old().get('startedAt', '') in ['', null] && d().startedAt == request.time))
+        && (unchanged('reviewAt') || d().reviewAt == request.time || d().reviewAt == '')
+        && (unchanged('doneAt') || d().doneAt == request.time || d().doneAt == '');
+    }
+    // Riwayat tahap hanya boleh bertambah satu baris (tidak boleh ditulis ulang); waktunya dekat jam server.
+    function logAppendOk() { return unchanged('stageLog') || logAppended(old().get('stageLog', []), d().get('stageLog', [])); }
+    function logAppended(o, n) {
+      return n.size() == o.size() + 1 && (o.size() == 0 || n[0:o.size()] == o) && logEntryOk(n[o.size()]);
+    }
+    function logEntryOk(x) {
+      return x.t is timestamp && x.t > request.time - duration.value(15, 'm') && x.t < request.time + duration.value(15, 'm')
+        && (old().get('type', '') != 'Artikel' || (x.get('s', 0) == d().stage && !unchanged('stage')));
+    }
+    // Syarat cek AI saat mengajukan (brief 2→3, artikel 4→5, cek ulang 7→8), kecuali admin mematikannya di Pengaturan.
+    function aiGateOff() { return exists(/databases/$(database)/documents/settings/ai) && get(/databases/$(database)/documents/settings/ai).data.get('gate', true) == false; }
+    function aiDone(r, strict) {
+      return r != null && r.get('score', null) != null
+        && (strict ? r.get('fixed', 0) >= r.get('suggestions', []).size()
+                   : (r.get('pass', false) == true || r.get('fixed', 0) * 5 >= r.get('suggestions', []).size() * 4));
+    }
+    function aiGateOk() { return unchanged('stage') || old().get('type', '') != 'Artikel' || aiGateStep(old().get('stage', 0), d().get('stage', 0)); }
+    function aiGateStep(a, b) {
+      return !((a == 2 && b == 3) || (a == 4 && b == 5) || (a == 7 && b == 8)) || aiGateOff()
+        || (a == 2 && aiDone(old().get('aiBrief', null), true)) || (a == 4 && aiDone(old().get('aiDraft', null), false)) || (a == 7 && aiDone(old().get('aiLive', null), false));
+    }
     // penanggung jawab atau anggota pendukung (members) — keduanya boleh mengerjakan; daftar anggota hanya diubah admin
     function onTask(t) { return t.owner == uname() || uname() in t.get('members', []); }
     function ownerWorkOk() {
       return onTask(old()) && onlyChanges(workKeys()) && stamped()
         && d().status != 'Done' && old().status != 'Done' && stageOk()
+        && timesOk() && logAppendOk() && aiGateOk()
+        && (old().get('type', '') != 'Artikel' || unchanged('stage') || !unchanged('stageLog'))
         // task artikel & request mengikuti alurnya; status tidak boleh diubah bebas
         && (old().get('type', '') != 'Artikel' || unchanged('status') || changed().hasAny(['stage']));
     }
@@ -68,7 +97,10 @@ service cloud.firestore {
         && (onlyChanges(planKeys())
             // pembuat Request: mengalihkan penerima (status kembali Backlog), menjawab klarifikasi, menyetujui / mengembalikan hasil
             || (old().type == 'Request' && onlyChanges(planKeys().concat(['status', 'doneAt', 'reviewAt', 'stageLog']))))
-        && (unchanged('owner') || isActiveUser(d().owner));
+        && (unchanged('owner') || isActiveUser(d().owner))
+        && timesOk()
+        // riwayat hanya bertambah; saat request dialihkan ke orang lain, riwayat boleh dimulai ulang
+        && (logAppendOk() || (!unchanged('owner') && d().get('stageLog', []).size() <= 1));
     }
     match /tasks/{id} {
       allow read: if active();

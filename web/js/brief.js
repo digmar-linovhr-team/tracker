@@ -50,7 +50,7 @@ function normBrief(d) {
     const sections = [];
     let intro = '';
     (d.outline || []).forEach((o) => {
-      if (o.level === 1) intro = [o.heading !== 'Intro' ? o.heading : '', o.notes].filter(Boolean).join(' — ');
+      if (o.level === 1) intro = [o.heading !== 'Intro' ? o.heading : '', o.notes].filter(Boolean).join(': ');
       else if (o.level === 3 && sections.length) sections[sections.length - 1].h3.push({ title: o.heading || '', points: o.notes || '' });
       else sections.push({ h2: o.heading || '', points: o.notes || '', sources: [''], h3: [] });
     });
@@ -400,7 +400,7 @@ function linkList(arr, label, ph, ro) {
 }
 function compText(d) {
   const n = filledCompetitors(d);
-  return n >= MIN_COMPETITORS ? `<span class="ok">✓ ${n} kompetitor</span>` : `<span class="warn">${n}/${MIN_COMPETITORS} kompetitor terisi — wajib minimal ${MIN_COMPETITORS} sebelum ditandai siap ditulis</span>`;
+  return n >= MIN_COMPETITORS ? `<span class="ok">✓ ${n} kompetitor</span>` : `<span class="warn">${n}/${MIN_COMPETITORS} kompetitor terisi, wajib minimal ${MIN_COMPETITORS} sebelum ditandai siap ditulis</span>`;
 }
 function saveText() {
   const E = S.bEdit;
@@ -546,7 +546,7 @@ function bindBriefActions() {
   if ($('#brev-ok')) $('#brev-ok').onclick = async () => { if (E.dirty) await briefSave(); decideReview(t.id, 'approve'); };
   if ($('#brev-return')) $('#brev-return').onclick = () => modal({
     title: 'Kembalikan brief',
-    body: `<p style="margin-top:0">${esc(t.ownerName)} — <b>${esc(bKw(E.b))}</b></p><label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="brv-reason" rows="3" placeholder="mis. Tambah 1 kompetitor, H2 ke-3 terlalu umum"></textarea></label>`,
+    body: `<p style="margin-top:0">${esc(t.ownerName)} · <b>${esc(bKw(E.b))}</b></p><label class="field"><span>Apa yang perlu diperbaiki? (opsional)</span><textarea id="brv-reason" rows="3" placeholder="mis. Tambah 1 kompetitor, H2 ke-3 terlalu umum"></textarea></label>`,
     actions: '<button class="btn" data-close>Batal</button><button class="btn primary" id="brv-send">Kembalikan</button>',
     onMount: (m, close) => { $('#brv-send', m).onclick = () => { const r = $('#brv-reason', m).value.trim(); close(); decideReview(t.id, 'return', r); }; }
   });
@@ -664,13 +664,13 @@ function draftBanner() {
   const top = $('.bed-top'); if (!top) return;
   const bn = document.createElement('div');
   bn.className = 'banner warn'; bn.id = 'bdraft';
-  bn.innerHTML = `<div><b>Ada perubahan yang belum disimpan</b> dari ${esc(cmWhen(at.toISOString()))} di perangkat ini.${newer ? ' Brief ini sudah diubah lagi sejak itu — memulihkan akan menimpa perubahan tersebut.' : ''}</div>
+  bn.innerHTML = `<div><b>Ada perubahan yang belum disimpan</b> dari ${esc(cmWhen(at.toISOString()))} di perangkat ini.${newer ? ' Brief ini sudah diubah lagi sejak itu, jadi memulihkan akan menimpa perubahan tersebut.' : ''}</div>
     <div class="row"><button class="btn sm" id="bdraft-x">Buang</button><button class="btn sm primary" id="bdraft-ok">Pulihkan</button></div>`;
   top.insertAdjacentElement('afterend', bn);
   $('#bdraft-x').onclick = () => { draftDel(E.id); bn.remove(); };
   $('#bdraft-ok').onclick = () => {
     E.b.data = E.b.type === 'Request' ? normRequest(dr.data) : isSocial(E.b) ? normSocial(dr.data) : normBrief(dr.data);
-    E.dirty = true; rerenderBrief(); toast('Perubahan dipulihkan — klik Simpan untuk menyimpan');
+    E.dirty = true; rerenderBrief(); toast('Perubahan dipulihkan. Klik Simpan untuk menyimpan');
   };
 }
 document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('#bsavebtn'); if (b && !b.disabled) briefSave(); });

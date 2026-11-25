@@ -161,7 +161,7 @@ function ideaCoreBind(root, src) {
   });
   $$('[data-ideaalt]', root).forEach((b) => b.onclick = () => {
     const rv = ((src.idea || {}).reviews || []).slice(-1)[0], a = rv && rv.alts[Number(b.dataset.ideaalt)]; if (!a) return;
-    src.form().angle = a.title + ' — ' + a.desc;
+    src.form().angle = a.title + ': ' + a.desc;
     toast('Sudut pandang sudah diganti. Rapikan isinya, lalu simpan atau cek lagi.'); src.rerender();
   });
   return { run, form };

@@ -176,11 +176,26 @@
         var ch = {};
         Object.keys(b[id]).forEach(function (k) { if (!eq(a[id][k], b[id][k])) ch[k] = b[id][k]; });
         Object.keys(a[id]).forEach(function (k) { if (!(k in b[id])) ch[k] = null; });
-        if (Object.keys(ch).length) ops.push({ col: col, id: id, type: 'update', data: ch });
+        if (Object.keys(ch).length) ops.push({ col: col, id: id, type: 'update', data: ch, old: a[id] });
       });
       Object.keys(a).forEach(function (id) { if (!b[id]) ops.push({ col: col, id: id, type: 'delete' }); });
     });
     return ops;
+  }
+  /** Anggota: waktu mulai/diajukan/selesai memakai jam server, dan riwayat tahap hanya ditambah (sesuai aturan keamanan). */
+  function timeFields(d, old, ts) {
+    ['startedAt', 'reviewAt', 'doneAt'].forEach(function (k) { if (k in d && typeof d[k] === 'string' && d[k]) d[k] = ts; });
+    if (Array.isArray(d.stageLog)) {
+      var o = Array.isArray(old.stageLog) ? old.stageLog : [];
+      if (d.stageLog.length > o.length && eq(d.stageLog.slice(0, o.length), o)) {
+        var add = d.stageLog.slice(o.length).map(function (x) {
+          var y = Object.assign({}, x), when = new Date(x.t);
+          y.t = firebase.firestore.Timestamp.fromDate(isNaN(when) ? new Date() : when);
+          return y;
+        });
+        d.stageLog = FV.arrayUnion.apply(FV, add);
+      }
+    }
   }
   /** Sesuaikan operasi dengan aturan keamanan & kebutuhan Firestore. */
   function prepare(ops) {
@@ -198,6 +213,7 @@
       if (d) Object.keys(d).forEach(function (k) { if (d[k] === null && o.type === 'update') d[k] = FV.delete(); });
       // dokumen private bisa belum ada (akun tanpa email) → selalu tulis dengan merge, bukan update
       if (o.col === 'private' && o.type !== 'delete') { d.updatedAt = ts; return { col: o.col, id: o.id, type: 'set', merge: true, data: d }; }
+      if (o.col === 'tasks' && o.type === 'update' && !isAdmin) timeFields(d, o.old || {}, ts);
       if (o.col === 'tasks' && o.type !== 'delete') {
         d.updatedBy = me; d.updatedAt = ts;
         if (o.type === 'set' && !d.createdBy && (d.type === 'Request' || d.type === 'Sosmed')) d.createdBy = me;
@@ -269,7 +285,7 @@
       case 'reviewTask': {
         var t3 = tA(p.taskId); if (!t3) break;
         var tim = [t3.owner].concat(t3.members || []);
-        if (p.decision === 'return') add(tim, 'returned', 'Dikembalikan: ' + short(t3.task) + (p.reason ? ' — ' + short(p.reason) : ''), { taskId: p.taskId });
+        if (p.decision === 'return') add(tim, 'returned', 'Dikembalikan: ' + short(t3.task) + (p.reason ? ': ' + short(p.reason) : ''), { taskId: p.taskId });
         else add(tim, 'approved', (t3.status === 'Done' ? 'Disetujui & selesai: ' : 'Disetujui, lanjut tahap berikutnya: ') + short(t3.task), { taskId: p.taskId });
         if (p.decision !== 'return' && t3.type === 'Sosmed' && t3.status === 'Done') add(t3.createdBy, 'approved', 'Konten sosmed selesai: ' + short(t3.task), { taskId: p.taskId, view: 'briefs' });
         break;
@@ -287,8 +303,8 @@
         else if (p.act === 'accept') add(br.createdBy, 'request', myName + ' menerima request: ' + title, { taskId: t4.id, view: 'briefs' });
         else if (p.act === 'submit') add(br.createdBy, 'request', myName + ' mengajukan hasil request: ' + title, { taskId: t4.id, view: 'briefs' });
         else if (p.act === 'approve') add(t4.owner, 'approved', 'Hasil request disetujui: ' + title, { taskId: t4.id, view: 'briefs' });
-        else if (p.act === 'return') add(t4.owner, 'returned', 'Hasil request dikembalikan: ' + title + (p.payload && p.payload.text ? ' — ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
-        else if (p.act === 'reopen') add(t4.owner, 'returned', myName + ' meminta revisi request yang sudah selesai: ' + title + (p.payload && p.payload.text ? ' — ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'return') add(t4.owner, 'returned', 'Hasil request dikembalikan: ' + title + (p.payload && p.payload.text ? ': ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
+        else if (p.act === 'reopen') add(t4.owner, 'returned', myName + ' meminta revisi request yang sudah selesai: ' + title + (p.payload && p.payload.text ? ': ' + short(p.payload.text) : ''), { taskId: t4.id, view: 'briefs' });
         break;
       }
       case 'leaveRequest': {
@@ -299,13 +315,13 @@
       }
       case 'leaveDecide': {
         var l = after.leaves.find(function (x) { return x.id === p.id; });
-        if (l) add(l.username, 'leave', l.kind + ' ' + l.from + (l.to !== l.from ? ' s.d. ' + l.to : '') + (p.decision === 'approve' ? ' disetujui' : ' ditolak') + (p.note ? ' — ' + short(p.note) : ''), { view: 'schedule' });
+        if (l) add(l.username, 'leave', l.kind + ' ' + l.from + (l.to !== l.from ? ' s.d. ' + l.to : '') + (p.decision === 'approve' ? ' disetujui' : ' ditolak') + (p.note ? ': ' + short(p.note) : ''), { view: 'schedule' });
         break;
       }
       case 'schedRequest': add(admins, 'sched', myName + ' mengajukan perubahan jadwal WFO', { view: 'schedule' }); break;
       case 'schedDecide': {
         var r = after.sreqs.find(function (x) { return x.id === p.id; });
-        if (r) add(r.username, 'sched', 'Pengajuan jadwal ' + (p.decision === 'approve' ? 'disetujui' : 'ditolak') + (p.note ? ' — ' + short(p.note) : ''), { view: 'schedule' });
+        if (r) add(r.username, 'sched', 'Pengajuan jadwal ' + (p.decision === 'approve' ? 'disetujui' : 'ditolak') + (p.note ? ': ' + short(p.note) : ''), { view: 'schedule' });
         break;
       }
     }
@@ -319,7 +335,7 @@
       .map(function (u) { return { to: u.username, type: 'bank', text: myName + ' mengirim ide: ' + title, view: 'ideas' }; });
     if (action === 'bankDecide' && p.decision !== 'withdraw' && it.author && it.author !== me) {
       var w = { approve: 'menyetujui', revise: 'meminta revisi', reject: 'menolak' }[p.decision] || 'memutuskan';
-      return [{ to: it.author, type: 'bank', text: myName + ' ' + w + ' ide Anda: ' + title + (p.note ? ' — ' + String(p.note).slice(0, 80) : ''), view: 'ideas' }];
+      return [{ to: it.author, type: 'bank', text: myName + ' ' + w + ' ide Anda: ' + title + (p.note ? ': ' + String(p.note).slice(0, 80) : ''), view: 'ideas' }];
     }
     return [];
   }

@@ -390,7 +390,7 @@ function dpShareToggle(force) {
     ta.value = lines.concat(extra.length ? [''].concat(extra.filter((l, i) => l || i)) : [], [link]).join('\n').replace(/\n{3,}/g, '\n\n');
   });
   const copy = async (txt, msg) => { try { await navigator.clipboard.writeText(txt); toast(msg); } catch (e) { ta.select(); toast('Tekan Ctrl/⌘+C untuk menyalin', true); } };
-  $('#sh-copy', pop).onclick = () => copy(ta.value, 'Teks disalin — tempel di chat');
+  $('#sh-copy', pop).onclick = () => copy(ta.value, 'Teks disalin. Tempel di chat');
   $('#sh-link', pop).onclick = () => copy(dpUrl(DP.route.kind, DP.route.id), 'Link disalin');
   $('#sh-wa', pop).onclick = async () => {
     const text = ta.value.trim();

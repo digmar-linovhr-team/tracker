@@ -2,7 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 const { initializeTestEnvironment, assertFails, assertSucceeds } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, setLogLevel } = require('firebase/firestore');
+const { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, arrayUnion, setLogLevel } = require('firebase/firestore');
+const step = (st) => ({ stage: st, stageLog: arrayUnion({ s: st, t: Timestamp.now() }) });
 setLogLevel('silent');
 const by = (u, o) => Object.assign({}, o, { updatedBy: u, updatedAt: serverTimestamp() });
 
@@ -24,10 +25,12 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await u('admin', 'admin'); await u('ari', 'member'); await u('ammar', 'member'); await u('nadia', 'member');
     await u('lama', 'member', { active: false }); await u('owner', 'member', { orgOnly: true, hasTasks: false });
     await setDoc(doc(db, 'tasks', 'T1'), { owner: 'ari', task: 'Tugas Ari', status: 'Backlog', type: 'Non-artikel' });
-    await setDoc(doc(db, 'tasks', 'T2'), { owner: 'ammar', task: 'Artikel Ammar', status: 'On-Progress', type: 'Artikel', stage: 2 });
+    await setDoc(doc(db, 'tasks', 'T2'), { owner: 'ammar', task: 'Artikel Ammar', status: 'On-Progress', type: 'Artikel', stage: 2, stageLog: [{ s: 1, t: '2026-11-01T02:00:00.000Z' }, { s: 2, t: '2026-11-02T02:00:00.000Z' }], aiBrief: { score: 82, pass: true, fixed: 2, suggestions: [{ id: 's1', status: 'ok' }, { id: 's2', status: 'na' }] } });
+    await setDoc(doc(db, 'tasks', 'T4'), { owner: 'ammar', task: 'Artikel tanpa cek AI', status: 'On-Progress', type: 'Artikel', stage: 2, stageLog: [{ s: 2, t: '2026-11-02T02:00:00.000Z' }] });
+    await setDoc(doc(db, 'tasks', 'T5'), { owner: 'ammar', task: 'Artikel saran belum beres', status: 'On-Progress', type: 'Artikel', stage: 2, stageLog: [], aiBrief: { score: 60, fixed: 1, suggestions: [{ id: 's1', status: 'ok' }, { id: 's2', status: 'open' }] } });
     await setDoc(doc(db, 'tasks', 'T3'), { owner: 'ari', task: 'Selesai', status: 'Done', type: 'Non-artikel' });
     await setDoc(doc(db, 'tasks', 'TM'), { owner: 'ari', members: ['nadia'], task: 'Campaign bersama', status: 'Backlog', type: 'Non-artikel' });
-    await setDoc(doc(db, 'tasks', 'TMA'), { owner: 'ari', members: ['nadia'], task: 'Artikel bersama', status: 'On-Progress', type: 'Artikel', stage: 2 });
+    await setDoc(doc(db, 'tasks', 'TMA'), { owner: 'ari', members: ['nadia'], task: 'Artikel bersama', status: 'On-Progress', type: 'Artikel', stage: 2, stageLog: [], aiBrief: { score: 75, fixed: 0, suggestions: [] } });
     await setDoc(doc(db, 'briefs', 'BM'), { taskId: 'TMA', createdBy: 'ari', owner: 'ari', type: 'Artikel', data: {} });
     await setDoc(doc(db, 'tasks', 'RQ1'), { owner: 'nadia', createdBy: 'ari', task: 'Request desain', status: 'Review', type: 'Request' });
     await setDoc(doc(db, 'comments', 'C1'), { taskId: 'T1', author: 'ari', kind: 'user', text: 'halo', deleted: false, createdAt: Timestamp.fromMillis(Date.now() - 60 * 6e4) });
@@ -61,7 +64,7 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
   });
 
   await it('task: pemilik mengerjakan, tidak bisa Done, tidak bisa ubah task orang lain atau deadline', async () => {
-    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { status: 'On-Progress', startedAt: 'x' })));
+    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { status: 'On-Progress', startedAt: serverTimestamp() })));
     await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { status: 'Done' })));
     await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { endDate: '2030-01-01' })));
     await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), { status: 'Review' }), 'harus mencatat updatedBy & waktu');
@@ -73,22 +76,37 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
   });
 
   await it('artikel: maju satu tahap kerja, tidak bisa menyetujui review sendiri', async () => {
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 4, status: 'On-Progress' })), 'lompat review brief');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', Object.assign(step(4), { status: 'On-Progress' }))), 'lompat review brief');
     await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { status: 'Review' })), 'status artikel tanpa tahap');
-    await assertSucceeds(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 3, status: 'Review', reviewAt: 'x' })));
-    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 4, status: 'On-Progress' })), 'setujui brief sendiri');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', { stage: 3, status: 'Review', reviewAt: serverTimestamp() })), 'pindah tahap tanpa riwayat');
+    await assertSucceeds(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', Object.assign(step(3), { status: 'Review', reviewAt: serverTimestamp() }))));
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T2'), by('ammar', Object.assign(step(4), { status: 'On-Progress' }))), 'setujui brief sendiri');
     await assertSucceeds(updateDoc(doc(admin, 'tasks', 'T2'), { stage: 4, status: 'On-Progress' }));
   });
 
+  await it('KPI tidak bisa diakali: waktu & riwayat tahap dari server, syarat cek AI dijaga aturan', async () => {
+    const T = (ms) => Timestamp.fromMillis(Date.now() + ms);
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T4'), by('ammar', { stageLog: [{ s: 1, t: '2026-11-01T02:00:00.000Z' }, { s: 3, t: '2026-11-01T03:00:00.000Z' }, { s: 2, t: '2026-11-06T02:00:00.000Z' }] })), 'tulis ulang riwayat');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T4'), by('ammar', { stageLog: arrayUnion({ s: 2, t: T(-3 * 864e5) }) })), 'tambah riwayat tanpa pindah tahap');
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { startedAt: '2026-11-24T10:00:00.000Z' })), 'waktu mulai karangan');
+    await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { status: 'Review', reviewAt: T(-2 * 864e5) })), 'waktu diajukan karangan');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T4'), by('ammar', Object.assign(step(3), { status: 'Review', reviewAt: serverTimestamp() }))), 'ajukan brief tanpa cek AI');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T5'), by('ammar', Object.assign(step(3), { status: 'Review', reviewAt: serverTimestamp() }))), 'saran AI belum beres');
+    await assertFails(updateDoc(doc(ammar, 'tasks', 'T5'), by('ammar', { stage: 3, status: 'Review', stageLog: arrayUnion({ s: 3, t: T(-2 * 3600e3) }), reviewAt: serverTimestamp() })), 'waktu riwayat mundur 2 jam');
+    await seed((db) => setDoc(doc(db, 'settings', 'ai'), { gate: false }));
+    await assertSucceeds(updateDoc(doc(ammar, 'tasks', 'T4'), by('ammar', Object.assign(step(3), { status: 'Review', reviewAt: serverTimestamp() }))), 'syarat AI dimatikan admin');
+    await seed((db) => setDoc(doc(db, 'settings', 'ai'), { gate: true }));
+  });
+
   await it('anggota pendukung: ikut mengerjakan & ubah brief, tapi tidak bisa Done / ubah anggota / deadline', async () => {
-    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { status: 'On-Progress', startedAt: 'x' })));
+    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { status: 'On-Progress', startedAt: serverTimestamp() })));
     await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { results: [{ url: 'https://a.b' }] })));
     await assertFails(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { status: 'Done' })));
     await assertFails(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { members: ['nadia', 'ammar'] })), 'ubah anggota');
     await assertFails(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { endDate: '2030-01-01' })));
     await assertFails(updateDoc(doc(ammar, 'tasks', 'TM'), by('ammar', { status: 'Review' })), 'bukan anggota');
-    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TMA'), by('nadia', { stage: 3, status: 'Review', reviewAt: 'x' })));
-    await assertFails(updateDoc(doc(nadia, 'tasks', 'TMA'), by('nadia', { stage: 4, status: 'On-Progress' })), 'setujui sendiri');
+    await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TMA'), by('nadia', Object.assign(step(3), { status: 'Review', reviewAt: serverTimestamp() }))));
+    await assertFails(updateDoc(doc(nadia, 'tasks', 'TMA'), by('nadia', Object.assign(step(4), { status: 'On-Progress' }))), 'setujui sendiri');
     await assertSucceeds(updateDoc(doc(nadia, 'briefs', 'BM'), { data: { kwMain: 'payroll' } }));
     await assertFails(updateDoc(doc(ammar, 'briefs', 'BM'), { data: { kwMain: 'x' } }), 'bukan anggota');
     await assertFails(updateDoc(doc(ari, 'tasks', 'T1'), by('ari', { members: ['ammar'] })), 'PJ tidak bisa menambah anggota');
@@ -101,7 +119,7 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await assertFails(setDoc(doc(ari, 'tasks', 'T9'), { owner: 'nadia', createdBy: 'ari', type: 'Non-artikel', status: 'Backlog', task: 'x' }), 'task biasa hanya admin');
     await assertFails(setDoc(doc(ari, 'tasks', 'RQ4'), { owner: 'nadia', createdBy: 'ammar', type: 'Request', status: 'Backlog', task: 'x' }), 'atas nama orang lain');
     await assertFails(updateDoc(doc(nadia, 'tasks', 'RQ1'), by('nadia', { status: 'Done' })));
-    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ1'), by('ari', { status: 'Done', doneAt: 'x' })));
+    await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ1'), by('ari', { status: 'Done', doneAt: serverTimestamp() })));
     await assertFails(updateDoc(doc(ammar, 'tasks', 'RQ1'), by('ammar', { status: 'Backlog' })));
     await assertSucceeds(updateDoc(doc(ari, 'tasks', 'RQ2'), by('ari', { owner: 'ammar', status: 'Backlog', stageLog: [] })), 'alihkan request');
     await assertFails(deleteDoc(doc(nadia, 'tasks', 'RQ2')), 'penerima tidak bisa menghapus');

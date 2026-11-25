@@ -64,7 +64,7 @@ function viewSchedule() {
         ${lvTeamCard(D, admin)}
         ${admin ? schHolidayCard(D) : ''}</div>
     </div>
-    <p class="def"><b>Aturan</b> — Selasa WFO untuk semua anggota reguler, ditambah satu hari pilihan: Senin atau Kamis. Rabu & Jumat WFH. Setiap hari WFO minimal ${SCH_MIN} orang di kantor. Pilihan minggu depan terkunci <b>Jumat 17:00</b>; setelah itu perubahan diajukan ke admin (paling lambat H-1 pukul 17:00). Bila WFO seminggu kurang dari 2 hari, minggu berikutnya wajib <b>3 hari</b> (Senin, Selasa, Kamis). Hari WFO yang jatuh di hari libur dianggap terpenuhi. Anggota <b>Fleksibel</b> tidak terikat aturan ini dan tidak dihitung dalam kuota. <b>Cuti, sakit & izin</b> (tanpa batas jumlah) diajukan ke admin; hari yang disetujui tidak dihitung di kuota kantor dan deadline task di rentang itu otomatis mundur sesuai jumlah hari kerjanya.</p>`;
+    <p class="def"><b>Aturan.</b> Selasa WFO untuk semua anggota reguler, ditambah satu hari pilihan: Senin atau Kamis. Rabu & Jumat WFH. Setiap hari WFO minimal ${SCH_MIN} orang di kantor. Pilihan minggu depan terkunci <b>Jumat 17:00</b>; setelah itu perubahan diajukan ke admin (paling lambat H-1 pukul 17:00). Bila WFO seminggu kurang dari 2 hari, minggu berikutnya wajib <b>3 hari</b> (Senin, Selasa, Kamis). Hari WFO yang jatuh di hari libur dianggap terpenuhi. Anggota <b>Fleksibel</b> tidak terikat aturan ini dan tidak dihitung dalam kuota. <b>Cuti, sakit & izin</b> (tanpa batas jumlah) diajukan ke admin; hari yang disetujui tidak dihitung di kuota kantor dan deadline task di rentang itu otomatis mundur sesuai jumlah hari kerjanya.</p>`;
   $('#sch-prev').onclick = () => schGo(schAddW(W.week, -1));
   $('#sch-next').onclick = () => schGo(schAddW(W.week, 1));
   $('#sch-now').onclick = () => schGo(cur);
@@ -130,7 +130,7 @@ function schImpact(q) {
   if (p.days.includes(q.from)) after[q.from]--;
   if (q.kind === 'swap') after[q.to]++;
   const fromTxt = `${SCH_NAME[q.from]} jadi ${after[q.from]} orang`;
-  out.push(after[q.from] < SCH_MIN ? `<span class="bad">${fromTxt} — di bawah minimal ${SCH_MIN}</span>` : `<span class="ok">${fromTxt}</span>`);
+  out.push(after[q.from] < SCH_MIN ? `<span class="bad">${fromTxt}, di bawah minimal ${SCH_MIN}</span>` : `<span class="ok">${fromTxt}</span>`);
   if (q.kind === 'swap') out.push(`<span class="ok">${SCH_NAME[q.to]} jadi ${after[q.to]} orang</span>`);
   if (q.kind === 'skip' && p.days.length - 1 < 2) out.push('<span class="warn">minggu berikutnya wajib WFO 3 hari</span>');
   return `<div class="sch-impact">${out.join(' · ')}</div>`;

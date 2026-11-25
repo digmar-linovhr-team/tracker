@@ -15,7 +15,7 @@ async function pushEnable(btn) {
   try {
     const r = await busy(btn, () => api.push.enable());
     if (r.permission === 'granted' && r.enabled) { toast('Push notification aktif di perangkat ini'); return true; }
-    if (r.permission === 'denied') toast('Notifikasi diblokir browser — lihat petunjuk di Pengaturan', true);
+    if (r.permission === 'denied') toast('Notifikasi diblokir browser. Lihat petunjuk di Pengaturan', true);
     else toast('Izin notifikasi belum diberikan', true);
   } catch (e) { /* busy menampilkan pesan */ }
   return false;
@@ -43,7 +43,7 @@ async function pushCard() {
   if (!$('#push-card')) return;
   const chip = !st.supported ? ['', 'Tidak didukung'] : st.enabled ? ['good', 'Aktif'] : st.permission === 'denied' ? ['bad', 'Diblokir'] : ['warn', 'Belum aktif'];
   box.innerHTML = `<div class="card settings-sect"><div class="card-h"><h2>Push notification</h2><span class="chip ${chip[0]}">${chip[1]}</span></div><div class="card-b">
-    <p>Muncul di laptop walau Project Tracker <b>tertutup</b> (selama browser berjalan). Saat aplikasi terbuka, notifikasi yang sama tampil sekali saja — tidak dobel.</p>
+    <p>Muncul di laptop walau Project Tracker <b>tertutup</b> (selama browser berjalan). Saat aplikasi terbuka, notifikasi yang sama tampil sekali saja, tidak dobel.</p>
     ${!st.supported ? '<p class="small muted">Browser ini belum mendukung push. Gunakan Chrome atau Edge terbaru.</p>' : ''}
     ${st.supported && st.permission === 'denied' ? `<p class="small" style="color:var(--bad)">${pushBlockedHelp()}</p>` : ''}
     <label class="check"><input type="checkbox" data-pp="mention" ${st.prefs.mention ? 'checked' : ''}> Saat saya di-@sebut di komentar</label>
@@ -60,7 +60,7 @@ async function pushCard() {
   if ($('#pp-on', box)) $('#pp-on', box).onclick = async () => { await pushEnable($('#pp-on', box)); pushCard(); };
   if ($('#pp-off', box)) $('#pp-off', box).onclick = async () => { await busy($('#pp-off', box), () => api.push.disable()); toast('Push dimatikan di perangkat ini'); pushCard(); };
   if ($('#pp-test', box)) $('#pp-test', box).onclick = async () => {
-    try { const r = await busy($('#pp-test', box), () => api.push.test()); toast(r.sent ? `Push uji dikirim ke ${r.sent} perangkat — tutup/minimalkan tab untuk melihatnya` : 'Tidak ada perangkat yang menerima push', !r.sent); }
+    try { const r = await busy($('#pp-test', box), () => api.push.test()); toast(r.sent ? `Push uji dikirim ke ${r.sent} perangkat. Tutup atau kecilkan tab untuk melihatnya` : 'Tidak ada perangkat yang menerima push', !r.sent); }
     catch (e) { /* busy menampilkan pesan */ }
   };
 }
