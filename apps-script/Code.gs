@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 34 });
+  return json_({ ok: true, app: 'project-tracker', version: 35 });
 }
 
 function doPost(e) {
@@ -4586,7 +4586,7 @@ function ideaLoad_(me, taskId) {
 function ideaObj_(t) {
   var i = t.idea || {};
   return { form: i.form || {}, reviews: i.reviews || [], chat: i.chat || [], final: !!i.final, finalAt: i.finalAt || '', finalBy: i.finalBy || '',
-    skipped: !!i.skipped, skippedBy: i.skippedBy || '' };
+    skipped: !!i.skipped, skippedBy: i.skippedBy || '', fromBank: i.fromBank || '' };
 }
 function ideaClean_(f, kind) {
   var o = {}; IDEA_FORM_KEYS[kind || 'tl'].forEach(function (k) { o[k] = String((f || {})[k] || '').trim().slice(0, ['title', 'reader', 'client', 'scale', 'permit', 'url', 'keyword'].indexOf(k) >= 0 ? 300 : 1200); });
@@ -4831,16 +4831,40 @@ function bankDelete_(me, b) {
   fsCommit_([{ path: 'ideas/' + d._id, del: true }]); log_(me, 'bank-delete', d._id, '');
   return { removed: d._id };
 }
-/** Admin: ide yang disetujui dipakai untuk task (task dibuat aplikasi lebih dulu) — ide masuk ke task sebagai ide final. */
+/** Ide yang disetujui dipakai untuk task: oleh admin (saat membuat task dari Bank Ide), atau oleh writer pemilik ide
+ *  dari tahap ide di task-nya sendiri. Ide masuk ke task sebagai ide final. */
 function bankUse_(me, b) {
-  if (me.role !== 'admin') throw new Error('Hanya admin yang bisa menjadikan ide sebagai task.');
   var d = bankGet_(b.ideaId), t = fsGet_('tasks/' + String(b.taskId || ''));
   if (!t) throw new Error('Task tidak ditemukan');
+  if (me.role !== 'admin') {
+    if (d.author !== me.username) throw new Error('Hanya ide milik Anda sendiri yang bisa dipakai.');
+    if (!PTLogic.isOn(t, me.username)) throw new Error('Task ini bukan task Anda.');
+    if (d.status !== 'Disetujui') throw new Error('Hanya ide yang sudah disetujui admin yang bisa dipakai.');
+    var ti = t.idea || {};
+    if (ti.final || ti.skipped) throw new Error('Ide task ini sudah final.');
+    if (Number(t.stage || 1) >= 3) throw new Error('Brief sudah diajukan, jadi ide tidak bisa diganti.');
+    if (IDEA_KIND_OF[t.outKind] !== d.kind) throw new Error('Jenis ide tidak sama dengan jenis task.');
+  }
+  if (d.status === 'Dipakai' && d.taskId && d.taskId !== t._id) throw new Error('Ide ini sudah dipakai di task lain.');
   var now = new Date().toISOString(), i = d.idea || {};
   fsMerge_('tasks/' + t._id, { idea: { form: i.form || {}, reviews: i.reviews || [], chat: i.chat || [], final: true, finalAt: now, finalBy: me.username, skipped: false, skippedBy: '', fromBank: d._id } });
   var upd = { status: 'Dipakai', taskId: t._id, usedAt: now, updatedAt: now };
   fsMerge_('ideas/' + d._id, upd); log_(me, 'bank-use', d._id, t._id);
   return { item: bankOut_(Object.assign({}, d, upd)) };
+}
+/** Ide yang difinalkan di dalam task ikut disimpan ke Bank Ide (status Dipakai), supaya semua ide tim ada di satu tempat. */
+function bankMirror_(me, t, idea) {
+  var now = new Date().toISOString(), id = idea.fromBank, old = id ? fsGet_('ideas/' + id) : null;
+  var doc = { kind: t.ideaKind, industry: t.ideaKind === 'opt' ? '' : String(t.industry || '').slice(0, 60), status: 'Dipakai', taskId: t.id,
+    idea: { form: idea.form, reviews: idea.reviews, chat: idea.chat }, title: bankTitle_(idea.form), usedAt: now, updatedAt: now };
+  if (old) { if (old.taskId && old.taskId !== t.id) old = null; }
+  if (!old) {
+    id = 'I' + newId_().slice(1);
+    Object.assign(doc, { author: t.owner || me.username, authorName: t.ownerName || t.owner || me.name || me.username, createdAt: now, submittedAt: now, period: '', fromTask: true });
+    fsSet_('ideas/' + id, doc);
+  } else fsMerge_('ideas/' + id, doc);
+  doc._id = id; log_(me, 'bank-mirror', id, t.id);
+  return bankOut_(Object.assign({}, old || {}, doc));
 }
 function ideaFinal_(me, b) {
   var t = ideaLoad_(me, b.taskId), idea = ideaObj_(t);
@@ -4854,7 +4878,10 @@ function ideaFinal_(me, b) {
   if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
   if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum difinalkan.');
   idea.final = true; idea.finalAt = new Date().toISOString(); idea.finalBy = me.username;
-  return ideaPut_(me, t, idea, 'final');
+  var item = null;
+  try { item = bankMirror_(me, t, idea); idea.fromBank = item.id; } catch (e) { console.warn('Ide tidak tersalin ke Bank Ide: ' + e); }
+  var r = ideaPut_(me, t, idea, 'final'); if (item) r.item = item;
+  return r;
 }
 function ideaSkip_(me, b) {
   if (me.role !== 'admin') throw new Error('Hanya admin yang bisa melewati tahap ide.');

@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.42.3';
+const CSS_VERSION = '2.43.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -363,7 +363,7 @@ function go(view) {
     review: ['Review', 'Task yang diajukan anggota dan menunggu persetujuan Anda'],
     target: ['Target', 'Capaian hasil kerja dibanding target bulanan & tahunan'],
     backlinks: ['Backlink', 'Pipeline outreach backlink LinovHR & Lawencon'],
-    ideas: ['Bank Ide', 'Kumpulan ide topik sebelum dibuat task'],
+    ideas: ['Bank Ide', 'Kumpulan ide topik tim'],
     briefs: ['Brief', 'Brief artikel & konten sosmed'],
     brief: ['Brief', 'Brief'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']

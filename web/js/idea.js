@@ -1,4 +1,4 @@
-/* global L, S, api, $, $$, esc, toast, cleanErr, confirmBox, patchTask, saveCache, softRender, artStage, briefOf, outKindOf, aiEnabled, cmWhen, openTask */
+/* global bankAvailable, loadBank, bankPut, bankOpen, bankTitleOf, dpRefresh, newBriefModal, L, S, api, $, $$, esc, toast, cleanErr, confirmBox, patchTask, saveCache, softRender, artStage, briefOf, outKindOf, aiEnabled, cmWhen, openTask */
 'use strict';
 // ---------- Tahap Ide (Artikel TL industri & Studi kasus) ----------
 // Writer menulis usulan ide → Claude mereview (cocok dengan industri? alasan nyambung? pembeda?) → diskusi singkat → Finalkan ide.
@@ -72,10 +72,27 @@ function ideaTaskSrc(t) {
   const locked = !!(idea.final || idea.skipped) || artStage(t) >= 3 || !can;
   return { key: t.id, kind: ideaKind(t), idea, locked, ids: { taskId: t.id }, form: () => (locked ? (idea.form || {}) : ideaForm(t)),
     apply: (r) => patchTask(t.id, { idea: r.idea }), rerender: () => { if (typeof dpRefresh === 'function') dpRefresh(); },
+    pre: locked ? '' : ideaBankPick(t),
     head: idea.final ? `<span class="chip good">Ide final${idea.finalBy ? ' · ' + esc(idea.finalBy) : ''}</span>` : idea.skipped ? `<span class="chip">Dilewati admin</span>` : `<span class="chip warn">Belum final</span>`,
     industry: ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri task ini belum diisi. Minta admin mengisinya lewat Edit task supaya Claude bisa menilai dengan tepat.</p>',
     footer: (rv, busy) => locked ? (admin && (idea.final || idea.skipped) && !briefOf(t.id) ? `<div class="idea-act"><button class="btn ghost" data-ideaundo="${id}">Buka lagi ide</button></div>` : '')
       : `<div class="idea-act">${admin && !idea.final ? `<button class="btn ghost" data-ideaskip="${id}">Lewati tahap ide</button>` : ''}<button class="btn ok" data-ideafinal="${id}" ${!rv || busy ? 'disabled' : ''} title="${rv ? '' : 'Cek ke Claude dulu'}">Finalkan ide dan mulai brief</button></div>` };
+}
+
+/** Ide yang sudah disetujui di Bank Ide dan cocok untuk task ini (jenis sama, milik PIC task). */
+function ideaBankMatches(t) {
+  if (typeof bankAvailable !== 'function' || !bankAvailable()) return [];
+  if (!S.bank) { if (typeof loadBank === 'function') loadBank().then((ch) => { if (S.bank && S.bank.length && typeof dpRefresh === 'function') dpRefresh(); }); return []; }
+  const kind = ideaKind(t), admin = S.user.role === 'admin', who = admin ? [t.owner].concat(t.members || []) : [S.user.username];
+  return S.bank.filter((d) => d.status === 'Disetujui' && d.kind === kind && who.includes(d.author))
+    .sort((a, b) => String(b.decision && b.decision.at || b.updatedAt).localeCompare(String(a.decision && a.decision.at || a.updatedAt)));
+}
+function ideaBankPick(t) {
+  const list = ideaBankMatches(t); if (!list.length) return '';
+  return `<div class="idea-bank"><div class="idea-bank-h"><b>Ambil dari Bank Ide</b><span class="muted small">${list.length} ide ${S.user.role === 'admin' ? 'milik penanggung jawab task ini' : 'Anda'} sudah disetujui admin. Kalau dipakai, tahap ide langsung selesai.</span></div>
+    ${list.slice(0, 5).map((d) => `<div class="idea-bank-it"><div><b>${esc(bankTitleOf(d) || '(belum ada judul)')}</b><span class="muted small">${d.industry ? (t.industry && d.industry !== t.industry ? `<span class="chip warn" title="Industri task ini: ${esc(t.industry)}">${esc(d.industry)}, beda dengan task</span> ` : esc(d.industry) + ' · ') : ''}disetujui ${esc(cmWhen(d.decision && d.decision.at || d.updatedAt))}</span></div>
+      <button type="button" class="btn sm" data-bankopen="${esc(d.id)}">Lihat</button><button type="button" class="btn sm primary" data-ideabank="${esc(d.id)}">Pakai ide ini</button></div>`).join('')}
+    <p class="muted small" style="margin:6px 0 0">Atau isi ide baru di bawah.</p></div>`;
 }
 
 /** HTML inti tahap ide. src: { key, kind, idea, locked, form(), head, industry, footer(rv, busy), wrapId? } */
@@ -107,7 +124,7 @@ function ideaCoreHtml(src) {
       <button class="btn" data-ideasend="${id}" ${busy || nRep >= IDEA_MAX_REPLY ? 'disabled' : ''}>${busy === 'reply' ? 'Menunggu…' : 'Kirim'}</button></div>
       <div class="idea-quota muted small">Sisa ${IDEA_MAX_REVIEW - nRev} kali cek dan ${IDEA_MAX_REPLY - nRep} kali balas</div>` : '';
   return `<section class="dp-sec" id="${src.wrapId || 'idea-sec'}"><h3>${esc(src.title || K.name)} ${src.head || ''}</h3>
-    ${src.industry || ''}${form}${review}${thread}${replyBox}${src.footer(rv, busy)}</section>`;
+    ${src.pre || ''}${src.industry || ''}${form}${review}${thread}${replyBox}${src.footer(rv, busy)}</section>`;
 }
 
 /** Tombol inti tahap ide: simpan draf, review, balas, pakai sudut. */
@@ -120,6 +137,7 @@ function ideaCoreBind(root, src) {
     IDEA.busy[key] = kind; src.rerender();
     try {
       const r = await api.call(action, Object.assign({}, src.ids, extra || {}));
+      if (r && r.item && r.idea && typeof bankPut === 'function') bankPut(r);
       if (r && r.idea) { src.apply(r); IDEA.draft[key] = Object.assign({}, r.idea.form || {}); }
       else if (r && r.item && src.apply) src.apply(r);
       if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg);
@@ -160,15 +178,33 @@ function ideaBind(root, t) {
   const { run, form } = ideaCoreBind(root, src);
   $$('[data-ideafinal]', root).forEach((b) => b.onclick = async () => {
     const rv = ((t.idea || {}).reviews || []).slice(-1)[0];
-    if (rv && rv.verdict !== 'kuat' && !(await confirmBox('Finalkan ide?', `Penilaian terakhir Claude: “${(IDEA_VERDICT[rv.verdict] || ['–'])[0]}”. Ide tetap bisa difinalkan, dan admin akan melihat catatannya saat mengecek brief.`))) return;
+    if (rv && rv.verdict !== 'kuat' && !(await confirmBox('Finalkan ide?', `Penilaian terakhir Claude: “${(IDEA_VERDICT[rv.verdict] || ['–'])[0]}”. Ide tetap bisa difinalkan, dan admin akan melihat catatannya saat mengecek brief.`, 'Finalkan'))) return;
     const r = await run('final', 'ideaFinal', { form: form() }, 'Ide sudah final. Judul dan sudut pandangnya sudah masuk ke brief.');
     if (r && typeof newBriefModal === 'function' && !briefOf(t.id) && artStage(t) <= 2) newBriefModal(t.id);
   });
   $$('[data-ideaskip]', root).forEach((b) => b.onclick = async () => {
-    if (!(await confirmBox('Lewati tahap ide?', 'Writer bisa langsung bikin brief tanpa cek ke Claude.'))) return;
+    if (!(await confirmBox('Lewati tahap ide?', 'Writer bisa langsung bikin brief tanpa cek ke Claude.', 'Lewati'))) return;
     run('final', 'ideaSkip', {}, 'Tahap ide dilewati');
   });
   $$('[data-ideaundo]', root).forEach((b) => b.onclick = () => run('final', 'ideaFinal', { undo: true }, 'Ide dibuka lagi'));
+  $$('[data-bankopen]', root).forEach((b) => b.onclick = () => bankOpen(b.dataset.bankopen));
+  $$('[data-ideabank]', root).forEach((b) => b.onclick = async () => {
+    const d = (S.bank || []).find((x) => x.id === b.dataset.ideabank); if (!d) return;
+    if (!(await confirmBox('Pakai ide ini?', `“${bankTitleOf(d) || 'Ide tanpa judul'}” akan jadi ide final task ini, lengkap dengan catatan Claude-nya. Setelah itu Anda bisa langsung bikin brief.`, 'Pakai ide ini'))) return;
+    if (IDEA.busy[t.id]) return;
+    IDEA.busy[t.id] = 'final'; src.rerender();
+    try {
+      const r = await api.call('bankUse', { ideaId: d.id, taskId: t.id });
+      bankPut(r);
+      const i = d.idea || {};
+      patchTask(t.id, { idea: { form: Object.assign({}, i.form || {}), reviews: (i.reviews || []).slice(), chat: (i.chat || []).slice(), final: true, finalAt: new Date().toISOString(), finalBy: S.user.username, fromBank: d.id } });
+      delete IDEA.draft[t.id];
+      toast('Ide dari Bank Ide sudah dipakai. Lanjut bikin brief.');
+      const tt = S.all ? S.all.tasks.find((x) => x.id === t.id) : (S.mine.tasks || []).find((x) => x.id === t.id);
+      if (typeof newBriefModal === 'function' && !briefOf(t.id) && artStage(tt || t) <= 2) newBriefModal(t.id);
+    } catch (e) { toast(cleanErr(e), true); }
+    finally { delete IDEA.busy[t.id]; saveCache(); src.rerender(); }
+  });
 }
 
 /** Isi awal brief dari ide yang sudah final. */

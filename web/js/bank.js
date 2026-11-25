@@ -6,8 +6,6 @@
 // Admin menyetujui / meminta revisi / menolak; ide yang disetujui bisa langsung dijadikan task (ide masuk ke task sebagai ide final).
 // Data di koleksi ideas/ (ditulis lewat server). Status: Draft → Diajukan → Disetujui | Revisi | Ditolak → Dipakai.
 
-/** Batas periode brainstorming topik untuk periode 1 (Desember). */
-const BANK_PERIOD = { name: 'Desember 2026', due: '2026-12-01T18:00:00+07:00', label: 'Senin, 1 Desember, jam 18.00' };
 const BANK_KINDS = [['tl', 'Artikel TL industri', 'TL industri', 'Masalah HR di satu industri, ditulis dari sudut pandang praktisi.'],
   ['case', 'Studi kasus', 'Studi kasus', 'Klien yang pakai LinovHR dan hasilnya bisa ditunjukkan dengan angka.'],
   ['opt', 'Optimasi artikel', 'Optimasi', 'Artikel lama yang mau diperbaiki supaya naik peringkat.']];
@@ -44,13 +42,6 @@ function bankVerdictChip(d) {
   const v = ((IDEA_KINDS[d.kind] || IDEA_KINDS.tl).verdict[rv.verdict]) || ['–', ''];
   return `<span class="chip ${v[1]}" title="Review Claude terakhir">Claude: ${esc(v[0])}</span>`;
 }
-function bankDueText() {
-  const left = new Date(BANK_PERIOD.due) - new Date();
-  if (left <= 0) return { over: true, text: 'Batas waktu sudah lewat. Ide masih bisa ditulis untuk bulan berikutnya.' };
-  const d = Math.floor(left / 864e5), h = Math.floor((left % 864e5) / 36e5);
-  return { over: false, text: d >= 1 ? `${d} hari ${h} jam lagi` : `${h} jam lagi` };
-}
-
 function viewIdeas() {
   if (!bankAvailable()) { $('#view').innerHTML = '<div class="empty"><b>Bank Ide hanya tersedia di versi Firebase</b>Buka aplikasi dari alamat utama.</div>'; return; }
   if (!S.bank) {
@@ -68,9 +59,7 @@ function viewIdeas() {
     && (!q || [bankTitleOf(d), d.industry, d.authorName, JSON.stringify((d.idea || {}).form || {})].join(' ').toLowerCase().includes(q)));
   const count = (fn) => all.filter(fn).length;
   const ok = (d) => d.status === 'Disetujui' || d.status === 'Dipakai';
-  const due = bankDueText();
-  // target bulanan dari menu Target (OUT_KINDS): ide yang disetujui dibandingkan target bulan depan
-  const tgt = { tl: (OUT_KINDS.find((k) => k[0] === 'Artikel TL industri') || [0, 0])[1], case: (OUT_KINDS.find((k) => k[0] === 'Studi kasus') || [0, 0])[1], opt: (OUT_KINDS.find((k) => k[0] === 'Optimasi') || [0, 0])[1] };
+  const ym = new Date().toISOString().slice(0, 7), usedNow = (d) => d.status === 'Dipakai' && String(d.usedAt || '').slice(0, 7) === ym;
   // per orang
   const people = {};
   all.forEach((d) => { const p = people[d.author] = people[d.author] || { name: d.authorName || personName(d.author), Draft: 0, Diajukan: 0, Revisi: 0, Disetujui: 0, Ditolak: 0, Dipakai: 0, n: 0 }; p[d.status] = (p[d.status] || 0) + 1; p.n++; });
@@ -84,7 +73,7 @@ function viewIdeas() {
   const card = (d) => {
     const rv = bankLastRv(d), nRev = ((d.idea || {}).reviews || []).length, title = bankTitleOf(d);
     return `<div class="bk-card" data-id="${esc(d.id)}" tabindex="0" role="button" aria-label="Buka ide ${esc(title || 'tanpa judul')}">
-      <div class="bk-top"><span class="chip ${d.kind === 'tl' ? 'info' : d.kind === 'case' ? 'warn' : ''}">${esc(bankKindName(d.kind))}</span>${d.industry ? `<span class="chip">${esc(d.industry)}</span>` : ''}<span style="flex:1"></span><span class="chip ${BANK_CHIP[d.status] || ''}">${esc(d.status)}</span></div>
+      <div class="bk-top"><span class="chip ${d.kind === 'tl' ? 'info' : d.kind === 'case' ? 'warn' : ''}">${esc(bankKindName(d.kind))}</span>${d.industry ? `<span class="chip">${esc(d.industry)}</span>` : ''}${d.fromTask ? '<span class="chip">Ditulis di task</span>' : ''}<span style="flex:1"></span><span class="chip ${BANK_CHIP[d.status] || ''}">${esc(d.status)}</span></div>
       <b class="bk-title">${title ? esc(title) : '<span class="muted">(belum ada judul)</span>'}</b>
       ${rv && rv.summary ? `<p class="bk-sum">${esc(rv.summary)}</p>` : ''}
       ${d.decision && d.decision.note && (d.status === 'Revisi' || d.status === 'Ditolak') ? `<p class="bk-note ${d.status === 'Ditolak' ? 'bad' : 'warn'}"><b>${esc(firstNameOf(d.decision.byName))}:</b> ${esc(d.decision.note)}</p>` : ''}
@@ -93,15 +82,14 @@ function viewIdeas() {
   };
   $('#view').innerHTML = `
     <div class="card bk-hero"><div class="card-b">
-      <div class="bk-hero-t"><div><h2 style="margin:0 0 4px">Topik untuk ${esc(BANK_PERIOD.name)}</h2>
-        <p class="muted" style="margin:0">Tulis ide topik, cek dulu ke Claude, lalu kirim ke admin. Batas kirim <b>${esc(BANK_PERIOD.label)}</b>.</p></div>
-        <div class="bk-due ${due.over ? 'over' : ''}">${esc(due.text)}</div></div>
+      <div class="bk-hero-t"><div>
+        <p class="muted" style="margin:0">Tulis ide topik kapan saja. Cek dulu ke Claude, lalu kirim ke admin. Ide yang disetujui bisa dipakai waktu task dibuat, dan ide yang ditulis langsung di task juga tersimpan di sini.</p></div></div>
       <button class="btn primary" id="bk-add">+ Tulis ide</button>
     </div></div>
     <div class="tiles">
-      ${tile('TL disetujui', count((d) => d.kind === 'tl' && ok(d)), `target ${tgt.tl} per bulan`, 'var(--info)')}
-      ${tile('Studi kasus disetujui', count((d) => d.kind === 'case' && ok(d)), `target ${tgt.case} per bulan`, 'var(--warn)')}
-      ${tile('Optimasi disetujui', count((d) => d.kind === 'opt' && ok(d)), `target ${tgt.opt} per bulan`, 'var(--brand)')}
+      ${tile('TL siap dipakai', count((d) => d.kind === 'tl' && d.status === 'Disetujui'), `${count((d) => d.kind === 'tl' && usedNow(d))} sudah jadi task bulan ini`, 'var(--info)')}
+      ${tile('Studi kasus siap dipakai', count((d) => d.kind === 'case' && d.status === 'Disetujui'), `${count((d) => d.kind === 'case' && usedNow(d))} sudah jadi task bulan ini`, 'var(--warn)')}
+      ${tile('Optimasi siap dipakai', count((d) => d.kind === 'opt' && d.status === 'Disetujui'), `${count((d) => d.kind === 'opt' && usedNow(d))} sudah jadi task bulan ini`, 'var(--brand)')}
       ${tile('Belum diputuskan', count((d) => d.status === 'Diajukan'), `${count((d) => d.status === 'Draft' || d.status === 'Revisi')} masih draf`, 'var(--muted)')}
     </div>
     <div class="bk-grid2">
@@ -125,7 +113,7 @@ function viewIdeas() {
     </div>
     ${list.length ? `<div class="bk-list">${list.map(card).join('')}</div>`
       : `<div class="card"><div class="empty"><b>${all.length ? 'Tidak ada ide yang cocok' : 'Belum ada ide'}</b>${all.length ? 'Coba ubah filternya.' : 'Klik “+ Tulis ide” untuk mulai.'}</div></div>`}
-    <p class="def">Ide baru bisa dikirim setelah dicek Claude minimal sekali. Claude juga melihat ide teman di industri yang sama, jadi topik yang mirip akan ketahuan. Tiap ide bisa dicek ${IDEA_MAX_REVIEW} kali dan dibalas 10 kali. Ide yang disetujui admin bisa langsung dijadikan task.</p>`;
+    <p class="def">Ide baru bisa dikirim setelah dicek Claude minimal sekali. Claude juga melihat ide teman di industri yang sama, jadi topik yang mirip akan ketahuan. Tiap ide bisa dicek ${IDEA_MAX_REVIEW} kali dan dibalas 10 kali. Ide yang disetujui admin bisa langsung dijadikan task, atau dipilih writer dari tahap ide di task-nya.</p>`;
   const qi = $('#bk-q');
   qi.oninput = () => { f.q = qi.value; clearTimeout(S.bkQt); S.bkQt = setTimeout(() => { go('ideas'); const x = $('#bk-q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 250); };
   $$('#bk-kind button').forEach((b) => b.onclick = () => { f.kind = b.dataset.k; go('ideas'); });
@@ -156,7 +144,7 @@ function bankNewModal() {
         if (kind !== 'opt' && !ind) { $('#bk-err', m).innerHTML = '<div class="error">Industrinya belum dipilih.</div>'; return; }
         const btn = $('#bk-go', m); btn.disabled = true; btn.textContent = 'Sebentar…';
         try {
-          const r = await api.call('bankSave', { item: { kind, industry: kind === 'opt' ? '' : ind, form: {}, period: BANK_PERIOD.name } });
+          const r = await api.call('bankSave', { item: { kind, industry: kind === 'opt' ? '' : ind, form: {}, period: '' } });
           bankPut(r); close(); if (S.view === 'ideas') go('ideas'); bankOpen(r.item.id);
         } catch (e) { btn.disabled = false; btn.textContent = 'Lanjut'; $('#bk-err', m).innerHTML = `<div class="error">${esc(cleanErr(e))}</div>`; }
       };

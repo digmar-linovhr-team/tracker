@@ -356,7 +356,18 @@ function demoIdea(s, a, b, me, tOver) {
   if (idea.final || idea.skipped) throw new Error('Ide sudah final. Minta admin membukanya lagi bila perlu diubah.');
   if (b.form) idea.form = clean(b.form);
   if (a === 'ideaSave') return { idea };
-  if (a === 'ideaFinal') { if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum difinalkan.'); idea.final = true; idea.finalAt = now; idea.finalBy = me.username; return { idea }; }
+  if (a === 'ideaFinal') {
+    if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu sebelum difinalkan.'); idea.final = true; idea.finalAt = now; idea.finalBy = me.username;
+    if (tOver) return { idea };
+    // salin ke Bank Ide (status Dipakai)
+    s.ideas = s.ideas || [];
+    const kind = isOpt ? 'opt' : isCase ? 'case' : 'tl';
+    let d = idea.fromBank && s.ideas.find((x) => x.id === idea.fromBank && (!x.taskId || x.taskId === t.id));
+    if (!d) { d = { id: 'I' + Date.now().toString(36), author: t.owner, authorName: t.ownerName || t.owner, createdAt: now, submittedAt: now, period: '', fromTask: true }; s.ideas.push(d); }
+    Object.assign(d, { kind, industry: isOpt ? '' : (t.industry || ''), status: 'Dipakai', taskId: t.id, idea: { form: Object.assign({}, idea.form), reviews: idea.reviews.slice(), chat: idea.chat.slice() }, title: bankTitleOf(idea.form), usedAt: now, updatedAt: now });
+    idea.fromBank = d.id;
+    return { idea, item: d };
+  }
   const ind = t.industry || 'industri ini';
   if (a === 'ideaReview') {
     if (idea.reviews.length >= 5) throw new Error('Kuota review ide (5×) untuk task ini sudah habis.');
@@ -473,8 +484,15 @@ function demoBank(s, a, b, me) {
     s.ideas = s.ideas.filter((x) => x.id !== d.id); return { removed: d.id };
   }
   if (a === 'bankUse') {
-    if (!admin) throw new Error('Hanya admin yang bisa menjadikan ide sebagai task.');
     const d = get(b.ideaId), t = s.tasks.find((x) => x.id === b.taskId); if (!t) throw new Error('Task tidak ditemukan');
+    if (!admin) {
+      if (d.author !== me.username) throw new Error('Hanya ide milik Anda sendiri yang bisa dipakai.');
+      if (!onTask(t, me.username)) throw new Error('Task ini bukan task Anda.');
+      if (d.status !== 'Disetujui') throw new Error('Hanya ide yang sudah disetujui admin yang bisa dipakai.');
+      if (t.idea && (t.idea.final || t.idea.skipped)) throw new Error('Ide task ini sudah final.');
+      if (BANK_KIND_OUT[d.kind] !== t.outKind) throw new Error('Jenis ide tidak sama dengan jenis task.');
+    }
+    if (d.status === 'Dipakai' && d.taskId && d.taskId !== t.id) throw new Error('Ide ini sudah dipakai di task lain.');
     t.idea = { form: Object.assign({}, d.idea.form), reviews: d.idea.reviews.slice(), chat: d.idea.chat.slice(), final: true, finalAt: now, finalBy: me.username, fromBank: d.id };
     Object.assign(d, { status: 'Dipakai', taskId: t.id, usedAt: now, updatedAt: now }); return { item: d };
   }

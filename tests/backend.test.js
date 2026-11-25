@@ -1373,8 +1373,13 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   assert.strictEqual(sandbox.bankDecide_(adm, { ideaId: id, decision: 'approve' }).item.status, 'Disetujui');
   // jadi task: ide masuk sebagai ide final
   sandbox.fsSet_('tasks/TBK1', { owner: 'ammar', task: 'Lembur pabrik 3 shift', type: 'Artikel', stage: 1, status: 'Backlog', outKind: 'Artikel TL industri', industry: 'Manufaktur', updatedAt: new Date() });
-  assert.throws(() => sandbox.bankUse_(ammar, { ideaId: id, taskId: 'TBK1' }), /Hanya admin/);
-  r = sandbox.bankUse_(adm, { ideaId: id, taskId: 'TBK1' });
+  sandbox.fsSet_('tasks/TBK0', { owner: 'fahmi', task: 'Lain', type: 'Artikel', stage: 1, status: 'Backlog', outKind: 'Artikel TL industri', industry: 'Manufaktur', updatedAt: new Date() });
+  sandbox.fsSet_('tasks/TBK2', { owner: 'ammar', task: 'Studi kasus', type: 'Artikel', stage: 1, status: 'Backlog', outKind: 'Studi kasus', industry: 'Manufaktur', updatedAt: new Date() });
+  assert.throws(() => sandbox.bankUse_(ammar, { ideaId: id, taskId: 'TBK0' }), /bukan task Anda/);
+  assert.throws(() => sandbox.bankUse_(fahmi, { ideaId: id, taskId: 'TBK0' }), /milik Anda sendiri/);
+  assert.throws(() => sandbox.bankUse_(ammar, { ideaId: id, taskId: 'TBK2' }), /Jenis ide tidak sama/);
+  r = sandbox.bankUse_(ammar, { ideaId: id, taskId: 'TBK1' });   // writer memakai idenya sendiri dari tahap ide task
+  assert.throws(() => sandbox.bankUse_(adm, { ideaId: id, taskId: 'TBK0' }), /sudah dipakai di task lain/);
   assert.strictEqual(r.item.status, 'Dipakai'); assert.strictEqual(r.item.taskId, 'TBK1');
   const tk = sandbox.fsGet_('tasks/TBK1');
   assert.strictEqual(tk.idea.final, true); assert.strictEqual(tk.idea.fromBank, id); assert.strictEqual(tk.idea.form.data, 'BPS 2025'); assert.strictEqual(tk.idea.reviews.length, 1);
@@ -1384,6 +1389,19 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   assert.strictEqual(sandbox.bankDelete_(fahmi, { ideaId: id2 }).removed, id2);
   assert.strictEqual(sandbox.fsGet_('ideas/' + id2), null);
   assert.ok(sandbox.bankList_().ideas.some((x) => x.id === id && x.status === 'Dipakai'));
+  // ide yang difinalkan langsung di task ikut tersalin ke Bank Ide (Dipakai), dan disalin ulang (bukan dobel) bila difinalkan lagi
+  const f2 = { problem: 'Klinik sulit mengatur jadwal jaga perawat karena data cuti tercecer.', angle: 'Jadwal jaga yang adil dimulai dari data cuti yang rapi.', title: 'Jadwal jaga perawat' };
+  sandbox.fsSet_('tasks/TBK3', { owner: 'fahmi', ownerName: 'Fahmi', task: 'Jadwal jaga', type: 'Artikel', stage: 1, status: 'Backlog', outKind: 'Artikel TL industri', industry: 'Kesehatan', updatedAt: new Date() });
+  sandbox.ideaReview_(fahmi, { taskId: 'TBK3', form: f2 });
+  r = sandbox.ideaFinal_(fahmi, { taskId: 'TBK3', form: f2 });
+  assert.ok(r.item && r.item.id, 'ide final dikembalikan sebagai item Bank Ide');
+  const mid = r.item.id, md = sandbox.fsGet_('ideas/' + mid);
+  assert.strictEqual(md.status, 'Dipakai'); assert.strictEqual(md.taskId, 'TBK3'); assert.strictEqual(md.author, 'fahmi'); assert.strictEqual(md.kind, 'tl'); assert.strictEqual(md.industry, 'Kesehatan'); assert.strictEqual(md.fromTask, true);
+  assert.strictEqual(sandbox.fsGet_('tasks/TBK3').idea.fromBank, mid);
+  sandbox.ideaFinal_(adm, { taskId: 'TBK3', undo: true });
+  sandbox.ideaFinal_(fahmi, { taskId: 'TBK3', form: Object.assign({}, f2, { title: 'Jadwal jaga perawat yang adil' }) });
+  assert.strictEqual(sandbox.bankList_().ideas.filter((x) => x.taskId === 'TBK3').length, 1, 'tidak dobel');
+  assert.strictEqual(sandbox.fsGet_('ideas/' + mid).title, 'Jadwal jaga perawat yang adil');
   sandbox.UrlFetchApp.fetch = realFetch; delete props.ANTHROPIC_API_KEY;
 });
 

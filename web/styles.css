@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.42.3"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.43.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1775,3 +1775,11 @@ input, select, textarea { border-radius: 12px; }
 .pg.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .pg:disabled { opacity: .4; cursor: default; }
 .pg-gap { color: var(--muted); padding: 0 2px; }
+/* Tahap ide: ambil dari Bank Ide */
+.idea-bank { border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-radius: 14px; padding: 12px 14px; margin: 0 0 14px; }
+.idea-bank-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.idea-bank-it { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+.idea-bank-it > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.idea-bank-it b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .idea-bank-it { flex-wrap: wrap; } .idea-bank-it > div { flex-basis: 100%; } }
+.bk-hero { margin-bottom: 14px; }

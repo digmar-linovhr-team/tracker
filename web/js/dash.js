@@ -119,8 +119,8 @@ function dhReviewList(admin) {
 function dhIdeas(admin) {
   if (typeof bankAvailable !== 'function' || !bankAvailable()) return null;
   if (!S.bank) { loadBank(true).then(() => { if (S.view === 'dashboard') softRender(); }); return { title: admin ? 'Ide masuk' : 'Ide saya', meta: '', body: '<p class="muted small dh-empty">Memuat…</p>' }; }
-  const due = new Date('2026-12-01T18:00:00+07:00') - new Date(), days = Math.ceil(due / 864e5);
-  const meta = due > 0 ? `<span class="muted small">${days} hari lagi</span>` : '';
+  const ready = S.bank.filter((d) => d.status === 'Disetujui' && (admin || d.author === S.user.username)).length;
+  const meta = ready ? `<span class="muted small">${ready} siap dipakai</span>` : '';
   const list = admin ? S.bank.filter((d) => d.status === 'Diajukan') : S.bank.filter((d) => d.author === S.user.username && d.status !== 'Dipakai');
   const order = { Revisi: 0, Diajukan: 1, Draft: 2, Disetujui: 3, Ditolak: 4 };
   list.sort((a, b) => admin ? String(a.submittedAt || '').localeCompare(String(b.submittedAt || '')) : (order[a.status] - order[b.status]));
