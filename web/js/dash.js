@@ -140,10 +140,10 @@ function dashHero(o) {
   const rv = dhReviewList(o.admin), idea = dhIdeas(o.admin);
   const nAll = dhMyTasks('all').length;
   return `<div class="dh ${idea ? '' : 'no-idea'}">
-    <section class="card dh-tasks"><div class="card-h"><h2>Task saya</h2><button type="button" class="dh-round" data-go="mine" title="Buka Task Saya" aria-label="Buka Task Saya">›</button></div>
+    <section class="card dh-tasks"><div class="card-h"><h2>Task saya${nAll ? ` <span class="dh-n">${nAll}</span>` : ''}</h2><button type="button" class="dh-round" data-go="mine" title="Buka Task Saya" aria-label="Buka Task Saya">›</button></div>
       <div class="card-b"><div class="seg dh-tabs" role="tablist">${[['today', 'Hari ini'], ['week', 'Minggu ini'], ['all', 'Semua']].map(([k, l]) => `<button type="button" role="tab" data-dtab="${k}" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}">${l}</button>`).join('')}</div>
-        <div class="dh-list">${mine.slice(0, 5).map(dhTaskCard).join('') || `<p class="muted small dh-empty">${nAll ? 'Tidak ada task untuk pilihan ini.' : 'Tidak ada task aktif.'}</p>`}</div>
-        ${mine.length > 5 ? `<button type="button" class="btn sm dh-more" data-go="mine">Lihat ${mine.length - 5} task lainnya</button>` : ''}</div></section>
+        <div class="dh-list">${mine.slice(0, 40).map(dhTaskCard).join('') || `<p class="muted small dh-empty">${nAll ? 'Tidak ada task untuk pilihan ini.' : 'Tidak ada task aktif.'}</p>`}</div>
+        ${mine.length > 4 ? `<button type="button" class="btn sm dh-more" data-go="mine">Lihat semua (${mine.length})</button>` : ''}</div></section>
     <section class="card dh-status"><div class="card-h"><h2>Status task</h2><span class="muted small">${esc(o.periodLabel)}</span></div><div class="card-b">${dhDonut(o.sum)}</div></section>
     <section class="card dh-line"><div class="card-h"><h2>Selesai vs terlambat</h2></div><div class="card-b"><div class="dh-chart"><canvas id="dh-line" aria-label="Grafik task selesai tepat waktu dan terlambat per minggu"></canvas></div><div class="dh-sum" id="dh-line-sum"></div></div></section>
     <section class="card dh-rvs"><div class="card-h"><h2>${rv.title}</h2>${rv.chip}</div><div class="card-b">${rv.body}${rv.all}</div></section>

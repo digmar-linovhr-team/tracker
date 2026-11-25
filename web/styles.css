@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.42.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.42.2"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1753,3 +1753,19 @@ input, select, textarea { border-radius: 12px; }
 .tile .val small { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--text-2); margin: 0; }
 .tile .sub { font-size: 12px; margin-top: 4px; }
 @media (max-width: 760px) { .tile .val { font-size: 22px; } .tile .val small { font-size: 12.5px; } }
+/* Task saya: tinggi kartu ikut kartu lain di baris yang sama, isinya bisa digulir */
+.dh-n { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); border-radius: 999px; padding: 2px 8px; margin-left: 4px; vertical-align: 2px; }
+.dh-tasks { contain: size; }
+.dh-tasks .card-b { min-height: 0; overflow: hidden; }
+.dh-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -6px; padding: 0 6px 10px; scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+.dh-more { flex: none; }
+@media (min-width: 901px) { .dh-more { display: none; } }
+@media (max-width: 900px) {
+  .dh-tasks { contain: none; }
+  .dh-list { overflow: visible; -webkit-mask-image: none; mask-image: none; }
+  .dh-list > .dh-tk:nth-child(n+5) { display: none; }
+}
+/* Tabel riwayat: tetap bisa digeser ke samping dan ada ruang di kanan */
+#hist { overflow-x: auto; padding-right: 20px; }
+#hist .tbl { min-width: 980px; }

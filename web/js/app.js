@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.42.1';
+const CSS_VERSION = '2.42.2';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -393,12 +393,12 @@ function priorityChip(p) {
   const map = { High: 'bad', Medium: 'warn', Low: '' };
   return `<span class="chip ${map[p] || ''}">${p === 'High' ? '▲ ' : p === 'Low' ? '▽ ' : '■ '}${esc(p)}</span>`;
 }
-function outcomeChip(t) {
+function outcomeChip(t, short) {
   const e = L.evaluate(t);
   switch (e.outcome) {
     case 'over': return `<span class="chip good" title="Selesai sebelum deadline dengan ≤80% waktu rencana">★ Overperforming</span>`;
     case 'ontime': return `<span class="chip info">✓ Tepat waktu</span>`;
-    case 'late': return `<span class="chip bad">⚠ Terlambat ${L.humanDuration(-e.slackMs)}</span>`;
+    case 'late': return `<span class="chip bad">⚠ Terlambat${short ? '' : ' ' + L.humanDuration(-e.slackMs)}</span>`;
     case 'overdue': return `<span class="chip bad">⚠ Lewat ${L.humanDuration(-e.slackMs)}</span>`;
     default: return '';
   }
@@ -1060,7 +1060,7 @@ function renderHistory(sum, admin) {
       ${e.article ? `<td class="num nw" title="Jam kerja, tanpa waktu review admin">${L.humanWork(e.durationMs)}</td><td class="num nw">${L.humanWork(e.plannedMs)}</td>
       <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanWork(e.slackMs)}</td><td class="num nw">${L.humanWork(e.reviewMs)}</td>`
       : `<td class="num nw">${L.humanDuration(e.durationMs)}</td><td class="num nw">${L.humanDuration(e.plannedMs)}</td>
-      <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanDuration(e.slackMs)}</td><td class="num nw muted">–</td>`}<td class="nw">${outcomeChip(t)}</td></tr>`).join('')}
+      <td class="num nw">${e.slackMs === null ? '–' : (e.slackMs >= 0 ? '+' : '') + L.humanDuration(e.slackMs)}</td><td class="num nw muted">–</td>`}<td class="nw">${outcomeChip(t, true)}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
