@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.41.2';
+const CSS_VERSION = '2.42.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -950,23 +950,12 @@ function viewDashboard() {
         items: personItems(users.slice().sort((a, b) => a.name.localeCompare(b.name))), onApply: (v) => { f.persons = v; go('dashboard'); } })}</div>` : ''}
       ${admin && offSet.size ? `<button class="btn sm dash-off${f.showOff ? ' on' : ''}" id="showoff" aria-pressed="${f.showOff}" title="KPI anggota yang sudah dinonaktifkan">${f.showOff ? 'Sembunyikan nonaktif' : `Tampilkan nonaktif (${offSet.size})`}</button>` : ''}
     </div>
+    ${dashHero({ admin: !!admin, team, tasks, range, sum, periodLabel: { 7: '7 hari terakhir', 30: '30 hari terakhir', month: 'Bulan ini', all: 'Semua waktu' }[f.period] || '' })}
     <div class="tiles">
       ${tile('Penyelesaian', pct(sum.completionRate), `${sum.done} dari ${sum.total} task selesai`)}
-      ${tile('Rata-rata waktu pengerjaan', L.humanDuration(sum.avgDurationMs), 'dari mulai dikerjakan hingga done')}
-      ${tile('Tepat waktu', pct(sum.onTimeRate), `${sum.over + sum.ontime} dari ${sum.over + sum.ontime + sum.late} task selesai`, css('--info'))}
-      ${tile('Overperforming', sum.over, 'selesai lebih cepat dari rencana', css('--good'))}
-    </div>
-    <div class="tiles">
-      ${tile('Selesai terlambat', sum.late, 'done setelah deadline', css('--bad'))}
-      ${tile('Overdue aktif', sum.overdue, 'lewat deadline, belum done', css('--warn'))}
-      ${tile('Rata-rata selisih deadline', sum.avgSlackMs === null ? '–' : (sum.avgSlackMs >= 0 ? '+' : '') + L.humanDuration(sum.avgSlackMs), 'positif = lebih cepat dari deadline')}
-      ${sum.articleDone ? tile('Rata-rata review admin', L.humanWork(sum.avgReviewMs), `per artikel selesai (${sum.articleDone} artikel) · jam kerja`, css('--review')) : tile('Masih berjalan', sum.open, sum.review ? `${sum.review} menunggu review admin` : 'belum jatuh tempo')}
-    </div>
-    <div class="dash-grid">
-      <div class="card"><div class="card-h"><h2>${team ? 'Hasil per orang' : 'Task selesai per minggu'}</h2>
-        <div class="legend">${team ? legendOutcome() : ''}</div></div>
-        <div class="card-b"><div class="chart-box"><canvas id="c1" aria-label="grafik"></canvas></div></div></div>
-      <div class="card"><div class="card-h"><h2>Distribusi hasil</h2></div><div class="card-b" id="dist"></div></div>
+      ${tile('Rata-rata waktu pengerjaan', L.humanDuration(sum.avgDurationMs), 'dari mulai dikerjakan sampai diajukan')}
+      ${tile('Lebih cepat dari rencana', sum.over, 'selesai jauh sebelum deadline', css('--good'))}
+      ${sum.articleDone ? tile('Rata-rata review admin', L.humanWork(sum.avgReviewMs), `per artikel selesai (${sum.articleDone} artikel) · jam kerja`, css('--review')) : tile('Rata-rata selisih deadline', sum.avgSlackMs === null ? '–' : (sum.avgSlackMs >= 0 ? '+' : '') + L.humanDuration(sum.avgSlackMs), 'positif berarti lebih cepat')}
     </div>
     ${admin && team ? workloadCard(users.filter((u) => u.active && (!f.persons.length || f.persons.includes(u.username))), admin ? S.all.tasks : []) : ''}
     ${team ? `<div class="card" style="margin-bottom:12px"><div class="card-h"><h2>Peringkat performa</h2><span class="muted small">diurutkan: tepat waktu, lalu overperforming</span></div><div class="card-b" style="padding-top:6px;overflow:auto" id="board"></div></div>` : ''}
@@ -977,8 +966,8 @@ function viewDashboard() {
   $$('#per button').forEach((b) => b.onclick = () => { f.period = b.dataset.k; go('dashboard'); });
   const so = $('#showoff'); if (so) so.onclick = () => { f.showOff = !f.showOff; go('dashboard'); };
 
-  renderDist(sum);
-  if (team) { renderPersonChart(tasks, range); renderBoard(tasks, range); } else renderWeeklyChart(tasks);
+  dashHeroBind({ team, tasks });
+  if (team) renderBoard(tasks, range);
   renderHistory(sum, admin);
 }
 
