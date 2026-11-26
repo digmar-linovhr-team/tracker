@@ -436,7 +436,7 @@ function demoIdeaAsk(s, b, me) {
   if (idea.chat.filter((c) => c.admin).length >= 20) throw new Error('Kuota diskusi admin (20×) untuk ide ini sudah habis.');
   const now = new Date().toISOString();
   idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name, text, at: now });
-  idea.chat.push({ role: 'ai', toAdmin: true, at: now, text: 'Poin Anda masuk akal: data pembanding itu memperkuat alasan kenapa topik ini penting sekarang, jadi penilaian "data pendukung" saya naikkan. Tapi pasal yang dikutip writer perlu dicek ke naskah aslinya karena saya tidak bisa memastikan nomor dan isinya. Sikap saya: perlu revisi kecil, yaitu cantumkan sumber resmi untuk regulasi dan satu contoh kasus pabrik. (Jawaban contoh, mode demo.)' });
+  idea.chat.push({ role: 'ai', toAdmin: true, at: now, sources: [{ url: 'https://jdih.kemnaker.go.id/', title: 'JDIH Kemnaker (contoh)' }], web: { fetched: 1, searched: 1 }, text: 'Poin Anda masuk akal: data pembanding itu memperkuat alasan kenapa topik ini penting sekarang, jadi penilaian "data pendukung" saya naikkan. Tapi pasal yang dikutip writer perlu dicek ke naskah aslinya karena saya tidak bisa memastikan nomor dan isinya. Sikap saya: perlu revisi kecil, yaitu cantumkan sumber resmi untuk regulasi dan satu contoh kasus pabrik. (Jawaban contoh, mode demo.)' });
   if (b.ideaId) { d.updatedAt = now; return { idea, item: d }; }
   return { idea };
 }

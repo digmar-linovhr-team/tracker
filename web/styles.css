@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.45.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.45.1"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1863,3 +1863,6 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .idea-ask { margin-top: 14px; padding: 12px 14px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--review) 45%, var(--border)); }
 .idea-ask .idea-sh { margin-top: 0; }
 .idea-ask .idea-reply textarea { min-height: 72px; }
+.idea-src { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12.5px; white-space: normal; }
+.idea-src span { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.idea-src a { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

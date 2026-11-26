@@ -1334,6 +1334,13 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   sandbox.UrlFetchApp.fetch = (url, opt) => {
     if (/api\.anthropic\.com/.test(url)) {
       const body = JSON.parse(opt.payload); sent.push(body);
+      if (body.tools) {   // diskusi memakai alat web: jawab teks biasa + hasil fetch + kutipan
+        const txt = /berdiskusi dengan ADMIN/.test(body.system) ? 'Saya sudah membuka tautan Anda. Pasal 115 mengatur waktu kerja. Sikap: perlu revisi kecil.' : 'Fokus ke garmen boleh, tapi sebut alasannya.';
+        return resp(200, { content: [{ type: 'server_tool_use', id: 'srv1', name: 'web_fetch', input: { url: 'https://jdih.kemnaker.go.id/uu-27-2026.pdf' } },
+          { type: 'web_fetch_tool_result', tool_use_id: 'srv1', content: { type: 'web_fetch_result', url: 'https://jdih.kemnaker.go.id/uu-27-2026.pdf', content: { type: 'document', title: 'UU 27/2026 Pelindungan Ketenagakerjaan' } } },
+          { type: 'text', text: txt, citations: [{ type: 'char_location', document_title: 'UU 27/2026 Pelindungan Ketenagakerjaan', cited_text: 'Pasal 115' }] }],
+          usage: { input_tokens: 9000, output_tokens: 300, server_tool_use: { web_fetch_requests: 1, web_search_requests: 1 } }, stop_reason: 'end_turn' });
+      }
       const out = /berdiskusi dengan ADMIN/.test(body.system) ? { reply: 'Data Anda masuk akal. Sikap: perlu revisi kecil.' } : /berdiskusi dengan writer/.test(body.system) ? { reply: 'Fokus ke garmen boleh, tapi sebut alasannya.' }
         : { verdict: 'pertajam', summary: 'Arah benar, perlu data.', points: [{ key: 'fit', status: 'kuat', note: 'Khas pabrik.' }, { key: 'data', status: 'lemah', note: 'Belum ada data.' }],
           alts: [{ title: 'Lembur sebagai masalah data', desc: 'Mulai dari sumber absensi.' }], questions: ['Berapa pabrik 3 shift?'], prompts: [] };
@@ -1409,6 +1416,8 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   const ch = r.idea.chat.slice(-2);
   assert.ok(ch[0].admin && ch[0].by === 'admin' && ch[1].role === 'ai' && /revisi/.test(ch[1].text));
   assert.ok(/PESAN BARU ADMIN/.test(sent[sent.length - 1].messages[0].content), 'prompt memakai pesan admin');
+  assert.ok(sent[sent.length - 1].tools.some((t) => t.name === 'web_fetch') && sent[sent.length - 1].tools.some((t) => t.name === 'web_search'), 'diskusi memakai alat web');
+  assert.ok(/membuka tautan/.test(ch[1].text) && ch[1].sources[0].url === 'https://jdih.kemnaker.go.id/uu-27-2026.pdf' && ch[1].web.fetched === 1, 'sumber yang dibuka tersimpan');
   assert.strictEqual(JSON.stringify(sandbox.fsGet_('ideas/' + mid).idea.form), before, 'isi ide tidak berubah');
   assert.strictEqual(sandbox.fsGet_('ideas/' + mid).idea.chat.filter((m) => m.admin).length, 1);
   sandbox.UrlFetchApp.fetch = realFetch; delete props.ANTHROPIC_API_KEY;

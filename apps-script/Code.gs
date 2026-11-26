@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 36 });
+  return json_({ ok: true, app: 'project-tracker', version: 37 });
 }
 
 function doPost(e) {
@@ -4175,7 +4175,8 @@ function aiMonth_() { return Utilities.formatDate(new Date(), tz_(), 'yyyy-MM');
 function aiUsage_() { return fsGet_('serverMeta/aiUsage_' + aiMonth_()) || { cost: 0, count: 0, inTok: 0, outTok: 0 }; }
 function aiAddUsage_(model, usage, st, kind) {
   var p = st.prices[model] || [3, 15], inT = Number(usage.input_tokens || 0) + Number(usage.cache_creation_input_tokens || 0) + Number(usage.cache_read_input_tokens || 0), outT = Number(usage.output_tokens || 0);
-  var cost = (inT * p[0] + outT * p[1]) / 1e6, u = aiUsage_();
+  var searches = Number((usage.server_tool_use || {}).web_search_requests || 0);
+  var cost = (inT * p[0] + outT * p[1]) / 1e6 + searches * 0.01, u = aiUsage_();
   var by = u.byKind || {}; by[kind] = Math.round(((by[kind] || 0) + cost) * 1e5) / 1e5;
   fsSet_('serverMeta/aiUsage_' + aiMonth_(), { cost: Math.round((Number(u.cost || 0) + cost) * 1e5) / 1e5, count: Number(u.count || 0) + 1,
     inTok: Number(u.inTok || 0) + inT, outTok: Number(u.outTok || 0) + outT, byKind: by, at: new Date() });
@@ -4221,6 +4222,59 @@ function aiCall_(model, system, user, maxTokens, st, kind, schema) {
   if (!out) throw new Error('Claude API menolak permintaan. Coba lagi nanti.');
   out.cost = cost;
   return out;
+}
+/** Panggil Claude dengan akses web (web fetch untuk membuka tautan/PDF yang disebut, web search untuk mencari pembanding).
+ *  Jawaban berupa teks biasa. Hasil: { text, sources: [{url,title}], model, cost, stop, fetched, searched }. */
+var AI_WEB_TOOLS = function () {
+  return [
+    { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 4, citations: { enabled: true }, max_content_tokens: 40000 },
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 3, user_location: { type: 'approximate', country: 'ID', timezone: 'Asia/Jakarta' } }
+  ];
+};
+function aiCallWeb_(model, system, user, maxTokens, st, kind) {
+  var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!key) throw new Error('Kunci API Claude belum dipasang (Script Properties → ANTHROPIC_API_KEY).');
+  var used = Number(aiUsage_().cost || 0);
+  if (used >= Number(st.cap)) throw new Error('Batas biaya Penilaian Claude bulan ini sudah tercapai (US$' + used.toFixed(2) + '). Bisa dipakai lagi bulan depan, atau admin menaikkan batas di Pengaturan.');
+  var tools = AI_WEB_TOOLS(), messages = [{ role: 'user', content: user }], cost = 0, noThink = true, j = null, all = [], tries = 0, fetched = 0, searched = 0;
+  while (tries++ < 8) {
+    var body = { model: model, max_tokens: maxTokens || 2000, system: system, messages: messages };
+    if (tools.length) body.tools = tools;
+    if (noThink) body.thinking = { type: 'between_tools' };
+    var res = UrlFetchApp.fetch(AI_API, { method: 'post', muteHttpExceptions: true, contentType: 'application/json',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, payload: JSON.stringify(body) });
+    var code = res.getResponseCode(), r = {};
+    try { r = JSON.parse(res.getContentText() || '{}'); } catch (e) { r = {}; }
+    if (code >= 300) {
+      var m = (r.error && r.error.message) || res.getContentText().slice(0, 200);
+      if (code === 400 && noThink && /thinking/i.test(m)) { noThink = false; tries--; continue; }
+      // alat web dimatikan admin organisasi di Claude Console: lanjut tanpa alat itu
+      if (code === 400 && /web.?fetch/i.test(m) && tools.some(function (t) { return t.name === 'web_fetch'; })) { Logger.log('web_fetch ditolak: ' + m); tools = tools.filter(function (t) { return t.name !== 'web_fetch'; }); continue; }
+      if (code === 400 && /web.?search/i.test(m) && tools.some(function (t) { return t.name === 'web_search'; })) { Logger.log('web_search ditolak: ' + m); tools = tools.filter(function (t) { return t.name !== 'web_search'; }); continue; }
+      if (code === 401) throw new Error('Kunci API Claude ditolak. Periksa ANTHROPIC_API_KEY di Script Properties.');
+      if (code === 429 || code === 529) throw new Error('Claude sedang sibuk. Coba lagi beberapa menit lagi.');
+      if (/credit|billing|balance/i.test(m)) throw new Error('Saldo/batas akun Claude API habis. Cek console.anthropic.com.');
+      throw new Error('Claude API ' + code + ': ' + m);
+    }
+    j = r; cost += aiAddUsage_(model, r.usage || {}, st, kind);
+    var stu = (r.usage || {}).server_tool_use || {}; fetched += Number(stu.web_fetch_requests || 0); searched += Number(stu.web_search_requests || 0);
+    all = all.concat(r.content || []);
+    if (r.stop_reason === 'pause_turn') { messages = messages.concat([{ role: 'assistant', content: r.content }]); continue; }
+    break;
+  }
+  if (!j) throw new Error('Claude API menolak permintaan. Coba lagi nanti.');
+  // teks jawaban = blok teks setelah hasil alat terakhir (bila tidak ada, semua teks)
+  var lastTool = -1;
+  all.forEach(function (c, i) { if (/_tool_result$/.test(c.type || '')) lastTool = i; });
+  var textOf = function (arr) { return arr.filter(function (c) { return c.type === 'text'; }).map(function (c) { return c.text; }).join('').trim(); };
+  var text = textOf(all.slice(lastTool + 1)) || textOf(all);
+  var seen = {}, sources = [];
+  var add = function (url, title) { url = String(url || ''); if (!/^https?:\/\//.test(url) || seen[url]) return; seen[url] = 1; sources.push({ url: url.slice(0, 500), title: String(title || '').slice(0, 160) }); };
+  all.forEach(function (c) {
+    if (c.type === 'text' && c.citations) c.citations.forEach(function (x) { add(x.url || (x.document_title && ''), x.title || x.document_title); });
+    if (c.type === 'web_fetch_tool_result' && c.content && c.content.url) add(c.content.url, c.content.content && c.content.content.title);
+  });
+  return { text: text, sources: sources.slice(0, 8), model: model, cost: cost, stop: j.stop_reason || '', fetched: fetched, searched: searched };
 }
 /** Ambil objek JSON dari teks jawaban (boleh dibungkus ``` atau diawali kalimat). */
 function aiJson_(text) {
@@ -4750,20 +4804,23 @@ function ideaReply_(me, b) {
   if (idea.chat.filter(function (m) { return m.role === 'user' && !m.admin; }).length >= IDEA_MAX_REPLY) throw new Error('Kuota balasan (' + IDEA_MAX_REPLY + '×) untuk task ini sudah habis.');
   if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
   var st = aiSettings_(), c = ideaContext_(t), rv = idea.reviews[idea.reviews.length - 1];
-  var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com dan rekan brainstorming writer untuk rencana optimasi artikel. Jangan mengarang angka ranking atau volume. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. Jangan mengarang angka atau fakta klien. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : ideaSystem_(c.ind)) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer secara singkat (maksimal 120 kata), tetap kritis, ' +
-    (t.ideaKind === 'opt' ? 'beri contoh konkret untuk artikel ini' : 'beri contoh konkret untuk industri ' + c.ind) + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. Jawab HANYA JSON {"reply": "..."}.';
+  var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com dan rekan brainstorming writer untuk rencana optimasi artikel. Jangan mengarang angka ranking atau volume. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. Jangan mengarang angka atau fakta klien. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : ideaSystem_(c.ind)) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer secara singkat (maksimal 160 kata), tetap kritis, ' +
+    (t.ideaKind === 'opt' ? 'beri contoh konkret untuk artikel ini' : 'beri contoh konkret untuk industri ' + c.ind) + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. ' + IDEA_WEB_RULES + 'Tanpa em dash dan tanpa markdown heading.';
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE TERBARU\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ' — ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
     '\n\nPESAN BARU WRITER: ' + text;
-  var r = aiCall_(st.models.idea || st.models.brief, sys, user, 800, st, 'idea', IDEA_REPLY_SCHEMA);
-  var reply = r.json && r.json.reply ? String(r.json.reply) : String(r.text || '').trim();
+  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 2000, st, 'idea');
+  var reply = String(r.text || '').trim();
   if (!reply) throw aiUnreadable_(r);
   var now = new Date().toISOString();
   idea.chat.push({ role: 'user', by: me.username, text: text, at: now });
-  idea.chat.push({ role: 'ai', text: reply.slice(0, 1500), at: now, model: r.model });
+  idea.chat.push({ role: 'ai', text: reply.slice(0, 2500), at: now, model: r.model, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
   return ideaPut_(me, t, idea, 'reply');
 }
+var IDEA_WEB_RULES = 'Anda punya alat web_fetch dan web_search. Bila pesan berisi tautan, BUKA tautannya dengan web_fetch sebelum menilai (termasuk PDF regulasi). ' +
+  'Bila ada klaim data, regulasi, pasal, atau angka yang meragukan dan tidak ada tautannya, cari sumbernya dengan web_search, utamakan situs resmi (go.id: jdih.kemnaker.go.id, peraturan.bpk.go.id, bps.go.id) dan asosiasi industri. ' +
+  'Sebutkan apa yang Anda temukan di sumber itu (mis. bunyi pasal atau angkanya), dan bedakan dengan jelas mana yang sudah Anda cek di sumber dan mana yang masih dugaan. Bila tautan tidak bisa dibuka, katakan terus terang. Jangan mengarang isi sumber. ';
 function ideaHistory_(idea) {
   return idea.chat.slice(-14).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : m.admin ? 'Admin: ' : 'Writer: ') + m.text; }).join('\n') || '(belum ada)';
 }
@@ -4779,18 +4836,18 @@ function ideaAsk_(me, b) {
   var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com. Jangan mengarang angka ranking atau volume.' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia). Jangan mengarang angka atau fakta klien.' : ideaSystem_(c.ind)) +
     '\n\nSekarang Anda berdiskusi dengan ADMIN, yaitu lead konten yang menilai ide writer (bukan penulis ide). Admin bisa menyanggah penilaian Anda, memberi data pembanding, atau bertanya. ' +
     'Tanggapi dengan jujur: bila sanggahan atau datanya masuk akal, akui dan jelaskan apa yang berubah pada penilaian Anda; bila tidak, pertahankan pendapat Anda dengan alasan yang jelas. Jangan sekadar setuju agar menyenangkan. ' +
-    'Anda tidak bisa membuka internet: bila admin mengutip data, regulasi, pasal, atau angka, nilai kewajarannya dari pengetahuan Anda dan sebutkan apa yang perlu dicek ke sumber aslinya. ' +
-    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 180 kata, tanpa em dash. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak. Jawab HANYA JSON {"reply": "..."}.';
+    IDEA_WEB_RULES +
+    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 220 kata, tanpa em dash, tanpa markdown heading. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak.';
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE WRITER\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ': ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
     '\n\nPESAN BARU ADMIN: ' + text;
-  var r = aiCall_(st.models.idea || st.models.brief, sys, user, 1000, st, 'idea', IDEA_REPLY_SCHEMA);
-  var reply = r.json && r.json.reply ? String(r.json.reply) : String(r.text || '').trim();
+  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 2500, st, 'idea');
+  var reply = String(r.text || '').trim();
   if (!reply) throw aiUnreadable_(r);
   var now = new Date().toISOString();
   idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name || me.username, text: text, at: now });
-  idea.chat.push({ role: 'ai', text: reply.slice(0, 2000), at: now, model: r.model, toAdmin: true });
+  idea.chat.push({ role: 'ai', text: reply.slice(0, 3000), at: now, model: r.model, toAdmin: true, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
   return ideaPut_(me, t, idea, 'ask');
 }
 // ---------- Bank Ide: brainstorming topik tanpa task (koleksi ideas/) ----------
