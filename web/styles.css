@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.45.5"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.45.6"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1892,3 +1892,8 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .ai-sec.stance p { margin: 0; font-weight: 500; }
 .idea-tag { font-size: 11px; padding: 1px 7px; margin-right: 4px; vertical-align: 1px; }
 .idea-src { margin-top: 12px; padding-top: 10px; }
+/* catatan keputusan admin: kolom lega, catatan tampil utuh */
+#bk-dnote { min-height: 150px; resize: vertical; line-height: 1.55; }
+.bk-dcount { display: block; text-align: right; margin-top: 2px; }
+.bk-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bk-decide .idea-act { margin-top: 10px; }

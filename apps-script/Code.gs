@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 40 });
+  return json_({ ok: true, app: 'project-tracker', version: 41 });
 }
 
 function doPost(e) {
@@ -4923,7 +4923,7 @@ function bankSubmit_(me, b) {
 }
 /** Admin: setujui / minta revisi / tolak, atau tarik kembali ke Draft (pengusul, sebelum diputuskan). */
 function bankDecide_(me, b) {
-  var d = bankGet_(b.ideaId), act = String(b.decision || ''), note = String(b.note || '').trim().slice(0, 800), now = new Date().toISOString();
+  var d = bankGet_(b.ideaId), act = String(b.decision || ''), note = String(b.note || '').trim().slice(0, 4000), now = new Date().toISOString();
   var next = { approve: 'Disetujui', revise: 'Revisi', reject: 'Ditolak', withdraw: 'Draft' }[act];
   if (!next) throw new Error('Keputusan tidak dikenal');
   if (act === 'withdraw') {

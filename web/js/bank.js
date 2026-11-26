@@ -177,7 +177,7 @@ function bankOpen(id) {
         if (d.status === 'Diajukan' && mineIdea) btn.push('<button class="btn" data-bk="withdraw">Tarik lagi</button>');
         if (d.status === 'Dipakai' && d.taskId) btn.push('<button class="btn" data-bk="task">Buka task</button>');
         const decide = admin && ['Diajukan', 'Disetujui', 'Revisi', 'Ditolak'].includes(d.status) ? `<div class="bk-decide">
-            <label class="field" style="margin:0"><span>Catatan untuk ${esc(firstNameOf(d.authorName) || 'penulis')} <small class="muted">(wajib kalau minta revisi atau tolak)</small></span><textarea id="bk-dnote" rows="2" maxlength="800" placeholder="Contoh: sudutnya oke, tapi sumber datanya belum ada.">${esc((S.bkNote || {})[id] || '')}</textarea></label>
+            <label class="field" style="margin:0"><span>Catatan untuk ${esc(firstNameOf(d.authorName) || 'penulis')} <small class="muted">(wajib kalau minta revisi atau tolak)</small></span><textarea id="bk-dnote" rows="7" maxlength="4000" placeholder="Contoh: sudutnya oke, tapi sumber datanya belum ada.">${esc((S.bkNote || {})[id] || '')}</textarea><small class="muted bk-dcount"></small></label>
             <div class="idea-act">${d.status !== 'Ditolak' ? '<button class="btn" data-bk="reject">Tolak</button>' : ''}${d.status !== 'Revisi' ? '<button class="btn" data-bk="revise">Minta revisi</button>' : ''}${d.status !== 'Disetujui' ? '<button class="btn ok" data-bk="approve">Setujui</button>' : ''}
             ${d.status === 'Disetujui' ? '<button class="btn primary" data-bk="use">Jadikan task</button>' : ''}</div></div>` : '';
         return `${decide}${btn.length ? `<div class="idea-act">${btn.join('')}</div>` : ''}`;
@@ -187,7 +187,13 @@ function bankOpen(id) {
     const lockMsg = !editable && d.status === 'Diajukan' && mineIdea ? '<p class="muted small">Ide ini sedang dicek admin. Klik Tarik lagi kalau mau mengubahnya.</p>' : '';
     box.innerHTML = dec + lockMsg + ideaCoreHtml(src);
     const { form } = ideaCoreBind(box, src);
-    const note = $('#bk-dnote', box); if (note) note.oninput = () => { (S.bkNote = S.bkNote || {})[id] = note.value; };
+    const note = $('#bk-dnote', box);
+    if (note) {
+      // tinggi kolom ikut isi (maks ±16 baris), plus penghitung karakter
+      const fit = () => { note.style.height = 'auto'; note.style.height = Math.min(note.scrollHeight + 2, 420) + 'px'; const c = $('.bk-dcount', box); if (c) c.textContent = note.value.length > 3000 ? `${note.value.length} / 4000 karakter` : ''; };
+      note.oninput = () => { (S.bkNote = S.bkNote || {})[id] = note.value; fit(); };
+      setTimeout(fit, 0);
+    }
     $$('[data-bk]', box).forEach((b) => b.onclick = () => bankAction(id, b.dataset.bk, form, render, () => closeFn && closeFn()));
   };
   const d0 = (S.bank || []).find((x) => x.id === id);

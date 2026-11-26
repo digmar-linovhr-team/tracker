@@ -484,7 +484,7 @@ function demoBank(s, a, b, me) {
     Object.assign(d, { status: 'Diajukan', submittedAt: now, updatedAt: now, title: bankTitleOf(d.idea.form) }); return { item: d };
   }
   if (a === 'bankDecide') {
-    const d = get(b.ideaId), act = b.decision, note = String(b.note || '').trim();
+    const d = get(b.ideaId), act = b.decision, note = String(b.note || '').trim().slice(0, 4000);
     const next = { approve: 'Disetujui', revise: 'Revisi', reject: 'Ditolak', withdraw: 'Draft' }[act];
     if (!next) throw new Error('Keputusan tidak dikenal');
     if (act === 'withdraw') { if (d.author !== me.username && !admin) throw new Error('Hanya pengusul yang bisa menarik ide.'); if (d.status !== 'Diajukan') throw new Error('Hanya ide yang sedang diajukan yang bisa ditarik kembali.'); }
