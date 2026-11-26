@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 39 });
+  return json_({ ok: true, app: 'project-tracker', version: 40 });
 }
 
 function doPost(e) {
@@ -4846,7 +4846,8 @@ var IDEA_SOLVE_RULES = 'SETIAP kali Anda menyebut kelemahan, langsung beri jalan
   '(2) judul lemah atau generik: tulis 3 alternatif judul yang konkret sesuai sudut pandang. ' +
   '(3) pembaca terlalu lebar: pilih satu pembaca utama dan jelaskan singkat kenapa. ' +
   '(4) sudut pandang mirip kompetitor: usulkan 1 sampai 2 sudut yang lebih tajam. ' +
-  'Susun jawaban dalam teks biasa dengan bagian singkat berlabel, misalnya "Hasil cek sumber:", "Saran pengganti:", "Sikap:", dan pakai daftar "- " bila perlu. Jangan memakai tanda # atau **. ';
+  'FORMAT JAWABAN (wajib, supaya mudah dibaca): teks biasa, dibagi ke bagian berlabel pada baris sendiri, urut: "Hasil cek sumber:", "Saran pengganti:", "Catatan:" (opsional), "Sikap:". ' +
+  'Di setiap bagian pakai daftar "- " dengan satu gagasan per poin, MAKSIMAL 2 kalimat per poin, taruh tautan di akhir poin. Jangan menulis paragraf panjang. Beri baris kosong antar bagian. "Sikap:" cukup satu kalimat. Jangan memakai tanda # atau **. ';
 function ideaHistory_(idea) {
   return idea.chat.slice(-14).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : m.admin ? 'Admin: ' : 'Writer: ') + m.text; }).join('\n') || '(belum ada)';
 }
@@ -4863,7 +4864,7 @@ function ideaAsk_(me, b) {
     '\n\nSekarang Anda berdiskusi dengan ADMIN, yaitu lead konten yang menilai ide writer (bukan penulis ide). Admin bisa menyanggah penilaian Anda, memberi data pembanding, atau bertanya. ' +
     'Tanggapi dengan jujur: bila sanggahan atau datanya masuk akal, akui dan jelaskan apa yang berubah pada penilaian Anda; bila tidak, pertahankan pendapat Anda dengan alasan yang jelas. Jangan sekadar setuju agar menyenangkan. ' +
     IDEA_WEB_RULES + IDEA_SOLVE_RULES +
-    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 350 kata, tanpa em dash. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak.';
+    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 300 kata, tanpa em dash. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak.';
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE WRITER\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ': ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +

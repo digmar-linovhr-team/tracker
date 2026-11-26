@@ -113,6 +113,29 @@ function ideaMsgHtml(text) {
     return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer" title="${esc(raw)}">${esc(ideaLinkLabel(raw))}</a>`;
   });
 }
+/** Jawaban Claude sebagai teks berstruktur: "Label:" jadi judul bagian, "- " jadi daftar, [Resmi]/[Jurnal]/[Asosiasi] jadi chip, "Sikap:" disorot. */
+const AI_SECT_RE = /^(hasil cek sumber|hasil pengecekan|cek sumber|saran pengganti|saran|catatan|sikap|penilaian|yang berubah|alasan|judul alternatif|alternatif judul|usulan judul|pembaca( utama)?|sudut( pandang)?( lain| alternatif)?|daftar revisi|revisi|data( pengganti)?|kesimpulan|rekomendasi)$/i;
+function ideaAiHtml(text) {
+  const SRC = { resmi: 'good', jurnal: 'info', asosiasi: 'warn' };
+  const inline = (t) => ideaMsgHtml(t)
+    .replace(/\[(Resmi|Jurnal|Asosiasi)\]/gi, (m, k) => `<span class="chip ${SRC[k.toLowerCase()]} idea-tag">${k[0].toUpperCase() + k.slice(1).toLowerCase()}</span>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  let html = '', list = null, sect = '';
+  const flush = () => { if (list) { html += `<ul>${list.map((x) => `<li>${inline(x)}</li>`).join('')}</ul>`; list = null; } };
+  const open = (label) => { flush(); if (sect) html += '</div>'; sect = label; html += `<div class="ai-sec ${/^sikap/i.test(label) ? 'stance' : ''}"><h5>${esc(label)}</h5>`; };
+  lines.forEach((ln) => {
+    const l = ln.trim().replace(/^#+\s*/, '');
+    if (!l) { flush(); return; }
+    const head = /^([A-Z][A-Za-z ,/()]{2,38}):\s*(.*)$/.exec(l.replace(/^\*\*|\*\*(?=:)/g, ''));
+    if (head && !/^sikap/i.test(sect) && AI_SECT_RE.test(head[1].trim())) { open(head[1].trim()); if (head[2]) html += `<p>${inline(head[2])}</p>`; return; }
+    const item = /^(?:[-•*]|\d+[.)])\s+(.*)$/.exec(l);
+    if (item) { (list = list || []).push(item[1]); return; }
+    flush(); html += `<p>${inline(l)}</p>`;
+  });
+  flush(); if (sect) html += '</div>';
+  return html;
+}
 /** Label tautan yang mudah dibaca: domain › bagian akhir alamat (mis. bps.go.id › keadaan pekerja di indonesia agustus 2025). */
 function ideaLinkLabel(url) {
   const m = /^https?:\/\/(?:www\.)?([^/?#]+)([^?#]*)/.exec(String(url)) || [];
@@ -148,7 +171,7 @@ function ideaCoreHtml(src) {
       ${(rv.prompts || []).length ? `<div class="idea-sh">Pertanyaan di AI Overview yang bisa dijawab artikel ini</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
     </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi idenya, lalu klik <b>Cek ke Claude</b>. ${esc(K.hint)}</p>`);
   const who = (c) => c.role === 'ai' ? (c.toAdmin ? 'Claude, menjawab admin' : 'Claude') : c.admin ? `${c.byName || c.by || 'Admin'} (admin)` : (c.byName || (typeof personName === 'function' && c.by ? personName(c.by) : c.by) || 'Writer');
-  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}${c.web && (c.web.fetched || c.web.searched) ? ` · ${[c.web.fetched ? `membuka ${c.web.fetched} sumber` : '', c.web.searched ? `mencari ${c.web.searched}×` : ''].filter(Boolean).join(', ')}` : ''}</small>${ideaMsgHtml(c.text)}${(c.sources || []).length ? `<div class="idea-src"><span>Sumber yang dibuka Claude</span>${c.sources.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || ideaLinkLabel(x.url))}</a>`).join('')}</div>` : ''}</div>`).join('')}</div>` : '';
+  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}${c.web && (c.web.fetched || c.web.searched) ? ` · ${[c.web.fetched ? `membuka ${c.web.fetched} sumber` : '', c.web.searched ? `mencari ${c.web.searched}×` : ''].filter(Boolean).join(', ')}` : ''}</small>${c.role === 'ai' ? `<div class="ai-body">${ideaAiHtml(c.text)}</div>` : ideaMsgHtml(c.text)}${(c.sources || []).length ? `<div class="idea-src"><span>Sumber yang dibuka Claude</span>${c.sources.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || ideaLinkLabel(x.url))}</a>`).join('')}</div>` : ''}</div>`).join('')}</div>` : '';
   // admin: menanggapi / menyanggah penilaian Claude dengan data pembanding (isi ide tidak berubah)
   const askBox = rv && src.adminAsk ? `<div class="idea-ask" id="${id}-ask"><div class="idea-sh">Tanggapi penilaian Claude</div>
       <p class="muted small" style="margin:0 0 6px">Sanggah, beri data pembanding, atau tanya alasannya. Tempel tautan sumber (mis. JDIH, BPS) supaya Claude membukanya; Claude juga bisa mencari sendiri di web. Isi ide writer tidak berubah, dan writer bisa membaca diskusi ini. Jawaban bisa makan waktu sampai 1 menit.</p>
