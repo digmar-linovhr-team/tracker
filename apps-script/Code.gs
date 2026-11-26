@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 38 });
+  return json_({ ok: true, app: 'project-tracker', version: 39 });
 }
 
 function doPost(e) {
@@ -4225,10 +4225,23 @@ function aiCall_(model, system, user, maxTokens, st, kind, schema) {
 }
 /** Panggil Claude dengan akses web (web fetch untuk membuka tautan/PDF yang disebut, web search untuk mencari pembanding).
  *  Jawaban berupa teks biasa. Hasil: { text, sources: [{url,title}], model, cost, stop, fetched, searched }. */
-var AI_WEB_TOOLS = function () {
+// Pencarian hanya ke sumber berbobot: pemerintah & lembaga resmi, lembaga internasional, jurnal ilmiah, asosiasi industri (bukan berita/blog).
+var AI_SRC_INTL = ['ilo.org', 'worldbank.org', 'oecd.org', 'imf.org', 'adb.org', 'unido.org', 'un.org'];
+var AI_SRC_JOURNAL = ['doaj.org', 'sciencedirect.com', 'springer.com', 'tandfonline.com', 'emerald.com', 'mdpi.com', 'wiley.com', 'sagepub.com', 'jstor.org',
+  'semanticscholar.org', 'researchgate.net', 'neliti.com', 'garuda.kemdikbud.go.id', 'sinta.kemdiktisaintek.go.id', 'repository.ui.ac.id', 'journal.ugm.ac.id'];
+var AI_SRC_ASSOC = ['apindo.or.id', 'kadin.id', 'lpem.org', 'smeru.or.id', 'csis.or.id', 'cips-indonesia.org', 'ifg.id'];
+// percobaan pertama memakai akhiran domain go.id & ac.id (semua situs pemerintah & kampus); bila API menolak, pakai daftar rinci
+var AI_SRC_WIDE = ['go.id', 'ac.id'].concat(AI_SRC_INTL, AI_SRC_JOURNAL, AI_SRC_ASSOC);
+var AI_SRC_LIST = ['bps.go.id', 'kemnaker.go.id', 'kemenperin.go.id', 'peraturan.bpk.go.id', 'peraturan.go.id', 'jdih.setneg.go.id', 'bi.go.id', 'ojk.go.id',
+  'bpjsketenagakerjaan.go.id', 'kemenkeu.go.id', 'bappenas.go.id', 'ekon.go.id', 'kemendag.go.id', 'pertanian.go.id', 'esdm.go.id', 'kemkes.go.id', 'kemenkes.go.id',
+  'kemenparekraf.go.id', 'bkpm.go.id', 'pu.go.id', 'dephub.go.id', 'kemenkopukm.go.id', 'kemdikbud.go.id', 'kemdiktisaintek.go.id', 'brin.go.id',
+  'ui.ac.id', 'ugm.ac.id', 'itb.ac.id', 'ipb.ac.id', 'unair.ac.id', 'undip.ac.id', 'unpad.ac.id', 'its.ac.id', 'ub.ac.id', 'binus.ac.id', 'petra.ac.id', 'upi.edu']
+  .concat(AI_SRC_INTL, AI_SRC_JOURNAL, AI_SRC_ASSOC);
+var AI_WEB_TOOLS = function (wide) {
   return [
     { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 4, citations: { enabled: true }, max_content_tokens: 40000 },
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'ID', timezone: 'Asia/Jakarta' } }
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5, allowed_domains: wide === false ? AI_SRC_LIST : AI_SRC_WIDE,
+      user_location: { type: 'approximate', country: 'ID', timezone: 'Asia/Jakarta' } }
   ];
 };
 function aiCallWeb_(model, system, user, maxTokens, st, kind) {
@@ -4236,7 +4249,7 @@ function aiCallWeb_(model, system, user, maxTokens, st, kind) {
   if (!key) throw new Error('Kunci API Claude belum dipasang (Script Properties → ANTHROPIC_API_KEY).');
   var used = Number(aiUsage_().cost || 0);
   if (used >= Number(st.cap)) throw new Error('Batas biaya Penilaian Claude bulan ini sudah tercapai (US$' + used.toFixed(2) + '). Bisa dipakai lagi bulan depan, atau admin menaikkan batas di Pengaturan.');
-  var tools = AI_WEB_TOOLS(), messages = [{ role: 'user', content: user }], cost = 0, noThink = true, j = null, all = [], tries = 0, fetched = 0, searched = 0;
+  var narrow = false, tools = AI_WEB_TOOLS(), messages = [{ role: 'user', content: user }], cost = 0, noThink = true, j = null, all = [], tries = 0, fetched = 0, searched = 0;
   while (tries++ < 8) {
     var body = { model: model, max_tokens: maxTokens || 2000, system: system, messages: messages };
     if (tools.length) body.tools = tools;
@@ -4248,6 +4261,8 @@ function aiCallWeb_(model, system, user, maxTokens, st, kind) {
     if (code >= 300) {
       var m = (r.error && r.error.message) || res.getContentText().slice(0, 200);
       if (code === 400 && noThink && /thinking/i.test(m)) { noThink = false; tries--; continue; }
+      // daftar domain akhiran (go.id/ac.id) ditolak: ganti ke daftar domain rinci
+      if (code === 400 && /domain/i.test(m) && !narrow) { Logger.log('allowed_domains ditolak: ' + m); narrow = true; tools = AI_WEB_TOOLS(false).filter(function (t) { return tools.some(function (x) { return x.name === t.name; }); }); continue; }
       // alat web dimatikan admin organisasi di Claude Console: lanjut tanpa alat itu
       if (code === 400 && /web.?fetch/i.test(m) && tools.some(function (t) { return t.name === 'web_fetch'; })) { Logger.log('web_fetch ditolak: ' + m); tools = tools.filter(function (t) { return t.name !== 'web_fetch'; }); continue; }
       if (code === 400 && /web.?search/i.test(m) && tools.some(function (t) { return t.name === 'web_search'; })) { Logger.log('web_search ditolak: ' + m); tools = tools.filter(function (t) { return t.name !== 'web_search'; }); continue; }
@@ -4819,11 +4834,15 @@ function ideaReply_(me, b) {
   return ideaPut_(me, t, idea, 'reply');
 }
 var IDEA_WEB_RULES = 'Anda punya alat web_fetch dan web_search. Bila pesan berisi tautan, BUKA tautannya dengan web_fetch sebelum menilai (termasuk PDF regulasi). ' +
-  'Bila ada klaim data, regulasi, pasal, atau angka yang meragukan dan tidak ada tautannya, cari sumbernya dengan web_search, utamakan situs resmi (go.id: jdih.kemnaker.go.id, peraturan.bpk.go.id, bps.go.id) dan asosiasi industri. ' +
+  'Bila ada klaim data, regulasi, pasal, atau angka yang meragukan dan tidak ada tautannya, cari sumbernya dengan web_search. ' +
+  'URUTAN SUMBER yang boleh dipakai: (1) data & regulasi resmi pemerintah dan lembaga internasional (bps.go.id, jdih/satudata kementerian, peraturan.bpk.go.id, ILO, Bank Dunia, OECD); ' +
+  '(2) jurnal ilmiah dan laporan riset lembaga (SINTA/Garuda, Scopus, repositori kampus, SMERU, LPEM UI); (3) laporan asosiasi industri (Apindo, Kadin). ' +
+  'JANGAN memakai berita, media online, atau blog sebagai sumber data. Bila sebuah angka hanya ditemukan di berita, telusuri dan buka sumber primernya (tabel BPS, PDF laporan, artikel jurnal); bila sumber primer tidak ketemu, tulis bahwa angka itu belum terverifikasi dan jangan menyarankannya. ' +
+  'Saat menyarankan data, tulis jenis sumbernya di depan: [Resmi], [Jurnal], atau [Asosiasi], lalu angka, periode, nama dokumen/tabel, dan tautan ke sumber primernya. Untuk jurnal sebutkan penulis, tahun, dan nama jurnal. ' +
   'Sebutkan apa yang Anda temukan di sumber itu (mis. bunyi pasal atau angkanya), dan bedakan dengan jelas mana yang sudah Anda cek di sumber dan mana yang masih dugaan. Bila tautan tidak bisa dibuka, katakan terus terang. Jangan mengarang isi sumber. ';
 // Setiap kritik harus disertai jalan keluar yang bisa langsung dipakai.
 var IDEA_SOLVE_RULES = 'SETIAP kali Anda menyebut kelemahan, langsung beri jalan keluarnya, jangan hanya mengkritik: ' +
-  '(1) data tidak cocok atau lemah: CARI dengan web_search data pengganti yang lebih tepat (utamakan data sektoral resmi: BPS per lapangan usaha/industri pengolahan, Kemenperin, Kemnaker/Satudata, asosiasi industri, survei kredibel), lalu tulis 1 sampai 3 kandidat beserta angka, tahun, nama sumber, dan tautannya; bila tidak ketemu, katakan dan sarankan kata kunci atau lembaga yang bisa dicari writer. ' +
+  '(1) data tidak cocok atau lemah: CARI dengan web_search data pengganti yang lebih tepat sesuai URUTAN SUMBER di atas (mis. tabel BPS per lapangan usaha, Satudata Kemnaker, Kemenperin, jurnal SINTA/Scopus), lalu tulis 1 sampai 3 kandidat sesuai format di atas; bila tidak ketemu, katakan dan sarankan kata kunci atau lembaga yang bisa dicari writer. ' +
   '(2) judul lemah atau generik: tulis 3 alternatif judul yang konkret sesuai sudut pandang. ' +
   '(3) pembaca terlalu lebar: pilih satu pembaca utama dan jelaskan singkat kenapa. ' +
   '(4) sudut pandang mirip kompetitor: usulkan 1 sampai 2 sudut yang lebih tajam. ' +

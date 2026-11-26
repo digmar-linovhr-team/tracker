@@ -1420,6 +1420,20 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   assert.ok(/membuka tautan/.test(ch[1].text) && ch[1].sources[0].url === 'https://jdih.kemnaker.go.id/uu-27-2026.pdf' && ch[1].web.fetched === 1, 'sumber yang dibuka tersimpan');
   assert.strictEqual(JSON.stringify(sandbox.fsGet_('ideas/' + mid).idea.form), before, 'isi ide tidak berubah');
   assert.strictEqual(sandbox.fsGet_('ideas/' + mid).idea.chat.filter((m) => m.admin).length, 1);
+  // pencarian dibatasi ke sumber resmi/jurnal; bila akhiran go.id/ac.id ditolak API, ganti ke daftar domain rinci
+  const ws = sent[sent.length - 1].tools.find((t) => t.name === 'web_search');
+  assert.ok(ws.allowed_domains.includes('go.id') && ws.allowed_domains.includes('doaj.org') && !ws.allowed_domains.some((d) => /cnbc|detik|kompas/.test(d)));
+  const fetch2 = sandbox.UrlFetchApp.fetch, bodies = [];
+  sandbox.UrlFetchApp.fetch = (url, opt) => {
+    if (/api\.anthropic\.com/.test(url)) { const bd = JSON.parse(opt.payload); bodies.push(bd);
+      if (bodies.length === 1) return resp(400, { error: { message: 'allowed_domains: invalid domain go.id' } });
+      return resp(200, { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 10, output_tokens: 5 }, stop_reason: 'end_turn' }); }
+    return fetch2(url, opt);
+  };
+  const w = sandbox.aiCallWeb_('claude-sonnet-5-5', 'sys', 'u', 500, sandbox.aiSettings_(), 'idea');
+  sandbox.UrlFetchApp.fetch = fetch2;
+  const d2 = bodies[1].tools.find((t) => t.name === 'web_search').allowed_domains;
+  assert.ok(w.text === 'ok' && !d2.includes('go.id') && d2.includes('bps.go.id'), 'fallback ke daftar domain rinci');
   sandbox.UrlFetchApp.fetch = realFetch; delete props.ANTHROPIC_API_KEY;
 });
 

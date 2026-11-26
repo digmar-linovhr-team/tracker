@@ -98,7 +98,7 @@ function ideaBankPick(t) {
 
 /** Permintaan cepat ke Claude (mengisi kotak pesan, bisa diedit sebelum dikirim). */
 const IDEA_QUICK = [
-  ['Carikan data yang lebih cocok', 'Carikan data pengganti yang lebih cocok untuk ide ini (utamakan data sektoral resmi dan terbaru). Tulis angka, tahun, sumber, dan tautannya.'],
+  ['Carikan data yang lebih cocok', 'Carikan data pengganti yang lebih cocok untuk ide ini dari sumber resmi (BPS, kementerian, lembaga internasional) atau jurnal, bukan berita. Tulis angka, periode, nama dokumen/tabel, dan tautan sumber primernya.'],
   ['Usulkan judul', 'Usulkan 3 alternatif judul yang lebih tajam sesuai sudut pandang ide ini, beserta alasan singkat masing-masing.'],
   ['Pembaca yang tepat', 'Siapa satu pembaca utama yang paling tepat untuk ide ini, dan apa yang perlu diubah supaya isinya pas untuk pembaca itu?'],
   ['Sudut lain', 'Usulkan 2 sudut pandang yang lebih tajam dan belum banyak dibahas kompetitor untuk topik ini.'],
