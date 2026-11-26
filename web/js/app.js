@@ -3,7 +3,7 @@
 const L = window.PTLogic;
 
 // Pengaman cache: bila CSS lama masih tersimpan (tidak cocok dengan versi kode ini), muat ulang CSS yang benar.
-const CSS_VERSION = '2.45.6';
+const CSS_VERSION = '2.46.0';
 (function ensureFreshCss() {
   const got = getComputedStyle(document.documentElement).getPropertyValue('--pt-css').trim().replace(/"/g, '');
   if (got === CSS_VERSION) return;
@@ -50,6 +50,7 @@ const ICONS = {
   target: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>'),
   ideas: svg('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/>'),
   backlinks: svg('<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>'),
+  docs: svg('<path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16h5"/>'),
   more: svg('<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>')
 };
@@ -259,6 +260,7 @@ function renderNav() {
   if (S.user.sheetName) items.push(['mine', 'Task Saya', 'Task', overdue]);
   items.push(['dashboard', 'Dashboard', 'Laporan']);
   if (typeof bankAvailable === 'function' && bankAvailable()) items.push(['ideas', 'Bank Ide', 'Ide', typeof bankBadge === 'function' ? bankBadge() : 0, 'info']);
+  items.push(['docs', 'Dokumen', 'Dokumen']);
   items.push(['target', 'Target', 'Target']);
   if (blAvailable()) items.push(['backlinks', 'Backlink', 'Backlink']);
   items.push(['team', 'Tim', 'Tim']);
@@ -303,7 +305,7 @@ function readCache() {
 const F_DEFAULT = JSON.stringify(S.f);
 function resetSession() {
   // filter, pencarian, pilihan, dan draf milik akun sebelumnya tidak boleh terbawa ke akun berikutnya di perangkat yang sama
-  S.f = JSON.parse(F_DEFAULT); S.tsel = null; S.tf = null; S.blf = null; S.org = null; S.socNew = null; S.dhTab = null; S.histPage = 1; S.navMore = null; S.bf = { tab: 'all', q: '' };
+  S.f = JSON.parse(F_DEFAULT); S.tsel = null; S.tf = null; S.blf = null; S.org = null; S.socNew = null; S.dhTab = null; S.histPage = 1; S.navMore = null; S.docs = null; S.dk = null; S.bf = { tab: 'all', q: '' };
   if (typeof IDEA !== 'undefined') { IDEA.draft = {}; IDEA.reply = {}; IDEA.busy = {}; }
   S.bank = null; S.bankAt = 0; S.bkf = null; S.bkNote = null; S.backlinks = null; S.blAt = 0; S.onboarding = null; S.sched = null; S.all = null; S.team = null; S.teamAt = 0; S.mine = { tasks: [], projects: [] }; S.briefs = []; S.bEdit = null; }
 function clearCaches() {
@@ -386,6 +388,7 @@ function go(view) {
     target: ['Target', 'Capaian hasil kerja dibanding target bulanan & tahunan'],
     backlinks: ['Backlink', 'Pipeline outreach backlink LinovHR & Lawencon'],
     ideas: ['Bank Ide', 'Kumpulan ide topik tim'],
+    docs: ['Dokumen', 'Data & dokumen penting tim, satu tempat'],
     briefs: ['Brief', 'Brief artikel & konten sosmed'],
     brief: ['Brief', 'Brief'],
     settings: ['Pengaturan', 'Notifikasi, akun, dan koneksi server']
@@ -394,7 +397,7 @@ function go(view) {
   $('#view-sub').textContent = titles[view][1];
   // halaman Review & Brief selalu disegarkan di belakang layar agar pengajuan terbaru langsung terlihat
   if ((view === 'review' || view === 'briefs') && (!S.lastSync || Date.now() - S.lastSync > 15000) && !S.pending.size) refreshInBackground(0);
-  ({ mine: viewMine, dashboard: viewDashboard, target: viewTarget, backlinks: viewBacklinks, ideas: viewIdeas, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
+  ({ mine: viewMine, dashboard: viewDashboard, target: viewTarget, backlinks: viewBacklinks, ideas: viewIdeas, docs: viewDocs, team: viewTeam, org: viewOrg, schedule: viewSchedule, review: viewReview, briefs: viewBriefs, brief: viewBrief, tasks: viewTasks, projects: viewProjects, users: viewUsers, settings: viewSettings })[view]();
   if (typeof dpRefresh === 'function') dpRefresh();
   if (view === 'brief' && typeof draftBanner === 'function') draftBanner();
 }

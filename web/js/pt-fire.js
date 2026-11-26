@@ -12,7 +12,7 @@
   var app = null, auth = null, db = null, FV = null;
   var S = null, me = '', isAdmin = false, unsubs = [], readyP = null, listeners = {}, changeTimer = null, writing = 0;
   var SERVER_ACTIONS = { saveUserNew: 1, resetPassword: 1, deleteUser: 1, exportBriefDoc: 1, sendReport: 1, aiCheck: 1, aiFix: 1, aiMark: 1, aiAllow: 1, aiStatus: 1, aiSettings: 1, ideaSave: 1, ideaReview: 1, ideaReply: 1, ideaAsk: 1, ideaFinal: 1, ideaSkip: 1,
-    bankList: 1, bankSave: 1, bankSubmit: 1, bankDecide: 1, bankDelete: 1, bankUse: 1 };
+    bankList: 1, bankSave: 1, bankSubmit: 1, bankDecide: 1, bankDelete: 1, bankUse: 1, docUpload: 1, docAnalyze: 1, docAsk: 1, docTrash: 1 };
 
   function emit(ch, d) { (listeners[ch] || []).forEach(function (fn) { try { fn(d); } catch (e) { console.error(e); } }); }
   function emailOf(u) { return String(u).trim().toLowerCase() + '@' + DOMAIN; }
@@ -41,7 +41,7 @@
   }
   function docData(d) { return plain(d.data({ serverTimestamps: 'estimate' })); }
   var softFail = {};   // koleksi tambahan yang aturannya belum terpasang → dibaca lewat server
-  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {}, backlinks: {}, ideas: {} };
+  var raw = { devices: {}, users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, notifications: {}, backlinks: {}, ideas: {}, docs: {} };
 
   function nameOf(u) { var x = raw.users[u]; return x ? x.name : u; }
   function rebuild() {
@@ -62,7 +62,7 @@
     var holidays = {};
     Object.keys(raw.holidays).forEach(function (d) { holidays[d] = raw.holidays[d].name || 'Libur'; });
     var list = function (col) { return Object.keys(raw[col]).map(function (id) { return Object.assign({}, raw[col][id], { id: id }); }); };
-    S = { users: users, tasks: tasks, projects: projects, briefs: briefs, sched: sched, sreqs: list('schedRequests'), holidays: holidays, leaves: list('leaves'), comments: list('comments'), backlinks: list('backlinks'), ideas: list('ideas') };
+    S = { users: users, tasks: tasks, projects: projects, briefs: briefs, sched: sched, sreqs: list('schedRequests'), holidays: holidays, leaves: list('leaves'), comments: list('comments'), backlinks: list('backlinks'), ideas: list('ideas'), docs: list('docs') };
   }
   function changed() {
     rebuild();
@@ -104,6 +104,8 @@
     add('comments', db.collection('comments'), 'comments');
     add('backlinks', db.collection('backlinks'), 'backlinks', null, true);
     add('ideas', db.collection('ideas'), 'ideas', null, true);
+    // dokumen tim: anggota hanya menerima dokumen yang boleh dilihat semua anggota
+    add('docs', isAdmin ? db.collection('docs') : db.collection('docs').where('visibility', '==', 'all'), 'docs', null, true);
     add('notifications', db.collection('notifications').where('to', '==', me), 'notifications');
     if (isAdmin) add('devices', db.collection('devices'), 'devices');
     return Promise.all(pending).then(rebuild);
@@ -149,7 +151,7 @@
   function pick(o, keys) { var r = {}; keys.forEach(function (k) { if (o[k] !== undefined) r[k] = o[k]; }); return r; }
   function omit(o, skip) { var r = {}; Object.keys(o).forEach(function (k) { if (!skip[k] && o[k] !== undefined) r[k] = o[k]; }); return r; }
   function stored(st) {
-    var out = { users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, backlinks: {} };
+    var out = { users: {}, private: {}, tasks: {}, projects: {}, briefs: {}, schedule: {}, schedRequests: {}, holidays: {}, leaves: {}, comments: {}, backlinks: {}, docs: {} };
     st.users.forEach(function (u) {
       out.users[u.username] = Object.assign(pick(u, USER_KEYS), { hasTasks: !!(u.sheetName || u.hasTasks) && !u.orgOnly });
       out.private[u.username] = { email: u.email || '' };
@@ -163,6 +165,7 @@
     st.leaves.forEach(function (l) { out.leaves[l.id] = omit(l, { id: 1 }); });
     st.comments.forEach(function (c) { out.comments[c.id] = omit(c, { id: 1 }); });
     (st.backlinks || []).forEach(function (b) { out.backlinks[b.id] = omit(b, { id: 1 }); });
+    (st.docs || []).forEach(function (d) { out.docs[d.id] = omit(d, { id: 1 }); });
     return out;
   }
   function eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -219,6 +222,7 @@
         if (o.type === 'set' && !d.createdBy && (d.type === 'Request' || d.type === 'Sosmed')) d.createdBy = me;
       }
       if (o.col === 'comments' && o.type === 'set') { d.createdAt = ts; d.deleted = false; d.editedAt = null; }
+      if (o.col === 'docs' && o.type !== 'delete') { d.updatedBy = me; d.updatedAt = ts; if (o.type === 'set') { d.createdBy = me; d.createdAt = ts; } }
       if (o.col === 'backlinks' && o.type !== 'delete') { d.updatedBy = me; d.updatedAt = ts; if (o.type === 'set') { d.createdBy = me; d.createdAt = ts; } }
       if (o.col === 'comments' && o.type === 'update' && 'editedAt' in d) d.editedAt = ts;
       return { col: o.col, id: o.id, type: o.type, data: d };

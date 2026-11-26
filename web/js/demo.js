@@ -227,7 +227,22 @@ function build() {
     bl('BLDEMO5', { domain: 'direktorisoftware.id', via: 'Listing / direktori', status: 'Prospek', dr: 28 }),
     bl('BLDEMO6', { brand: 'Lawencon', domain: 'itworks.id', sourceUrl: 'https://itworks.id/vendor-erp-lokal/', targetUrl: 'https://www.lawencon.com/', anchor: 'Lawencon', dr: 31, via: 'PR / media', status: 'Tayang', date: iso(addDays(today, -9)) }),
     bl('BLDEMO7', { domain: 'forumhrd.org', via: 'Komunitas / forum', status: 'Ditolak', notes: 'Tidak menerima link komersial.' })];
-  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves, comments, backlinks };
+  // contoh dokumen tim (menu Dokumen)
+  const dk = (id, o) => Object.assign({ id, kind: 'link', url: '', fileId: '', fileName: '', mime: '', size: 0, category: 'Regulasi', industry: '', tags: [], summary: '', quote: '', source: '',
+    visibility: 'all', verified: null, pinned: false, createdBy: 'wisnu', createdAt: stamp(-5, 10, 0), updatedAt: stamp(-5, 10, 0), updatedBy: 'wisnu' }, o);
+  const docs = [
+    dk('DKDEMO1', { title: 'Contoh regulasi ketenagakerjaan (dokumen contoh)', url: 'https://jdih.kemnaker.go.id/', source: 'jdih.kemnaker.go.id', tags: ['Lembur', 'Jam kerja'],
+      summary: '- Contoh ringkasan: batas waktu kerja per minggu.\n- Contoh ringkasan: batas lembur per hari dan per minggu.\n- Contoh ringkasan: tarif upah lembur.', quote: 'Contoh kutipan pasal untuk mode demo.',
+      verified: { by: 'wisnu', byName: 'Wisnu', at: stamp(-1, 14, 0) }, pinned: true }),
+    dk('DKDEMO2', { title: 'Tabel BPS: penduduk bekerja menurut jam kerja dan lapangan usaha', category: 'Data & riset', industry: 'Manufaktur', url: 'https://www.bps.go.id/', source: 'bps.go.id', tags: ['Jam kerja'],
+      summary: '- Tabel Sakernas per lapangan usaha.\n- Ambil baris industri pengolahan.', createdBy: 'fahmi', verified: { by: 'wisnu', byName: 'Wisnu', at: stamp(-1, 15, 0) } }),
+    dk('DKDEMO3', { title: 'Standar SEO Artikel LinovHR', category: 'Panduan tim', url: 'https://docs.google.com/document/d/contoh', source: 'docs.google.com', tags: ['SEO'], pinned: true,
+      summary: '- Struktur H1, H2, H3.\n- Panjang meta title dan meta description.\n- Aturan tautan internal.' }),
+    dk('DKDEMO4', { title: 'Daftar istilah HR yang wajib konsisten', kind: 'note', category: 'Panduan tim', createdBy: 'ari', tags: ['Gaya bahasa'],
+      summary: '- Pakai "karyawan", bukan "pegawai".\n- Pakai "lembur", bukan "overtime".\n- Tulis "BPJS Ketenagakerjaan" lengkap di penyebutan pertama.' }),
+    dk('DKDEMO5', { title: 'Survei asosiasi tentang kepatuhan lembur (contoh)', category: 'Data & riset', industry: 'Manufaktur', url: 'https://apindo.or.id/', source: 'apindo.or.id', createdBy: 'ammar' }),
+    dk('DKDEMO6', { title: 'Izin publikasi studi kasus klien', category: 'Data klien', kind: 'note', visibility: 'admin', summary: '- Daftar klien yang sudah memberi izin publikasi (contoh).' })];
+  return { projects, tasks, users, briefs, sched, sreqs, holidays: {}, leaves, comments, backlinks, docs };
 }
 // ---------- komentar (meniru server) ----------
 function cmCountsD(s) {
@@ -543,6 +558,73 @@ function saveBl(s, me, d) {
   return { backlink: x };
 }
 
+// ---------- dokumen tim ----------
+const DOC_CATS = ['Regulasi', 'Data & riset', 'Panduan tim', 'Template', 'Brand & aset', 'Data klien'];
+const docVisible = (d, me) => me.role === 'admin' || d.visibility !== 'admin';
+function docGet(s, id, me) { const d = (s.docs || []).find((x) => x.id === id); if (!d || !docVisible(d, me)) throw new Error('Dokumen tidak ditemukan. Muat ulang data.'); return d; }
+function saveDoc(s, me, d) {
+  s.docs = s.docs || [];
+  const admin = me.role === 'admin', str = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const kind = ['link', 'file', 'note'].includes(d.kind) ? d.kind : 'link';
+  const o = { kind, title: str(d.title, 200), url: str(d.url, 1000), fileId: str(d.fileId, 120), fileName: str(d.fileName, 200), mime: str(d.mime, 120), size: Math.max(0, Number(d.size) || 0),
+    category: DOC_CATS.includes(d.category) ? d.category : '', industry: str(d.industry, 60),
+    tags: [...new Set((Array.isArray(d.tags) ? d.tags : String(d.tags || '').split(',')).map((x) => str(x, 30)).filter(Boolean))].slice(0, 8),
+    summary: str(d.summary, 4000), quote: str(d.quote, 1000), source: '', visibility: admin && d.visibility === 'admin' ? 'admin' : 'all' };
+  if (!o.title) throw new Error('Isi judul dokumen.');
+  if (!o.category) throw new Error('Pilih kategori.');
+  if (kind === 'link' && !/^https?:\/\/\S+$/i.test(o.url)) throw new Error('Tautan harus diawali http:// atau https://');
+  if (kind === 'file' && !o.fileId) throw new Error('Unggah filenya dulu.');
+  if (kind === 'note' && !o.summary) throw new Error('Isi catatannya.');
+  if (kind === 'note') o.url = '';
+  o.source = o.url ? (/^https?:\/\/(?:www\.)?([^/?#]+)/i.exec(o.url) || [])[1] || '' : kind === 'file' ? 'Google Drive' : '';
+  const now = new Date().toISOString();
+  let x = d.id ? s.docs.find((y) => y.id === d.id) : null;
+  if (d.id && (!x || !docVisible(x, me))) throw new Error('Dokumen tidak ditemukan (mungkin sudah dihapus). Muat ulang data.');
+  if (x) {
+    if (!admin && x.createdBy !== me.username) throw new Error('Hanya penambah dokumen atau admin yang bisa mengubahnya.');
+    const content = ['title', 'url', 'fileId', 'summary', 'quote', 'category', 'industry'].some((k) => String(x[k] || '') !== String(o[k] || ''));
+    Object.assign(x, o, { updatedAt: now, updatedBy: me.username });
+    if (!admin && (content || x.verified)) x.verified = null;   // isi diubah anggota: verifikasi admin gugur
+  } else {
+    x = Object.assign({ id: nid('DK') }, o, { verified: null, pinned: false, createdBy: me.username, createdByName: me.name || me.username, createdAt: now, updatedAt: now, updatedBy: me.username });
+    s.docs.push(x);
+  }
+  return { doc: x };
+}
+function docAction(s, me, a, b) {
+  s.docs = s.docs || [];
+  const admin = me.role === 'admin', now = new Date().toISOString();
+  if (a === 'docs') return { docs: s.docs.filter((d) => docVisible(d, me)) };
+  if (a === 'saveDoc') return saveDoc(s, me, b.doc || {});
+  const d = docGet(s, b.id, me);
+  if (a === 'deleteDoc') {
+    if (!admin && d.createdBy !== me.username) throw new Error('Hanya penambah dokumen atau admin yang bisa menghapus.');
+    s.docs = s.docs.filter((x) => x.id !== d.id); return { ok: true, fileId: d.fileId || '' };
+  }
+  if (!admin) throw new Error('Hanya admin yang bisa melakukan ini.');
+  if (a === 'verifyDoc') { d.verified = b.undo ? null : { by: me.username, byName: me.name || me.username, at: now }; d.updatedAt = now; d.updatedBy = me.username; return { doc: d }; }
+  if (a === 'pinDoc') { d.pinned = !b.undo; d.updatedAt = now; d.updatedBy = me.username; return { doc: d }; }
+  throw new Error('Aksi tidak dikenal');
+}
+/** Mode demo: pengganti aksi server (unggah ke Drive, isi otomatis & tanya Claude). */
+function docServerDemo(s, me, a, b) {
+  if (a === 'docUpload') {
+    if (!b.name) throw new Error('Pilih file dulu.');
+    return { fileId: 'demo-' + Date.now().toString(36), url: 'https://drive.google.com/file/d/contoh/view', name: b.name, mime: b.mime || '', size: Number(b.size) || 0 };
+  }
+  if (a === 'docAnalyze') {
+    const src = b.url || b.name || 'dokumen';
+    return { suggest: { title: 'Judul hasil baca Claude untuk ' + String(src).replace(/^https?:\/\/(www\.)?/, '').slice(0, 40), category: 'Data & riset', industry: '', tags: ['Contoh'],
+      summary: '- Poin penting pertama dari dokumen (contoh mode demo).\n- Poin penting kedua.\n- Poin penting ketiga.', quote: '' }, note: 'Mode demo: isian ini contoh, bukan hasil membaca dokumen sungguhan.' };
+  }
+  if (a === 'docAsk') {
+    const d = docGet(s, b.id, me);
+    if (String(b.question || '').trim().length < 3) throw new Error('Tulis pertanyaan dulu.');
+    return { answer: 'Hasil cek sumber:\n- Jawaban contoh untuk "' + d.title + '" (mode demo).\n\nSikap:\nCek ulang ke dokumen aslinya sebelum dikutip.', sources: d.url ? [{ url: d.url, title: d.title }] : [] };
+  }
+  throw new Error('Aksi tidak dikenal');
+}
+
 let db = null;
 function state() { if (!db) db = build(); return db; }
 function reset() { db = null; }
@@ -698,6 +780,8 @@ function handle(action, b, session) {
     case 'briefs': return { briefs: briefSums(s) };
     case 'getBrief': { const b0 = s.briefs.find((x) => x.id === b.briefId); if (!b0) throw new Error('Brief tidak ditemukan'); return { brief: b0 }; }
     case 'backlinks': return { backlinks: s.backlinks || [] };
+    case 'docs': case 'saveDoc': case 'deleteDoc': case 'verifyDoc': case 'pinDoc': return docAction(s, me, action, b);
+    case 'docUpload': case 'docAnalyze': case 'docAsk': return docServerDemo(s, me, action, b);
     case 'saveBacklink': return saveBl(s, me, b.backlink || {});
     case 'deleteBacklink': {
       const x = (s.backlinks || []).find((y) => y.id === b.id); if (!x) throw new Error('Backlink tidak ditemukan. Muat ulang data.');

@@ -94,12 +94,23 @@ const sandbox = {
       openByUrl: (u) => { const id = u.split('/d/')[1].split('/')[0]; const doc = docs[id]; if (!doc) throw new Error('no doc');
         return { getId: () => id, getUrl: () => u, setName(n) { doc.name = n; }, getBody: () => mkBody(doc), saveAndClose() {} }; } };
   })(),
-  DriveApp: {
-    getFileById: (id) => ({ moveTo() {}, addEditor: (e) => { (docs[id].editors = docs[id].editors || []).push(e); }, getUrl: () => 'u' }),
-    getFolderById: () => ({}), getFoldersByName: () => ({ hasNext: () => false }), createFolder: () => ({ getId: () => 'f1' })
-  },
   ScriptApp: { getProjectTriggers: () => [], deleteTrigger() {}, newTrigger: trigBuilder, getOAuthToken: () => 'owner' },
   // UrlFetchApp sungguhan ke emulator Firebase (hanya bila FB_EMU=1, dijalankan lewat `firebase emulators:exec`)
+  // Google Drive tiruan (menu Dokumen)
+  DriveApp: (() => {
+    const files = {}, folders = {}; let n = 0;
+    const mkFile = (blob) => { const id = 'F' + (++n), f = { id, blob, sharing: null, trashed: false, desc: '',
+      getId: () => id, getUrl: () => 'https://drive.google.com/file/d/' + id + '/view', getMimeType: () => blob.mime,
+      setDescription: (d) => { f.desc = d; }, setSharing: (a, p) => { f.sharing = a + ':' + p; }, setTrashed: (t) => { f.trashed = t; },
+      getBlob: () => ({ getContentType: () => blob.mime, getBytes: () => blob.bytes, getDataAsString: () => Buffer.from(blob.bytes).toString('utf8') }) };
+      files[id] = f; return f; };
+    const mkFolder = (name) => { const id = 'D' + (++n), fo = { id, name, getId: () => id, getName: () => name, getUrl: () => 'https://drive.google.com/drive/folders/' + id, createFile: mkFile }; folders[id] = fo; return fo; };
+    return { _files: files, Access: { ANYONE_WITH_LINK: 'ANYONE_WITH_LINK', DOMAIN_WITH_LINK: 'DOMAIN_WITH_LINK' }, Permission: { VIEW: 'VIEW' },
+      createFolder: mkFolder, getFoldersByName: () => ({ hasNext: () => false }),
+      getFolderById: (id) => { if (folders[id]) return folders[id]; if (/^D\d/.test(id)) throw new Error('no folder'); return {}; },
+      // file Dokumen tim; selain itu perilaku lama untuk ekspor brief ke Google Docs
+      getFileById: (id) => files[id] || { moveTo() {}, addEditor: (e) => { (docs[id].editors = docs[id].editors || []).push(e); }, getUrl: () => 'u' } };
+  })(),
   UrlFetchApp: { fetch: (url, opt) => {
     const args = ['-sS', '-X', String((opt && opt.method) || 'get').toUpperCase(), '-w', '\n%{http_code}', url];
     Object.entries((opt && opt.headers) || {}).forEach(([k, v]) => args.push('-H', k + ': ' + v));
@@ -117,7 +128,8 @@ const sandbox = {
     base64Encode: (b) => Buffer.from(b).toString('base64'),
     base64EncodeWebSafe: (b) => Buffer.from(typeof b === 'string' ? Buffer.from(b) : b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
     base64DecodeWebSafe: (s) => Array.from(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
-    newBlob: (bytes) => ({ getDataAsString: () => Buffer.from(bytes).toString('utf8') }),
+    newBlob: (bytes, mime, name) => ({ bytes, mime, name, getDataAsString: () => Buffer.from(bytes).toString('utf8') }),
+    base64Decode: (s) => Array.from(Buffer.from(s, 'base64')),
     getUuid: () => crypto.randomUUID(),
     formatDate: (d, tz, f) => f === 'u' ? String(((d.getDay() + 6) % 7) + 1) : f === 'd' ? String(d.getDate()) : f === 'M' ? String(d.getMonth() + 1) : f.replace('EEE, ', '').replace('d MMM', d.getDate() + ' ' + d.getMonth()).replace("'T'", 'T').replace('yyyy', d.getFullYear()).replace('MM', pad(d.getMonth() + 1)).replace('dd', pad(d.getDate()))
       .replace('HH', pad(d.getHours())).replace('mm', pad(d.getMinutes())).replace('ss', pad(d.getSeconds())).replace('XXX', '+07:00'),
@@ -1434,6 +1446,39 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   sandbox.UrlFetchApp.fetch = fetch2;
   const d2 = bodies[1].tools.find((t) => t.name === 'web_search').allowed_domains;
   assert.ok(w.text === 'ok' && !d2.includes('go.id') && d2.includes('bps.go.id'), 'fallback ke daftar domain rinci');
+
+  // ---------- Dokumen tim: unggah ke Drive, isi otomatis Claude, tanya dokumen, dibaca Claude di diskusi ide ----------
+  const pdf = Buffer.from('%PDF-1.4 contoh').toString('base64');
+  let up = sandbox.docUpload_(fahmi, { name: 'uu-27-2026.pdf', mime: 'application/pdf', data: pdf, visibility: 'all' });
+  assert.ok(up.fileId && /drive\.google\.com/.test(up.url) && up.size > 0);
+  assert.strictEqual(sandbox.DriveApp._files[up.fileId].sharing, 'ANYONE_WITH_LINK:VIEW', 'file untuk semua anggota bisa dibuka lewat tautan');
+  const upA = sandbox.docUpload_(adm, { name: 'klien.pdf', mime: 'application/pdf', data: pdf, visibility: 'admin' });
+  assert.strictEqual(sandbox.DriveApp._files[upA.fileId].sharing, null, 'file admin saja tetap privat');
+  assert.throws(() => sandbox.docUpload_(fahmi, { name: 'besar.pdf', mime: 'application/pdf', data: Buffer.alloc(11 * 1024 * 1024).toString('base64') }), /maksimal 10 MB/);
+  const fetchD = sandbox.UrlFetchApp.fetch, docBodies = [];
+  sandbox.UrlFetchApp.fetch = (url, opt) => {
+    if (/api\.anthropic\.com/.test(url)) { const bd = JSON.parse(opt.payload); docBodies.push(bd);
+      const txt = /pustakawan/.test(bd.system) ? JSON.stringify({ title: 'UU No. 27 Tahun 2026', category: 'Regulasi', industry: 'Bukan industri', tags: ['Lembur'], summary: '- Pasal 116: lembur maks. 4 jam/hari.', quote: 'Waktu kerja lembur…', effective: '28 Oktober 2026' })
+        : 'Jawaban:\n- Pasal 116 mengatur batas lembur.';
+      return resp(200, { content: [{ type: 'text', text: txt }], usage: { input_tokens: 5000, output_tokens: 200 }, stop_reason: 'end_turn' }); }
+    return fetchD(url, opt);
+  };
+  const an = sandbox.docAnalyze_(fahmi, { fileId: up.fileId, name: 'uu-27-2026.pdf' });
+  assert.ok(docBodies[0].messages[0].content[0].type === 'document' && docBodies[0].messages[0].content[0].source.media_type === 'application/pdf', 'PDF dikirim sebagai dokumen');
+  assert.ok(an.suggest.title === 'UU No. 27 Tahun 2026' && an.suggest.category === 'Regulasi' && an.suggest.industry === '' && /Pasal 116/.test(an.suggest.summary));
+  const an2 = sandbox.docAnalyze_(fahmi, { url: 'https://jdih.kemnaker.go.id/x.pdf' });
+  assert.ok(/TAUTAN DOKUMEN/.test(docBodies[1].messages[0].content) && docBodies[1].tools.some((t) => t.name === 'web_fetch') && an2.suggest.title);
+  sandbox.fsSet_('docs/DK1', { kind: 'file', title: 'UU No. 27 Tahun 2026', url: up.url, fileId: up.fileId, category: 'Regulasi', industry: '', summary: '- Pasal 116: lembur maks. 4 jam/hari.', visibility: 'all', verified: { by: 'admin' }, createdBy: 'fahmi' });
+  sandbox.fsSet_('docs/DK2', { kind: 'note', title: 'Rahasia klien', category: 'Data klien', summary: 'x', visibility: 'admin', createdBy: 'admin' });
+  const ask = sandbox.docAsk_(ammar, { id: 'DK1', question: 'Berapa batas lembur per hari?' });
+  assert.ok(/Pasal 116/.test(ask.answer));
+  assert.throws(() => sandbox.docAsk_(ammar, { id: 'DK2', question: 'Isinya apa?' }), /tidak ditemukan/, 'dokumen admin tidak bisa ditanyakan anggota');
+  const lib = sandbox.docLibrary_('Manufaktur');
+  assert.ok(/UU No. 27 Tahun 2026/.test(lib) && !/Rahasia klien/.test(lib), 'pustaka terverifikasi masuk ke prompt, dokumen admin tidak');
+  assert.throws(() => sandbox.docTrash_(ammar, { id: 'DK1' }), /Hanya penambah/);
+  sandbox.docTrash_(fahmi, { id: 'DK1' });
+  assert.strictEqual(sandbox.DriveApp._files[up.fileId].trashed, true);
+  sandbox.UrlFetchApp.fetch = fetchD;
   sandbox.UrlFetchApp.fetch = realFetch; delete props.ANTHROPIC_API_KEY;
 });
 

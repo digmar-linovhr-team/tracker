@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 41 });
+  return json_({ ok: true, app: 'project-tracker', version: 42 });
 }
 
 function doPost(e) {
@@ -3304,6 +3304,10 @@ function fbRoute_(a, b) {
     case 'ideaReview': return ideaReview_(me, b);
     case 'ideaReply': return ideaReply_(me, b);
     case 'ideaAsk': return ideaAsk_(me, b);
+    case 'docUpload': return docUpload_(me, b);
+    case 'docAnalyze': return docAnalyze_(me, b);
+    case 'docAsk': return docAsk_(me, b);
+    case 'docTrash': return docTrash_(me, b);
     case 'ideaFinal': return ideaFinal_(me, b);
     case 'ideaSkip': return ideaSkip_(me, b);
     case 'bankList': return bankList_();
@@ -4824,6 +4828,7 @@ function ideaReply_(me, b) {
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE TERBARU\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ' — ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
+    docLibrary_(c.ind) +
     '\n\nPESAN BARU WRITER: ' + text;
   var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 3000, st, 'idea');
   var reply = String(r.text || '').trim();
@@ -4868,6 +4873,7 @@ function ideaAsk_(me, b) {
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE WRITER\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ': ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
+    docLibrary_(c.ind) +
     '\n\nPESAN BARU ADMIN: ' + text;
   var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 3500, st, 'idea');
   var reply = String(r.text || '').trim();
@@ -4876,6 +4882,100 @@ function ideaAsk_(me, b) {
   idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name || me.username, text: text, at: now });
   idea.chat.push({ role: 'ai', text: reply.slice(0, 4000), at: now, model: r.model, toAdmin: true, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
   return ideaPut_(me, t, idea, 'ask');
+}
+// ---------- Dokumen tim (koleksi docs/): unggah ke Google Drive, isi otomatis & tanya Claude ----------
+var DOC_CATS = ['Regulasi', 'Data & riset', 'Panduan tim', 'Template', 'Brand & aset', 'Data klien'];
+var DOC_INDUSTRIES = ['Startup', 'Teknologi', 'Jasa Profesional', 'Keuangan', 'Perhotelan', 'F&B', 'Ritel', 'Kesehatan', 'Logistik', 'Manufaktur',
+  'Konstruksi', 'Sektor Riil', 'Pertanian', 'Perkebunan', 'Pertambangan', 'Minyak & Gas', 'Outsourcing'];
+var DOC_MAX_BYTES = 10 * 1024 * 1024;
+/** Jalankan sekali dari editor Apps Script (pilih fungsi ini lalu Run) untuk memberi izin Google Drive. */
+function izinkanDrive() { var f = docFolder_(); Logger.log('Folder dokumen siap: ' + f.getName() + ' ' + f.getUrl()); }
+function docFolder_() {
+  var props = PropertiesService.getScriptProperties(), id = props.getProperty('DOCS_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* folder dihapus: buat lagi */ } }
+  var f = DriveApp.createFolder('Project Tracker · Dokumen tim');
+  props.setProperty('DOCS_FOLDER_ID', f.getId());
+  return f;
+}
+function docGetFs_(me, id) {
+  var d = fsGet_('docs/' + String(id || ''));
+  if (!d || (me.role !== 'admin' && d.visibility === 'admin')) throw new Error('Dokumen tidak ditemukan. Muat ulang data.');
+  return d;
+}
+function docUpload_(me, b) {
+  var name = String(b.name || '').trim().slice(0, 200), data = String(b.data || '');
+  if (!name || !data) throw new Error('Pilih file dulu.');
+  var bytes = Utilities.base64Decode(data);
+  if (bytes.length > DOC_MAX_BYTES) throw new Error('Ukuran file maksimal 10 MB. Untuk file lebih besar, simpan di Google Drive lalu tambahkan sebagai tautan.');
+  var file = docFolder_().createFile(Utilities.newBlob(bytes, String(b.mime || 'application/octet-stream'), name));
+  file.setDescription('Diunggah ' + (me.name || me.username) + ' lewat Project Tracker');
+  if (b.visibility !== 'admin' || me.role !== 'admin') {
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }
+    catch (e) { try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); } catch (e2) { Logger.log('Berbagi file gagal: ' + e2); } }
+  }
+  log_(me, 'doc-upload', file.getId(), name);
+  return { fileId: file.getId(), url: file.getUrl(), name: name, mime: file.getMimeType(), size: bytes.length };
+}
+function docTrash_(me, b) {
+  var d = docGetFs_(me, b.id);
+  if (me.role !== 'admin' && d.createdBy !== me.username) throw new Error('Hanya penambah dokumen atau admin yang bisa menghapus.');
+  if (d.fileId) { try { DriveApp.getFileById(d.fileId).setTrashed(true); } catch (e) { Logger.log('File Drive tidak bisa dibuang: ' + e); } }
+  log_(me, 'doc-trash', b.id, d.fileId || '');
+  return { ok: true };
+}
+/** Isi bahan untuk Claude: PDF/gambar dari Drive dikirim sebagai dokumen; tautan dibuka Claude dengan web_fetch. */
+function docContent_(fileId, url, text) {
+  if (fileId) {
+    var blob = DriveApp.getFileById(fileId).getBlob(), mime = blob.getContentType();
+    if (blob.getBytes().length > DOC_MAX_BYTES) throw new Error('File terlalu besar untuk dibaca Claude.');
+    var data = Utilities.base64Encode(blob.getBytes());
+    if (mime === 'application/pdf') return [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: data } }, { type: 'text', text: text }];
+    if (/^image\/(png|jpe?g|gif|webp)$/.test(mime)) return [{ type: 'image', source: { type: 'base64', media_type: mime.replace('jpg', 'jpeg'), data: data } }, { type: 'text', text: text }];
+    if (/^text\//.test(mime)) return 'ISI FILE:\n' + blob.getDataAsString().slice(0, 60000) + '\n\n' + text;
+    throw new Error('Claude baru bisa membaca file PDF, gambar, atau teks. Isi ringkasannya secara manual.');
+  }
+  return (url ? 'TAUTAN DOKUMEN (buka dengan web_fetch): ' + url + '\n\n' : '') + text;
+}
+var DOC_ANALYZE_SYS = 'Anda pustakawan riset untuk tim konten LinovHR (software HRIS & payroll Indonesia). Tugas Anda membaca satu dokumen lalu menyiapkan kartu katalognya. ' +
+  'Bila diberi tautan, BUKA dengan web_fetch dulu. Jangan mengarang isi: tulis hanya yang benar-benar ada di dokumen. Bila dokumen tidak bisa dibuka, isi summary dengan penjelasan singkat itu dan biarkan kolom lain kosong. ' +
+  'Jawab HANYA satu objek JSON tanpa teks lain: {"title": judul resmi dokumen, "category": salah satu dari ' + JSON.stringify(DOC_CATS) +
+  ', "industry": salah satu dari ' + JSON.stringify(DOC_INDUSTRIES) + ' atau "" bila berlaku umum, "tags": maks 5 kata kunci pendek, ' +
+  '"summary": 3 sampai 6 poin penting, tiap poin diawali "- " dan dipisah baris baru, sebut nomor pasal/tabel/halaman dan angkanya bila ada, ' +
+  '"quote": satu kutipan persis dari dokumen yang paling sering berguna untuk artikel (boleh ""), "effective": tanggal terbit/berlaku bila ada (boleh "")}. Bahasa Indonesia, tanpa em dash.';
+function docAnalyze_(me, b) {
+  var st = aiSettings_(), user = docContent_(b.fileId, b.url, 'Siapkan kartu katalog untuk dokumen ini.' + (b.name ? ' Nama file: ' + b.name : ''));
+  var r = aiCallWeb_(st.models.idea || st.models.brief, DOC_ANALYZE_SYS, user, 2500, st, 'docs');
+  var j = aiJson_(r.text);
+  if (!j) throw aiUnreadable_(r);
+  var tags = (Array.isArray(j.tags) ? j.tags : []).map(function (x) { return String(x).slice(0, 30); }).filter(String).slice(0, 5);
+  return { suggest: { title: String(j.title || '').slice(0, 200), category: DOC_CATS.indexOf(j.category) >= 0 ? j.category : '',
+    industry: DOC_INDUSTRIES.indexOf(j.industry) >= 0 ? j.industry : '', tags: tags, summary: String(j.summary || '').slice(0, 4000),
+    quote: String(j.quote || '').slice(0, 1000), effective: String(j.effective || '').slice(0, 60) }, sources: r.sources };
+}
+function docAsk_(me, b) {
+  var d = docGetFs_(me, b.id), q = String(b.question || '').trim().slice(0, 1500);
+  if (q.length < 3) throw new Error('Tulis pertanyaan dulu.');
+  var st = aiSettings_();
+  var sys = 'Anda rekan riset tim konten LinovHR. Jawab pertanyaan tentang SATU dokumen tim. Baca dokumennya (buka tautan dengan web_fetch bila ada). ' +
+    'Jawab hanya berdasarkan isi dokumen; bila jawabannya tidak ada di dokumen, katakan terus terang lalu sarankan sumber resmi atau jurnal yang mungkin memuatnya. ' +
+    IDEA_WEB_RULES + 'FORMAT: teks biasa dengan bagian berlabel "Jawaban:", "Kutipan:" (opsional, kutip persis dan sebut pasal/halaman), "Catatan:" (opsional). Poin "- " maksimal 2 kalimat. Maksimal 250 kata, tanpa em dash, tanpa # atau **.';
+  var info = 'DOKUMEN: ' + d.title + '\nKategori: ' + d.category + (d.industry ? '\nIndustri: ' + d.industry : '') + '\nRingkasan tim:\n' + (d.summary || '-') + '\n\nPERTANYAAN: ' + q;
+  var user;
+  try { user = docContent_(d.fileId, d.url, info); } catch (e) { user = info + '\n(Catatan: file tidak bisa dibaca langsung: ' + e.message + ')'; }
+  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 2500, st, 'docs');
+  if (!String(r.text || '').trim()) throw aiUnreadable_(r);
+  log_(me, 'doc-ask', b.id, q.slice(0, 80));
+  return { answer: String(r.text).slice(0, 4000), sources: r.sources };
+}
+/** Dokumen terverifikasi tim yang relevan, untuk dibaca Claude sebelum mencari di web. */
+function docLibrary_(ind) {
+  var list = [];
+  try { list = fsList_('docs'); } catch (e) { return ''; }
+  list = list.filter(function (d) { return d.visibility !== 'admin' && d.verified && (!d.industry || d.industry === ind) && d.category !== 'Brand & aset'; })
+    .sort(function (a, b) { return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')); }).slice(0, 10);
+  if (!list.length) return '';
+  return '\n\nDOKUMEN TIM YANG SUDAH DIVERIFIKASI ADMIN (pakai ini lebih dulu sebelum mencari di web; sebut judulnya bila dipakai):\n' +
+    list.map(function (d) { return '- [' + d.category + '] ' + d.title + (d.url ? ' (' + d.url + ')' : '') + ': ' + String(d.summary || '').replace(/\s+/g, ' ').slice(0, 400); }).join('\n');
 }
 // ---------- Bank Ide: brainstorming topik tanpa task (koleksi ideas/) ----------
 // Status: Draft → Diajukan → Disetujui / Revisi / Ditolak → Dipakai (jadi task). Review & diskusi Claude memakai fungsi tahap ide yang sama.

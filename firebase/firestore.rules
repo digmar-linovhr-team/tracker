@@ -143,6 +143,28 @@ service cloud.firestore {
       allow delete: if admin() || (active() && old().createdBy == uname());
     }
 
+    // ---------- dokumen tim (menu Dokumen) ----------
+    // Semua anggota boleh menambah; hanya admin yang memverifikasi, menyematkan, dan membuat dokumen "Admin saja".
+    // Anggota yang mengubah dokumennya sendiri menggugurkan verifikasi (verified kembali null).
+    function docOk() {
+      return d().title is string && d().title.size() > 0 && d().title.size() <= 200
+        && d().kind in ['link', 'file', 'note']
+        && d().category in ['Regulasi', 'Data & riset', 'Panduan tim', 'Template', 'Brand & aset', 'Data klien']
+        && d().visibility in ['all', 'admin']
+        && d().get('summary', '').size() <= 4000 && d().get('quote', '').size() <= 1000 && d().get('url', '').size() <= 1000
+        && d().get('tags', []).size() <= 8 && stamped();
+    }
+    match /docs/{id} {
+      allow read: if admin() || (active() && resource.data.visibility == 'all');
+      allow create: if (admin() && docOk())
+        || (active() && docOk() && d().createdBy == uname() && d().createdAt == request.time
+            && d().visibility == 'all' && d().get('verified', null) == null && d().get('pinned', false) == false);
+      allow update: if (admin() && docOk())
+        || (active() && docOk() && old().createdBy == uname() && old().visibility == 'all' && d().visibility == 'all'
+            && unchanged('createdBy') && unchanged('createdAt') && unchanged('pinned') && d().get('verified', null) == null);
+      allow delete: if admin() || (active() && old().createdBy == uname() && old().visibility == 'all');
+    }
+
     // ---------- Bank Ide (brainstorming topik) — semua anggota membaca; penulisan lewat server (Apps Script) ----------
     match /ideas/{id} {
       allow read: if active();

@@ -98,6 +98,24 @@ const it = async (name, fn) => { await fn(); n++; console.log('  ✓ ' + name); 
     await seed((db) => setDoc(doc(db, 'settings', 'ai'), { gate: true }));
   });
 
+  await it('dokumen tim: semua anggota menambah, admin memverifikasi, dokumen admin tersembunyi', async () => {
+    const base = { kind: 'link', title: 'UU contoh', url: 'https://jdih.kemnaker.go.id/x.pdf', category: 'Regulasi', industry: '', tags: ['Lembur'], summary: '- poin', quote: '', visibility: 'all' };
+    await assertSucceeds(setDoc(doc(ammar, 'docs', 'D1'), Object.assign({}, base, { verified: null, pinned: false, createdBy: 'ammar', createdAt: serverTimestamp(), updatedBy: 'ammar', updatedAt: serverTimestamp() })));
+    await assertFails(setDoc(doc(ammar, 'docs', 'D2'), Object.assign({}, base, { verified: { by: 'ammar' }, pinned: false, createdBy: 'ammar', createdAt: serverTimestamp(), updatedBy: 'ammar', updatedAt: serverTimestamp() })), 'verifikasi sendiri');
+    await assertFails(setDoc(doc(ammar, 'docs', 'D3'), Object.assign({}, base, { visibility: 'admin', verified: null, pinned: false, createdBy: 'ammar', createdAt: serverTimestamp(), updatedBy: 'ammar', updatedAt: serverTimestamp() })), 'anggota membuat dokumen admin');
+    await assertFails(setDoc(doc(ammar, 'docs', 'D4'), Object.assign({}, base, { category: 'Lain-lain', verified: null, pinned: false, createdBy: 'ammar', createdAt: serverTimestamp(), updatedBy: 'ammar', updatedAt: serverTimestamp() })), 'kategori tidak dikenal');
+    await assertSucceeds(updateDoc(doc(admin, 'docs', 'D1'), { verified: { by: 'admin', at: 'x' }, pinned: true, updatedBy: 'admin', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ari, 'docs', 'D1'), { title: 'Ganti', updatedBy: 'ari', updatedAt: serverTimestamp() }), 'ubah dokumen orang lain');
+    await assertFails(updateDoc(doc(ammar, 'docs', 'D1'), { title: 'Judul baru', updatedBy: 'ammar', updatedAt: serverTimestamp() }), 'ubah tanpa menggugurkan verifikasi');
+    await assertSucceeds(updateDoc(doc(ammar, 'docs', 'D1'), { title: 'Judul baru', verified: null, updatedBy: 'ammar', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ammar, 'docs', 'D1'), { pinned: false, updatedBy: 'ammar', updatedAt: serverTimestamp() }), 'anggota menyematkan');
+    await assertSucceeds(setDoc(doc(admin, 'docs', 'DA'), Object.assign({}, base, { title: 'Data klien', category: 'Data klien', visibility: 'admin', verified: null, pinned: false, createdBy: 'admin', createdAt: serverTimestamp(), updatedBy: 'admin', updatedAt: serverTimestamp() })));
+    await assertFails(getDoc(doc(ammar, 'docs', 'DA')), 'anggota membaca dokumen admin');
+    await assertSucceeds(getDoc(doc(ammar, 'docs', 'D1')));
+    await assertFails(deleteDoc(doc(ari, 'docs', 'D1')), 'hapus dokumen orang lain');
+    await assertSucceeds(deleteDoc(doc(ammar, 'docs', 'D1')));
+  });
+
   await it('anggota pendukung: ikut mengerjakan & ubah brief, tapi tidak bisa Done / ubah anggota / deadline', async () => {
     await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { status: 'On-Progress', startedAt: serverTimestamp() })));
     await assertSucceeds(updateDoc(doc(nadia, 'tasks', 'TM'), by('nadia', { results: [{ url: 'https://a.b' }] })));

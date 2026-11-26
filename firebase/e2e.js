@@ -138,6 +138,23 @@ const server = http.createServer((req, res) => {
   const jump = await ari.evaluate((id) => window.PTFire.db().collection('tasks').doc(id).update({ stage: 3, status: 'Review', stageLog: firebase.firestore.FieldValue.arrayUnion({ s: 3, t: firebase.firestore.Timestamp.now() }), reviewAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: 'ari', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => 'tersimpan', (e) => e.code), art);
   ok(jump === 'permission-denied', 'ajukan brief tanpa cek AI lewat console ditolak');
 
+  // Dokumen tim lewat Firestore: anggota menambah, admin memverifikasi; edit anggota menggugurkan verifikasi; dokumen admin tersembunyi
+  const dsave = await ari.evaluate(() => api.call('saveDoc', { doc: { kind: 'link', title: 'Tabel BPS jam kerja', url: 'https://www.bps.go.id/x', category: 'Data & riset', industry: 'Manufaktur', tags: ['Jam kerja'], summary: '- poin', quote: '' } }).then((r) => r.doc.id, (e) => 'ERR ' + e.message));
+  ok(!/^ERR/.test(dsave), 'anggota menambah dokumen (' + dsave + ')');
+  await wait(800);
+  const dver = await admin.evaluate((id) => api.call('verifyDoc', { id }).then(() => 'ok', (e) => e.message), dsave);
+  const dadm = await admin.evaluate(() => api.call('saveDoc', { doc: { kind: 'note', title: 'Izin klien', category: 'Data klien', summary: '- rahasia', visibility: 'admin' } }).then((r) => r.doc.id, (e) => 'ERR ' + e.message));
+  ok(dver === 'ok' && !/^ERR/.test(dadm), 'admin memverifikasi & membuat dokumen admin saja (' + dver + ')');
+  await wait(1200);
+  const dview = await ari.evaluate(() => api.call('docs').then((r) => r.docs.map((d) => d.id + ':' + (d.verified ? 'v' : '-'))));
+  ok(dview.includes(dsave + ':v') && !dview.some((x) => x.startsWith(dadm)), 'anggota melihat verifikasi, dokumen admin tidak terlihat');
+  const dedit = await ari.evaluate((id) => api.call('saveDoc', { doc: { id, kind: 'link', title: 'Tabel BPS jam kerja (diubah)', url: 'https://www.bps.go.id/x', category: 'Data & riset' } }).then((r) => String(r.doc.verified), (e) => 'ERR ' + e.message), dsave);
+  await wait(800);
+  d = await fsGet('docs/' + dsave);
+  ok(dedit === 'null' && (!d.fields.verified || 'nullValue' in d.fields.verified), 'edit anggota menggugurkan verifikasi (' + dedit + ' ' + JSON.stringify(d.fields.verified) + ' ' + JSON.stringify(d.fields.title) + ')');
+  const dsteal = await ari.evaluate((id) => window.PTFire.db().collection('docs').doc(id).update({ verified: { by: 'ari' }, updatedBy: 'ari', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }).then(() => 'tersimpan', (e) => e.code), dsave);
+  ok(dsteal === 'permission-denied', 'anggota memverifikasi sendiri lewat console ditolak');
+
   // akun tanpa dokumen private (belum pernah isi email) bisa menyimpan email
   await fetch(FS + 'private/ari', { method: 'DELETE', headers: { Authorization: 'Bearer owner' } }); await wait(800);
   const em = await ari.evaluate(() => api.call('setMyEmail', { email: 'ari.baru@contoh.com' }).then(() => 'ok', (e) => e.message));
