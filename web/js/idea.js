@@ -96,6 +96,16 @@ function ideaBankPick(t) {
     <p class="muted small" style="margin:6px 0 0">Atau isi ide baru di bawah.</p></div>`;
 }
 
+/** Permintaan cepat ke Claude (mengisi kotak pesan, bisa diedit sebelum dikirim). */
+const IDEA_QUICK = [
+  ['Carikan data yang lebih cocok', 'Carikan data pengganti yang lebih cocok untuk ide ini (utamakan data sektoral resmi dan terbaru). Tulis angka, tahun, sumber, dan tautannya.'],
+  ['Usulkan judul', 'Usulkan 3 alternatif judul yang lebih tajam sesuai sudut pandang ide ini, beserta alasan singkat masing-masing.'],
+  ['Pembaca yang tepat', 'Siapa satu pembaca utama yang paling tepat untuk ide ini, dan apa yang perlu diubah supaya isinya pas untuk pembaca itu?'],
+  ['Sudut lain', 'Usulkan 2 sudut pandang yang lebih tajam dan belum banyak dibahas kompetitor untuk topik ini.'],
+  ['Daftar revisi', 'Susun daftar revisi untuk writer, urut dari yang paling penting, masing-masing dengan contoh perbaikannya.']
+];
+const ideaQuickHtml = (target) => `<div class="idea-quick">${IDEA_QUICK.map(([l], i) => `<button type="button" class="chip-btn" data-ideaquick="${i}" data-target="${target}">${esc(l)}</button>`).join('')}</div>`;
+
 /** HTML inti tahap ide. src: { key, kind, idea, locked, form(), head, industry, footer(rv, busy), wrapId? } */
 function ideaCoreHtml(src) {
   const K = IDEA_KINDS[src.kind], IDEA_FIELDS = K.fields, IDEA_VERDICT = K.verdict, IDEA_PT = K.pt;
@@ -125,7 +135,7 @@ function ideaCoreHtml(src) {
   // admin: menanggapi / menyanggah penilaian Claude dengan data pembanding (isi ide tidak berubah)
   const askBox = rv && src.adminAsk ? `<div class="idea-ask" id="${id}-ask"><div class="idea-sh">Tanggapi penilaian Claude</div>
       <p class="muted small" style="margin:0 0 6px">Sanggah, beri data pembanding, atau tanya alasannya. Tempel tautan sumber (mis. JDIH, BPS) supaya Claude membukanya; Claude juga bisa mencari sendiri di web. Isi ide writer tidak berubah, dan writer bisa membaca diskusi ini. Jawaban bisa makan waktu sampai 1 menit.</p>
-      <div class="idea-reply"><textarea data-ideaask rows="3" maxlength="1500" placeholder="Contoh: Saya tidak setuju datanya lemah. Survei Apindo 2026 menyebut 6 dari 10 pabrik masih menghitung lembur manual. Apakah itu cukup?">${esc(IDEA.reply['ask:' + src.key] || '')}</textarea>
+      ${ideaQuickHtml('ask')}<div class="idea-reply"><textarea data-ideaask rows="3" maxlength="1500" placeholder="Contoh: Saya tidak setuju datanya lemah. Survei Apindo 2026 menyebut 6 dari 10 pabrik masih menghitung lembur manual. Apakah itu cukup?">${esc(IDEA.reply['ask:' + src.key] || '')}</textarea>
       <button class="btn primary" data-ideaasksend="${id}" ${busy || nAsk >= 20 ? 'disabled' : ''}>${busy === 'ask' ? 'Claude membuka sumber & menimbang…' : 'Kirim'}</button></div>
       <div class="idea-quota muted small">Sisa ${20 - nAsk} pesan</div></div>` : '';
   // ringkasan Claude di atas (untuk admin yang menilai ide)
@@ -135,7 +145,7 @@ function ideaCoreHtml(src) {
       <p>${esc(rv.summary || '')}</p>
       ${weak.length ? `<ul>${weak.slice(0, 3).map((p) => `<li><b>${esc(p.label)}:</b> ${esc(p.note)}</li>`).join('')}</ul>` : ''}
       <div class="idea-top-a">${chat.length ? `<button type="button" class="linkbtn small" data-ideajump="${id}-chat">Lihat diskusi</button>` : ''}${src.adminAsk ? `<button type="button" class="btn sm" data-ideajump="${id}-ask">Tanggapi Claude</button>` : ''}</div></div>`; })() : '';
-  const replyBox = rv && !locked ? `<div class="idea-reply"><textarea data-ideareply rows="2" maxlength="800" placeholder="Balas atau tanya ke Claude">${esc(IDEA.reply[src.key] || '')}</textarea>
+  const replyBox = rv && !locked ? `${ideaQuickHtml('reply')}<div class="idea-reply"><textarea data-ideareply rows="3" maxlength="800" placeholder="Balas atau tanya ke Claude">${esc(IDEA.reply[src.key] || '')}</textarea>
       <button class="btn" data-ideasend="${id}" ${busy || nRep >= IDEA_MAX_REPLY ? 'disabled' : ''}>${busy === 'reply' ? 'Menunggu…' : 'Kirim'}</button></div>
       <div class="idea-quota muted small">Sisa ${IDEA_MAX_REVIEW - nRev} kali cek dan ${IDEA_MAX_REPLY - nRep} kali balas</div>` : '';
   return `<section class="dp-sec" id="${src.wrapId || 'idea-sec'}"><h3>${esc(src.title || K.name)} ${src.head || ''}</h3>
@@ -148,6 +158,12 @@ function ideaCoreBind(root, src) {
   $$('[data-idea]', root).forEach((el) => el.oninput = () => { src.form()[el.dataset.idea] = el.value; });
   const rep = $('[data-ideareply]', root); if (rep) rep.oninput = () => { IDEA.reply[key] = rep.value; };
   const ask = $('[data-ideaask]', root); if (ask) ask.oninput = () => { IDEA.reply['ask:' + key] = ask.value; };
+  $$('[data-ideaquick]', root).forEach((b) => b.onclick = () => {
+    const q = IDEA_QUICK[Number(b.dataset.ideaquick)]; if (!q) return;
+    const ask = b.dataset.target === 'ask', ta = $(ask ? '[data-ideaask]' : '[data-ideareply]', root); if (!ta) return;
+    const cur = ta.value.trim(), v = cur ? cur + '\n' + q[1] : q[1];
+    ta.value = v; IDEA.reply[ask ? 'ask:' + key : key] = v; ta.focus(); ta.setSelectionRange(v.length, v.length);
+  });
   $$('[data-ideajump]', root).forEach((b) => b.onclick = () => { const el = document.getElementById(b.dataset.ideajump); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); const ta = el.querySelector('textarea'); if (ta) setTimeout(() => ta.focus({ preventScroll: true }), 350); } });
   const run = async (kind, action, extra, okMsg) => {
     if (IDEA.busy[key]) return;

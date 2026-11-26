@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 37 });
+  return json_({ ok: true, app: 'project-tracker', version: 38 });
 }
 
 function doPost(e) {
@@ -4228,7 +4228,7 @@ function aiCall_(model, system, user, maxTokens, st, kind, schema) {
 var AI_WEB_TOOLS = function () {
   return [
     { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 4, citations: { enabled: true }, max_content_tokens: 40000 },
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 3, user_location: { type: 'approximate', country: 'ID', timezone: 'Asia/Jakarta' } }
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5, user_location: { type: 'approximate', country: 'ID', timezone: 'Asia/Jakarta' } }
   ];
 };
 function aiCallWeb_(model, system, user, maxTokens, st, kind) {
@@ -4804,23 +4804,30 @@ function ideaReply_(me, b) {
   if (idea.chat.filter(function (m) { return m.role === 'user' && !m.admin; }).length >= IDEA_MAX_REPLY) throw new Error('Kuota balasan (' + IDEA_MAX_REPLY + '×) untuk task ini sudah habis.');
   if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
   var st = aiSettings_(), c = ideaContext_(t), rv = idea.reviews[idea.reviews.length - 1];
-  var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com dan rekan brainstorming writer untuk rencana optimasi artikel. Jangan mengarang angka ranking atau volume. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. Jangan mengarang angka atau fakta klien. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : ideaSystem_(c.ind)) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer secara singkat (maksimal 160 kata), tetap kritis, ' +
-    (t.ideaKind === 'opt' ? 'beri contoh konkret untuk artikel ini' : 'beri contoh konkret untuk industri ' + c.ind) + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. ' + IDEA_WEB_RULES + 'Tanpa em dash dan tanpa markdown heading.';
+  var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com dan rekan brainstorming writer untuk rencana optimasi artikel. Jangan mengarang angka ranking atau volume. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. Jangan mengarang angka atau fakta klien. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : ideaSystem_(c.ind)) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer (maksimal 280 kata), tetap kritis, ' +
+    (t.ideaKind === 'opt' ? 'beri contoh konkret untuk artikel ini' : 'beri contoh konkret untuk industri ' + c.ind) + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. ' + IDEA_WEB_RULES + IDEA_SOLVE_RULES + 'Tanpa em dash.';
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE TERBARU\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ' — ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
     '\n\nPESAN BARU WRITER: ' + text;
-  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 2000, st, 'idea');
+  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 3000, st, 'idea');
   var reply = String(r.text || '').trim();
   if (!reply) throw aiUnreadable_(r);
   var now = new Date().toISOString();
   idea.chat.push({ role: 'user', by: me.username, text: text, at: now });
-  idea.chat.push({ role: 'ai', text: reply.slice(0, 2500), at: now, model: r.model, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
+  idea.chat.push({ role: 'ai', text: reply.slice(0, 4000), at: now, model: r.model, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
   return ideaPut_(me, t, idea, 'reply');
 }
 var IDEA_WEB_RULES = 'Anda punya alat web_fetch dan web_search. Bila pesan berisi tautan, BUKA tautannya dengan web_fetch sebelum menilai (termasuk PDF regulasi). ' +
   'Bila ada klaim data, regulasi, pasal, atau angka yang meragukan dan tidak ada tautannya, cari sumbernya dengan web_search, utamakan situs resmi (go.id: jdih.kemnaker.go.id, peraturan.bpk.go.id, bps.go.id) dan asosiasi industri. ' +
   'Sebutkan apa yang Anda temukan di sumber itu (mis. bunyi pasal atau angkanya), dan bedakan dengan jelas mana yang sudah Anda cek di sumber dan mana yang masih dugaan. Bila tautan tidak bisa dibuka, katakan terus terang. Jangan mengarang isi sumber. ';
+// Setiap kritik harus disertai jalan keluar yang bisa langsung dipakai.
+var IDEA_SOLVE_RULES = 'SETIAP kali Anda menyebut kelemahan, langsung beri jalan keluarnya, jangan hanya mengkritik: ' +
+  '(1) data tidak cocok atau lemah: CARI dengan web_search data pengganti yang lebih tepat (utamakan data sektoral resmi: BPS per lapangan usaha/industri pengolahan, Kemenperin, Kemnaker/Satudata, asosiasi industri, survei kredibel), lalu tulis 1 sampai 3 kandidat beserta angka, tahun, nama sumber, dan tautannya; bila tidak ketemu, katakan dan sarankan kata kunci atau lembaga yang bisa dicari writer. ' +
+  '(2) judul lemah atau generik: tulis 3 alternatif judul yang konkret sesuai sudut pandang. ' +
+  '(3) pembaca terlalu lebar: pilih satu pembaca utama dan jelaskan singkat kenapa. ' +
+  '(4) sudut pandang mirip kompetitor: usulkan 1 sampai 2 sudut yang lebih tajam. ' +
+  'Susun jawaban dalam teks biasa dengan bagian singkat berlabel, misalnya "Hasil cek sumber:", "Saran pengganti:", "Sikap:", dan pakai daftar "- " bila perlu. Jangan memakai tanda # atau **. ';
 function ideaHistory_(idea) {
   return idea.chat.slice(-14).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : m.admin ? 'Admin: ' : 'Writer: ') + m.text; }).join('\n') || '(belum ada)';
 }
@@ -4836,18 +4843,18 @@ function ideaAsk_(me, b) {
   var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com. Jangan mengarang angka ranking atau volume.' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia). Jangan mengarang angka atau fakta klien.' : ideaSystem_(c.ind)) +
     '\n\nSekarang Anda berdiskusi dengan ADMIN, yaitu lead konten yang menilai ide writer (bukan penulis ide). Admin bisa menyanggah penilaian Anda, memberi data pembanding, atau bertanya. ' +
     'Tanggapi dengan jujur: bila sanggahan atau datanya masuk akal, akui dan jelaskan apa yang berubah pada penilaian Anda; bila tidak, pertahankan pendapat Anda dengan alasan yang jelas. Jangan sekadar setuju agar menyenangkan. ' +
-    IDEA_WEB_RULES +
-    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 220 kata, tanpa em dash, tanpa markdown heading. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak.';
+    IDEA_WEB_RULES + IDEA_SOLVE_RULES +
+    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 350 kata, tanpa em dash. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak.';
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE WRITER\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ': ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
     '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
     '\n\nPESAN BARU ADMIN: ' + text;
-  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 2500, st, 'idea');
+  var r = aiCallWeb_(st.models.idea || st.models.brief, sys, user, 3500, st, 'idea');
   var reply = String(r.text || '').trim();
   if (!reply) throw aiUnreadable_(r);
   var now = new Date().toISOString();
   idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name || me.username, text: text, at: now });
-  idea.chat.push({ role: 'ai', text: reply.slice(0, 3000), at: now, model: r.model, toAdmin: true, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
+  idea.chat.push({ role: 'ai', text: reply.slice(0, 4000), at: now, model: r.model, toAdmin: true, sources: r.sources, web: { fetched: r.fetched, searched: r.searched } });
   return ideaPut_(me, t, idea, 'ask');
 }
 // ---------- Bank Ide: brainstorming topik tanpa task (koleksi ideas/) ----------

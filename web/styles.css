@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.45.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.45.2"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1866,3 +1866,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .idea-src { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12.5px; white-space: normal; }
 .idea-src span { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .idea-src a { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.idea-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 999px; cursor: pointer; }
+.chip-btn:hover { border-color: var(--accent); color: var(--accent); }
+.idea-msg.ai { white-space: pre-wrap; }
