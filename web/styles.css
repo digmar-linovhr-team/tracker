@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.46.1"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.47.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1999,3 +1999,46 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 @media (max-width: 1360px) { .dk.has-sel { grid-template-columns: 190px minmax(0, 1fr) 330px; } }
 @media (max-width: 1100px) { .dk, .dk.has-sel { grid-template-columns: 180px minmax(0, 1fr); } }
 @media (max-width: 760px) { .dk, .dk.has-sel { grid-template-columns: 1fr; } .dk-tool .dk-search { flex-basis: 100%; } .dk-tool .dk-fsel { flex: 1 1 40%; } .dk-tool #dk-add { flex-basis: 100%; } }
+
+/* v2.47 · sumber Claude di diskusi ide → Dokumen */
+.isrc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); white-space: normal; }
+.isrc-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.isrc-h > span { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.isrc-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 6px; }
+.isrc-row .dk-ic { width: 30px; height: 30px; border-radius: 9px; font-size: 9.5px; }
+.isrc-t { min-width: 0; }
+.isrc-t a { display: block; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.isrc-t a:hover { color: var(--accent); text-decoration: underline; }
+.isrc-t small { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.isrc-t .chip { font-size: 10.5px; padding: 1px 7px; }
+.isrc-in { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 600; color: var(--good); background: var(--good-soft); border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.i2d-ov { z-index: 70; }
+.modal.i2d { width: 600px; }
+.i2d .modal-f { border-top: 1px solid var(--border); background: var(--surface-2); padding: 12px 20px; position: sticky; bottom: 0; }
+.i2d h2 .small { font-weight: 500; }
+.i2d-from { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); margin-bottom: 14px; min-width: 0; }
+.i2d-from > div { min-width: 0; }
+.i2d-from b { display: block; font-size: 13.5px; }
+.i2d-from a { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.i2d-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.i2d-cats button { font: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; }
+.i2d-cats button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.i2d-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.i2d-ai { font-style: normal; font-size: 11px; font-weight: 600; color: var(--accent); margin-left: 6px; }
+.i2d-origin { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--border); font-size: 12.5px; color: var(--text-2); margin-bottom: 12px; }
+.i2d-origin small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.i2d-ver { display: flex; gap: 12px; align-items: center; width: 100%; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 0; font: inherit; color: var(--text); text-align: left; cursor: pointer; margin-bottom: 6px; }
+.i2d-ver.on { background: var(--good-soft); }
+.i2d-ver .sw { width: 36px; height: 20px; border-radius: 999px; background: var(--border); position: relative; flex: none; transition: background .15s; }
+.i2d-ver .sw::after { content: ''; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+.i2d-ver.on .sw { background: var(--good); }
+.i2d-ver.on .sw::after { left: 19px; }
+.i2d-ver b { display: block; font-size: 13px; } .i2d-ver small { font-size: 12px; color: var(--text-2); }
+.i2d-note { font-size: 12.5px; color: var(--text-2); background: var(--warn-soft); border-radius: 12px; padding: 10px 12px; margin: 0 0 6px; }
+.dk-og { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.dk-og .linkbtn { text-align: left; font-weight: 600; }
+@media (max-width: 760px) {
+  .i2d-2 { grid-template-columns: 1fr; }
+  .isrc-row { grid-template-columns: 30px minmax(0, 1fr); }
+  .isrc-row > .btn, .isrc-row > .isrc-in { grid-column: 2; justify-self: start; }
+}

@@ -451,7 +451,7 @@ function demoIdeaAsk(s, b, me) {
   if (idea.chat.filter((c) => c.admin).length >= 20) throw new Error('Kuota diskusi admin (20×) untuk ide ini sudah habis.');
   const now = new Date().toISOString();
   idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name, text, at: now });
-  idea.chat.push({ role: 'ai', toAdmin: true, at: now, sources: [{ url: 'https://jdih.kemnaker.go.id/', title: 'JDIH Kemnaker (contoh)' }], web: { fetched: 1, searched: 1 }, text: 'Poin Anda masuk akal: data pembanding itu memperkuat alasan kenapa topik ini penting sekarang, jadi penilaian "data pendukung" saya naikkan. Tapi pasal yang dikutip writer perlu dicek ke naskah aslinya karena saya tidak bisa memastikan nomor dan isinya. Sikap saya: perlu revisi kecil, yaitu cantumkan sumber resmi untuk regulasi dan satu contoh kasus pabrik. (Jawaban contoh, mode demo.)' });
+  idea.chat.push({ role: 'ai', toAdmin: true, at: now, sources: [{ url: 'https://jdih.kemnaker.go.id/', title: 'JDIH Kemnaker (contoh)' }, { url: 'https://www.bps.go.id/id/statistics-table/2/MjM1MyMy/penduduk-bekerja-menurut-jam-kerja.html', title: 'Penduduk bekerja menurut jam kerja (contoh)' }, { url: 'https://jurnal.ugm.ac.id/contoh/article/view/1234/analisis-jam-kerja.pdf', title: 'Analisis jam kerja pekerja industri pengolahan (contoh)' }], web: { fetched: 3, searched: 1 }, text: 'Poin Anda masuk akal: data pembanding itu memperkuat alasan kenapa topik ini penting sekarang, jadi penilaian "data pendukung" saya naikkan. Tapi pasal yang dikutip writer perlu dicek ke naskah aslinya karena saya tidak bisa memastikan nomor dan isinya. Sikap saya: perlu revisi kecil, yaitu cantumkan sumber resmi untuk regulasi dan satu contoh kasus pabrik. (Jawaban contoh, mode demo.)' });
   if (b.ideaId) { d.updatedAt = now; return { idea, item: d }; }
   return { idea };
 }
@@ -570,6 +570,9 @@ function saveDoc(s, me, d) {
     category: DOC_CATS.includes(d.category) ? d.category : '', industry: str(d.industry, 60),
     tags: [...new Set((Array.isArray(d.tags) ? d.tags : String(d.tags || '').split(',')).map((x) => str(x, 30)).filter(Boolean))].slice(0, 8),
     summary: str(d.summary, 4000), quote: str(d.quote, 1000), source: '', visibility: admin && d.visibility === 'admin' ? 'admin' : 'all' };
+  // asal dokumen: disimpan dari diskusi ide (Bank Ide atau tahap ide di task)
+  const og = d.origin && typeof d.origin === 'object' ? d.origin : null;
+  o.origin = og && ['idea', 'task'].includes(og.type) && str(og.id, 80) ? { type: og.type, id: str(og.id, 80), title: str(og.title, 200) } : null;
   if (!o.title) throw new Error('Isi judul dokumen.');
   if (!o.category) throw new Error('Pilih kategori.');
   if (kind === 'link' && !/^https?:\/\/\S+$/i.test(o.url)) throw new Error('Tautan harus diawali http:// atau https://');
@@ -585,8 +588,9 @@ function saveDoc(s, me, d) {
     const content = ['title', 'url', 'fileId', 'summary', 'quote', 'category', 'industry'].some((k) => String(x[k] || '') !== String(o[k] || ''));
     Object.assign(x, o, { updatedAt: now, updatedBy: me.username });
     if (!admin && (content || x.verified)) x.verified = null;   // isi diubah anggota: verifikasi admin gugur
+    else if (admin && d.verify && !x.verified) x.verified = { by: me.username, byName: me.name || me.username, at: now };
   } else {
-    x = Object.assign({ id: nid('DK') }, o, { verified: null, pinned: false, createdBy: me.username, createdByName: me.name || me.username, createdAt: now, updatedAt: now, updatedBy: me.username });
+    x = Object.assign({ id: nid('DK') }, o, { verified: admin && d.verify ? { by: me.username, byName: me.name || me.username, at: now } : null, pinned: false, createdBy: me.username, createdByName: me.name || me.username, createdAt: now, updatedAt: now, updatedBy: me.username });
     s.docs.push(x);
   }
   return { doc: x };
@@ -614,8 +618,8 @@ function docServerDemo(s, me, a, b) {
   }
   if (a === 'docAnalyze') {
     const src = b.url || b.name || 'dokumen';
-    return { suggest: { title: 'Judul hasil baca Claude untuk ' + String(src).replace(/^https?:\/\/(www\.)?/, '').slice(0, 40), category: 'Data & riset', industry: '', tags: ['Contoh'],
-      summary: '- Poin penting pertama dari dokumen (contoh mode demo).\n- Poin penting kedua.\n- Poin penting ketiga.', quote: '' }, note: 'Mode demo: isian ini contoh, bukan hasil membaca dokumen sungguhan.' };
+    return { suggest: { title: b.context ? '' : 'Judul hasil baca Claude untuk ' + String(src).replace(/^https?:\/\/(www\.)?/, '').slice(0, 40), category: 'Data & riset', industry: '', tags: ['Contoh'],
+      summary: '- Poin penting pertama dari dokumen (contoh mode demo).\n- Poin penting kedua.\n- Poin penting ketiga.' + (b.context ? '\n- Dipakai untuk ide: ' + String(b.context).split('\n')[0].replace(/^IDE:\s*/, '').slice(0, 120) + '.' : ''), quote: '' }, note: 'Mode demo: isian ini contoh, bukan hasil membaca dokumen sungguhan.' };
   }
   if (a === 'docAsk') {
     const d = docGet(s, b.id, me);

@@ -73,6 +73,7 @@ function ideaTaskSrc(t) {
   return { key: t.id, kind: ideaKind(t), idea, locked, ids: { taskId: t.id }, form: () => (locked ? (idea.form || {}) : ideaForm(t)),
     apply: (r) => patchTask(t.id, { idea: r.idea }), rerender: () => { if (typeof dpRefresh === 'function') dpRefresh(); },
     pre: locked ? '' : ideaBankPick(t),
+    origin: { type: 'task', id: t.id, title: String((idea.form || {}).title || t.task || '').slice(0, 200), industry: t.industry || '' },
     adminAsk: admin && t.owner !== S.user.username, summaryTop: admin && t.owner !== S.user.username && locked,
     head: idea.final ? `<span class="chip good">Ide final${idea.finalBy ? ' · ' + esc(idea.finalBy) : ''}</span>` : idea.skipped ? `<span class="chip">Dilewati admin</span>` : `<span class="chip warn">Belum final</span>`,
     industry: ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri task ini belum diisi. Minta admin mengisinya lewat Edit task supaya Claude bisa menilai dengan tepat.</p>',
@@ -171,7 +172,7 @@ function ideaCoreHtml(src) {
       ${(rv.prompts || []).length ? `<div class="idea-sh">Pertanyaan di AI Overview yang bisa dijawab artikel ini</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
     </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi idenya, lalu klik <b>Cek ke Claude</b>. ${esc(K.hint)}</p>`);
   const who = (c) => c.role === 'ai' ? (c.toAdmin ? 'Claude, menjawab admin' : 'Claude') : c.admin ? `${c.byName || c.by || 'Admin'} (admin)` : (c.byName || (typeof personName === 'function' && c.by ? personName(c.by) : c.by) || 'Writer');
-  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}${c.web && (c.web.fetched || c.web.searched) ? ` · ${[c.web.fetched ? `membuka ${c.web.fetched} sumber` : '', c.web.searched ? `mencari ${c.web.searched}×` : ''].filter(Boolean).join(', ')}` : ''}</small>${c.role === 'ai' ? `<div class="ai-body">${ideaAiHtml(c.text)}</div>` : ideaMsgHtml(c.text)}${(c.sources || []).length ? `<div class="idea-src"><span>Sumber yang dibuka Claude</span>${c.sources.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || ideaLinkLabel(x.url))}</a>`).join('')}</div>` : ''}</div>`).join('')}</div>` : '';
+  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c, ci) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}${c.web && (c.web.fetched || c.web.searched) ? ` · ${[c.web.fetched ? `membuka ${c.web.fetched} sumber` : '', c.web.searched ? `mencari ${c.web.searched}×` : ''].filter(Boolean).join(', ')}` : ''}</small>${c.role === 'ai' ? `<div class="ai-body">${ideaAiHtml(c.text)}</div>` : ideaMsgHtml(c.text)}${ideaSrcHtml(c, ci, src)}</div>`).join('')}</div>` : '';
   // admin: menanggapi / menyanggah penilaian Claude dengan data pembanding (isi ide tidak berubah)
   const askBox = rv && src.adminAsk ? `<div class="idea-ask" id="${id}-ask"><div class="idea-sh">Tanggapi penilaian Claude</div>
       <p class="muted small" style="margin:0 0 6px">Sanggah, beri data pembanding, atau tanya alasannya. Tempel tautan sumber (mis. JDIH, BPS) supaya Claude membukanya; Claude juga bisa mencari sendiri di web. Isi ide writer tidak berubah, dan writer bisa membaca diskusi ini. Jawaban bisa makan waktu sampai 1 menit.</p>
@@ -243,7 +244,102 @@ function ideaCoreBind(root, src) {
     src.form().angle = a.title + ': ' + a.desc;
     toast('Sudut pandang sudah diganti. Rapikan isinya, lalu simpan atau cek lagi.'); src.rerender();
   });
+  $$('[data-i2d]', root).forEach((b) => b.onclick = () => {
+    const [mi, si] = b.dataset.i2d.split(':'), c = ((src.idea || {}).chat || [])[Number(mi)]; if (!c) return;
+    const list = si === 'all' ? (c.sources || []).filter((x) => !ideaSrcSaved(x.url)) : [(c.sources || [])[Number(si)]].filter(Boolean);
+    if (list.length) ideaToDocs(list, c, src);
+  });
   return { run, form };
+}
+
+/* ---------- Simpan sumber dari diskusi ide ke tab Dokumen ---------- */
+const ideaUrlKey = (u) => String(u || '').trim().replace(/#.*$/, '').replace(/\/+$/, '').replace(/^https?:\/\/(www\.)?/i, '').toLowerCase();
+function ideaSrcSaved(url) { const k = ideaUrlKey(url); return !!k && (S.docs || []).some((d) => ideaUrlKey(d.url) === k); }
+function ideaSrcKind(url) {
+  const h = (/^https?:\/\/(?:www\.)?([^/?#]+)/i.exec(String(url || '')) || [])[1] || '';
+  if (/\.go\.id$|\.gov(\.[a-z]{2})?$|^(ilo|who|worldbank|oecd)\.org$|\.(ilo|who|worldbank|oecd)\.org$/i.test(h)) return ['Resmi', 'good'];
+  if (/\.ac\.id$|\.edu$|jurnal|journal|doi\.org$|sciencedirect|springer|wiley|tandfonline|garuda|sinta|scholar|researchgate|ssrn/i.test(h + String(url))) return ['Jurnal', 'info'];
+  if (/\.or\.id$/i.test(h)) return ['Asosiasi', ''];
+  return null;
+}
+function ideaSrcHtml(c, ci, src) {
+  const list = c.sources || [];
+  if (!list.length) return '';
+  if (!S.docs && typeof loadDocs === 'function' && !IDEA.docsLoading) { IDEA.docsLoading = true; loadDocs().then(() => { IDEA.docsLoading = false; src.rerender(); }).catch(() => { IDEA.docsLoading = false; }); }
+  const admin = S.user.role === 'admin', canSave = !!src.origin && typeof docEditor === 'function';
+  const left = list.filter((x) => !ideaSrcSaved(x.url)).length;
+  return `<div class="isrc"><div class="isrc-h"><span>Sumber yang dibuka Claude · ${list.length}</span>${canSave && left > 1 ? `<button type="button" class="btn sm ghost" data-i2d="${ci}:all">${admin ? 'Simpan semua' : 'Usulkan semua'} ke Dokumen</button>` : ''}</div>
+    ${list.map((x, i) => { const k = ideaSrcKind(x.url), saved = ideaSrcSaved(x.url), host = ((/^https?:\/\/(?:www\.)?([^/?#]+)/i.exec(x.url) || [])[1] || '');
+      return `<div class="isrc-row">${typeof docIcon === 'function' ? docIcon({ kind: 'link', url: x.url }) : ''}<div class="isrc-t"><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || ideaLinkLabel(x.url))}</a><small>${esc(host)}${k ? ` <span class="chip ${k[1]}">${k[0]}</span>` : ''}</small></div>
+        ${saved ? '<span class="isrc-in">✓ Di Dokumen</span>' : canSave ? `<button type="button" class="btn sm" data-i2d="${ci}:${i}" title="${admin ? 'Simpan ke tab Dokumen' : 'Usulkan ke tab Dokumen, nanti dicek admin'}">+ Dokumen</button>` : ''}</div>`; }).join('')}</div>`;
+}
+/** Form simpan sumber ke Dokumen. Beberapa sumber diproses satu per satu. Dibuka di atas jendela ide (bertumpuk). */
+function ideaToDocs(list, msg, src) {
+  const admin = S.user.role === 'admin', og = src.origin, cats = (typeof DOC_CATS !== 'undefined' ? DOC_CATS : []).map((x) => x[0]).filter((c) => c !== 'Brand & aset');
+  let idx = 0, v, st, seq = 0;
+  const ov = document.createElement('div');
+  ov.className = 'overlay i2d-ov';
+  document.body.appendChild(ov);
+  const close = () => { seq++; ov.remove(); document.removeEventListener('keydown', esc_, true); src.rerender(); };
+  const esc_ = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', esc_, true);
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
+  const guessCat = (u) => /jdih|peraturan|bpk\.go\.id|hukumonline|setneg|\/uu|permen|perpres|perda/i.test(u) ? 'Regulasi' : 'Data & riset';
+  const start = () => {
+    const x = list[idx];
+    v = { kind: 'link', url: x.url, title: String(x.title || ideaLinkLabel(x.url)).slice(0, 200), category: guessCat(x.url), industry: og.industry || '', tags: [], summary: '', quote: '', visibility: 'all', verify: admin, origin: { type: og.type, id: og.id, title: og.title } };
+    st = { ai: 'busy', touched: {}, note: '' };
+    render();
+    const my = ++seq;
+    const ctx = 'IDE: ' + (og.title || '-') + (og.industry ? '\nIndustri: ' + og.industry : '') + '\n\nJawaban Claude di diskusi:\n' + String(msg.text || '').slice(0, 2400);
+    api.call('docAnalyze', { url: x.url, context: ctx }).then((r) => {
+      if (my !== seq) return;
+      const g = (r && r.suggest) || {};
+      if (g.title && !st.touched.title) v.title = g.title;
+      if (g.category && cats.includes(g.category) && !st.touched.category) v.category = g.category;
+      if (g.industry && !v.industry) v.industry = g.industry;
+      if ((g.tags || []).length && !st.touched.tags) v.tags = g.tags.slice(0, 8);
+      if (g.summary && !st.touched.summary) v.summary = g.summary + (g.effective ? '\n- Terbit/berlaku: ' + g.effective : '');
+      if (g.quote) v.quote = g.quote;
+      st.ai = ''; st.note = r && r.note || ''; render();
+    }).catch((e) => { if (my !== seq) return; st.ai = 'fail'; st.note = 'Claude tidak bisa membaca sumber ini (' + cleanErr(e) + '). Isi poin pentingnya sendiri, atau simpan saja dulu.'; render(); });
+  };
+  const render = () => {
+    const x = list[idx], host = (/^https?:\/\/(?:www\.)?([^/?#]+)/i.exec(x.url) || [])[1] || '', multi = list.length > 1, last = idx === list.length - 1;
+    const tagAi = (k) => st.ai === 'busy' && !st.touched[k] ? ' <em class="i2d-ai">Claude sedang mengisi…</em>' : st.ai === '' && !st.touched[k] && k === 'summary' && v.summary ? ' <em class="i2d-ai">ditulis Claude dari sumber & diskusi, bisa diubah</em>' : '';
+    ov.innerHTML = `<div class="modal i2d" role="dialog" aria-modal="true" aria-label="Simpan ke Dokumen">
+      <div class="modal-h"><h2>${admin ? 'Simpan ke Dokumen' : 'Usulkan ke Dokumen'}${multi ? ` <span class="muted small">· sumber ${idx + 1} dari ${list.length}</span>` : ''}</h2><button class="x" data-i2dx aria-label="Tutup">×</button></div>
+      <div class="modal-b">
+        <div class="i2d-from">${docIcon({ kind: 'link', url: x.url })}<div><b>${esc(host)}</b><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.url)}</a></div></div>
+        <label class="field"><span>Judul *${tagAi('title')}</span><input data-i2df="title" maxlength="200" value="${esc(v.title)}"></label>
+        <div class="field"><span>Kategori *${tagAi('category')}</span><div class="i2d-cats">${cats.map((c) => `<button type="button" class="${v.category === c ? 'on' : ''}" data-i2dc="${esc(c)}">${esc(c)}</button>`).join('')}</div></div>
+        <div class="i2d-2"><label class="field"><span>Industri</span><select data-i2df="industry" data-pick="plain"><option value="">Semua industri</option>${(typeof INDUSTRIES !== 'undefined' ? INDUSTRIES : []).map((i) => `<option ${v.industry === i ? 'selected' : ''}>${esc(i)}</option>`).join('')}</select></label>
+          <label class="field"><span>Tag${tagAi('tags')}</span><input data-i2df="tags" maxlength="250" value="${esc((v.tags || []).join(', '))}" placeholder="Lembur, Jam kerja"></label></div>
+        <label class="field"><span>Poin penting${tagAi('summary')}</span><textarea data-i2df="summary" rows="5" maxlength="4000" placeholder="${st.ai === 'busy' ? 'Claude sedang membaca sumbernya. Biasanya kurang dari 1 menit.' : '- Satu poin per baris'}">${esc(v.summary)}</textarea></label>
+        ${st.note ? `<p class="muted small" style="margin:-6px 0 10px">${esc(st.note)}</p>` : ''}
+        <div class="i2d-origin"><span aria-hidden="true">💬</span><div>Asal: ${og.type === 'task' ? 'tahap ide task' : 'diskusi ide'} <b>${esc(og.title || 'tanpa judul')}</b><small>Tautan ke ide ini ikut tersimpan, jadi dari Dokumen bisa kembali ke diskusinya.</small></div></div>
+        ${admin ? `<button type="button" class="i2d-ver ${v.verify ? 'on' : ''}" data-i2dver role="switch" aria-checked="${v.verify ? 'true' : 'false'}"><span class="sw"></span><span><b>Langsung tandai terverifikasi</b><small>${v.verify ? 'Dokumen ini langsung berlabel ✓ Terverifikasi.' : 'Dokumen masuk sebagai Belum dicek.'}</small></span></button>`
+          : '<p class="i2d-note">Dokumen masuk sebagai <b>Belum dicek</b>. Admin akan memverifikasinya di tab Dokumen.</p>'}
+      </div>
+      <div class="modal-f">${multi && !last ? '<button class="btn ghost" data-i2dskip>Lewati</button>' : ''}<button class="btn" data-i2dx>Batal</button><button class="btn primary" data-i2dsave>${admin ? 'Simpan' : 'Usulkan'}${multi && !last ? ' & lanjut' : ' ke Dokumen'}</button></div></div>`;
+    formPick(ov);
+    $$('[data-i2dx]', ov).forEach((b) => b.onclick = close);
+    $$('[data-i2df]', ov).forEach((el) => { const k = el.dataset.i2df; const f = () => { st.touched[k] = true; v[k] = k === 'tags' ? el.value.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 8) : el.value; }; el.oninput = f; el.onchange = f; });
+    $$('[data-i2dc]', ov).forEach((b) => b.onclick = () => { st.touched.category = true; v.category = b.dataset.i2dc; $$('[data-i2dc]', ov).forEach((y) => y.classList.toggle('on', y === b)); });
+    const vb = $('[data-i2dver]', ov); if (vb) vb.onclick = () => { v.verify = !v.verify; render(); };
+    const sk = $('[data-i2dskip]', ov); if (sk) sk.onclick = () => { idx++; start(); };
+    $('[data-i2dsave]', ov).onclick = async (e) => {
+      if (!String(v.title).trim()) { toast('Isi judul dokumen.', true); return; }
+      if (!v.category) { toast('Pilih kategori.', true); return; }
+      try {
+        await busy(e.currentTarget, () => api.call('saveDoc', { doc: Object.assign({}, v) }));
+        toast(admin ? (v.verify ? 'Tersimpan di Dokumen, sudah terverifikasi' : 'Tersimpan di Dokumen') : 'Terkirim ke Dokumen. Menunggu dicek admin');
+        await loadDocs(true);
+        if (idx < list.length - 1) { idx++; start(); } else close();
+      } catch (err) { toast(cleanErr(err), true); }
+    };
+  };
+  start();
 }
 
 function ideaSection(t) {

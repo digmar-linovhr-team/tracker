@@ -67,7 +67,7 @@ function viewDocs() {
   const types = ['PDF', 'TBL', 'DOC', 'PPT', 'URL', 'TXT', 'IMG', 'DIR'].filter((t) => all.some((d) => docType(d)[0] === t));
   const TYPE_NAME = { PDF: 'PDF', TBL: 'Tabel / sheet', DOC: 'Dokumen', PPT: 'Presentasi', URL: 'Halaman web', TXT: 'Catatan', IMG: 'Gambar', DIR: 'Folder' };
   const row = (d) => `<button type="button" class="dk-row ${sel && sel.id === d.id ? 'on' : ''}" data-dk="${esc(d.id)}">${docIcon(d)}
-      <span class="dk-t"><b>${esc(d.title)}</b><small><span class="chip">${esc(d.category)}</span>${d.industry ? `<span class="chip">${esc(d.industry)}</span>` : ''}${d.visibility === 'admin' ? '<span class="dk-lock">Admin saja</span>' : ''}${d.source ? `<span class="dk-src">${esc(d.source)}</span>` : ''}</small></span>
+      <span class="dk-t"><b>${esc(d.title)}</b><small>${d.origin ? '<span class="chip info">Dari diskusi ide</span>' : ''}<span class="chip">${esc(d.category)}</span>${d.industry ? `<span class="chip">${esc(d.industry)}</span>` : ''}${d.visibility === 'admin' ? '<span class="dk-lock">Admin saja</span>' : ''}${d.source ? `<span class="dk-src">${esc(d.source)}</span>` : ''}</small></span>
       <span class="dk-meta">${d.verified ? '<span class="dk-ok">✓ Terverifikasi</span>' : '<span class="chip warn">Belum dicek</span>'}<br>${esc(docBy(d))} · ${esc(docDate(d.createdAt))}</span></button>`;
   $('#view').innerHTML = `<div class="dk ${sel ? 'has-sel' : ''}">
     <div class="card dk-cats" role="navigation" aria-label="Kategori dokumen"><div class="card-b">
@@ -121,6 +121,7 @@ function docDetailHtml(d, inModal) {
         <span>Ditambahkan</span><b>${esc(docBy(d))} · ${esc(docDate(d.createdAt))}</b>
         <span>Verifikasi</span>${d.verified ? `<span class="dk-ok" style="justify-self:start">✓ ${esc(d.verified.byName || d.verified.by)}, ${esc(docDate(d.verified.at))}</span>` : '<span class="chip warn" style="justify-self:start">Belum dicek admin</span>'}
         <span>Bisa dilihat</span><b>${d.visibility === 'admin' ? 'Admin saja' : 'Semua anggota'}</b>
+        ${d.origin ? `<span>Asal</span><b class="dk-og"><span class="chip info">${d.origin.type === 'task' ? 'Tahap ide task' : 'Diskusi ide'}</span><button type="button" class="linkbtn" data-dka="origin">${esc(d.origin.title || 'Buka ide')}</button></b>` : ''}
       </div>
       ${sum ? `<div class="dk-sum"><b>Poin penting</b><div class="ai-body">${ideaAiHtml(sum)}</div></div>` : ''}
       ${d.quote ? `<blockquote class="dk-quote">${esc(d.quote)}</blockquote>` : ''}
@@ -147,7 +148,15 @@ function docDetailBind(root, d, close, rerender) {
   const refresh = () => { if (rerender) rerender(); if (S.view === 'docs') go('docs'); };
   const uses = docUses(d);
   $$('[data-dkuse]', root).forEach((b) => b.onclick = () => { const u = uses[Number(b.dataset.dkuse)]; if (u) u.open(); });
-  $$('[data-dka]', root).forEach((b) => b.onclick = async () => {
+  const ob = $('[data-dka="origin"]', root);
+  if (ob) ob.onclick = async () => {
+    const o = d.origin || {};
+    if (o.type === 'task') { if (typeof openTask === 'function') openTask(o.id); return; }
+    if (typeof bankOpen !== 'function') return;
+    if (!(S.bank || []).some((i) => i.id === o.id) && typeof loadBank === 'function') await loadBank(true);
+    if ((S.bank || []).some((i) => i.id === o.id)) bankOpen(o.id); else toast('Ide asalnya sudah tidak ada (mungkin dihapus).', true);
+  };
+  $$('[data-dka]:not([data-dka="origin"])', root).forEach((b) => b.onclick = async () => {
     const a = b.dataset.dka;
     if (a === 'close') { close(); return; }
     if (a === 'copy') {

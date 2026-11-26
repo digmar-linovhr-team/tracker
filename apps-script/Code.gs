@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 42 });
+  return json_({ ok: true, app: 'project-tracker', version: 43 });
 }
 
 function doPost(e) {
@@ -4943,7 +4943,11 @@ var DOC_ANALYZE_SYS = 'Anda pustakawan riset untuk tim konten LinovHR (software 
   '"summary": 3 sampai 6 poin penting, tiap poin diawali "- " dan dipisah baris baru, sebut nomor pasal/tabel/halaman dan angkanya bila ada, ' +
   '"quote": satu kutipan persis dari dokumen yang paling sering berguna untuk artikel (boleh ""), "effective": tanggal terbit/berlaku bila ada (boleh "")}. Bahasa Indonesia, tanpa em dash.';
 function docAnalyze_(me, b) {
-  var st = aiSettings_(), user = docContent_(b.fileId, b.url, 'Siapkan kartu katalog untuk dokumen ini.' + (b.name ? ' Nama file: ' + b.name : ''));
+  var ctx = String(b.context || '').trim().slice(0, 3000);
+  var ask = 'Siapkan kartu katalog untuk dokumen ini.' + (b.name ? ' Nama file: ' + b.name : '') +
+    (ctx ? '\n\nDokumen ini ditemukan saat diskusi ide artikel di bawah. Isi "summary" dengan poin penting dari dokumen yang relevan untuk ide ini (angka, tahun, pasal), ' +
+      'lalu satu poin terakhir yang diawali "Dipakai untuk:" berisi cara dokumen ini mendukung ide tersebut. Jangan menulis angka yang tidak ada di dokumen.\n' + ctx : '');
+  var st = aiSettings_(), user = docContent_(b.fileId, b.url, ask);
   var r = aiCallWeb_(st.models.idea || st.models.brief, DOC_ANALYZE_SYS, user, 2500, st, 'docs');
   var j = aiJson_(r.text);
   if (!j) throw aiUnreadable_(r);
