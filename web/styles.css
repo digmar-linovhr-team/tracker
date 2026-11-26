@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.46.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.46.1"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1989,3 +1989,13 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 #dk-add { white-space: nowrap; }
 .dk-pin { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; }
 @media (max-width: 760px) { .dk-tool { grid-template-columns: 1fr 1fr; } .dk-search { grid-column: 1 / -1; } #dk-add { grid-column: 1 / -1; } }
+/* Dokumen: kolom detail hanya saat ada yang dipilih; baris alat fleksibel (tidak menabrak kolom lain) */
+.dk { grid-template-columns: 210px minmax(0, 1fr); }
+.dk.has-sel { grid-template-columns: 210px minmax(0, 1fr) 380px; }
+.dk-tool { display: flex; flex-wrap: wrap; }
+.dk-tool .dk-search { flex: 1 1 240px; min-width: 200px; }
+.dk-tool .dk-fsel { flex: 0 1 165px; min-width: 140px; }
+.dk-tool #dk-add { flex: 0 0 auto; }
+@media (max-width: 1360px) { .dk.has-sel { grid-template-columns: 190px minmax(0, 1fr) 330px; } }
+@media (max-width: 1100px) { .dk, .dk.has-sel { grid-template-columns: 180px minmax(0, 1fr); } }
+@media (max-width: 760px) { .dk, .dk.has-sel { grid-template-columns: 1fr; } .dk-tool .dk-search { flex-basis: 100%; } .dk-tool .dk-fsel { flex: 1 1 40%; } .dk-tool #dk-add { flex-basis: 100%; } }

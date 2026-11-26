@@ -51,7 +51,7 @@ function viewDocs() {
   if (!S.docs) { $('#view').innerHTML = '<div class="loading">Memuat dokumen…</div>'; loadDocs(true).then(() => { if (S.view === 'docs') go('docs'); }); return; }
   loadDocs().then((ch) => { if (ch && S.view === 'docs') go('docs'); });
   if (!S.bank && typeof loadBank === 'function' && typeof bankAvailable === 'function' && bankAvailable()) loadBank().then(() => { if (S.view === 'docs') go('docs'); });
-  const f = S.dk = S.dk || { cat: '', flag: '', q: '', ind: '', type: '', sel: '' };
+  const f = S.dk = Object.assign({ cat: '', flag: '', q: '', ind: '', type: '', sel: '' }, S.dk || {});
   const admin = S.user.role === 'admin', all = S.docs;
   const q = f.q.trim().toLowerCase();
   const match = (d) => (!f.cat || d.category === f.cat)
@@ -69,7 +69,7 @@ function viewDocs() {
   const row = (d) => `<button type="button" class="dk-row ${sel && sel.id === d.id ? 'on' : ''}" data-dk="${esc(d.id)}">${docIcon(d)}
       <span class="dk-t"><b>${esc(d.title)}</b><small><span class="chip">${esc(d.category)}</span>${d.industry ? `<span class="chip">${esc(d.industry)}</span>` : ''}${d.visibility === 'admin' ? '<span class="dk-lock">Admin saja</span>' : ''}${d.source ? `<span class="dk-src">${esc(d.source)}</span>` : ''}</small></span>
       <span class="dk-meta">${d.verified ? '<span class="dk-ok">✓ Terverifikasi</span>' : '<span class="chip warn">Belum dicek</span>'}<br>${esc(docBy(d))} · ${esc(docDate(d.createdAt))}</span></button>`;
-  $('#view').innerHTML = `<div class="dk">
+  $('#view').innerHTML = `<div class="dk ${sel ? 'has-sel' : ''}">
     <div class="card dk-cats" role="navigation" aria-label="Kategori dokumen"><div class="card-b">
       ${cat('', 'Semua', all.length, 'var(--accent)')}
       ${DOC_CATS.map(([c, col]) => cat(c, esc(c), cnt((d) => d.category === c), col)).join('')}
@@ -89,7 +89,7 @@ function viewDocs() {
         : `<div class="empty"><b>${all.length ? 'Tidak ada dokumen yang cocok' : 'Belum ada dokumen'}</b>${all.length ? 'Coba kata kunci atau filter lain.' : 'Tambahkan regulasi, data riset, panduan, atau template yang sering dipakai tim.'}</div>`}
       <p class="muted small dk-foot">Dokumen yang sudah diverifikasi admin dibaca Claude lebih dulu saat diskusi ide, sebelum mencari di web. Jangan simpan password atau akses akun di sini.</p>
     </div>
-    <aside class="dk-side">${sel ? docDetailHtml(sel) : `<div class="card dk-det dk-empty"><div class="card-b"><p class="muted">Pilih dokumen untuk melihat poin penting, kutipan, dan di mana dokumen itu dipakai.</p></div></div>`}</aside>
+    ${sel ? `<aside class="dk-side">${docDetailHtml(sel)}</aside>` : ''}
   </div>`;
   formPick($('#view'));
   $$('[data-dkcat]').forEach((b) => b.onclick = () => { const k = b.dataset.dkcat; f.cat = k.startsWith('f:') ? '' : k; f.flag = k.startsWith('f:') ? k.slice(2) : ''; go('docs'); });
