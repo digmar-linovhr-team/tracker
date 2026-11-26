@@ -163,6 +163,7 @@ function bankOpen(id) {
     const idea = d.idea || {}, rv = bankLastRv(d), busy = IDEA.busy[id];
     const src = {
       key: id, kind: d.kind, idea, locked: !editable, ids: { ideaId: id }, title: (IDEA_KINDS[d.kind] || {}).name,
+      adminAsk: admin && !mineIdea, summaryTop: admin && !mineIdea,
       form: () => (editable ? ideaDraft(id, idea.form) : (idea.form || {})),
       apply: (r) => { bankPut(r); }, rerender: () => { render(); if (S.view === 'ideas') go('ideas'); },
       head: `<span class="chip ${BANK_CHIP[d.status] || ''}">${esc(d.status)}</span>`,

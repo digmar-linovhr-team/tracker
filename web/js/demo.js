@@ -415,12 +415,30 @@ function demoIdea(s, a, b, me, tOver) {
     const text = String(b.text || '').trim().slice(0, 800);
     if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu.');
     if (text.length < 3) throw new Error('Tulis pesan dulu.');
-    if (idea.chat.filter((c) => c.role === 'user').length >= 10) throw new Error('Kuota balasan (10×) untuk task ini sudah habis.');
+    if (idea.chat.filter((c) => c.role === 'user' && !c.admin).length >= 10) throw new Error('Kuota balasan (10×) untuk task ini sudah habis.');
     idea.chat.push({ role: 'user', by: me.username, text, at: now });
-    idea.chat.push({ role: 'ai', text: 'Bisa. Buka dengan argumen utama, lalu jadikan data atau tabel sebagai buktinya, dan tutup dengan rekomendasi untuk HR di ' + ind + '. (Jawaban contoh — mode demo.)', at: now });
+    idea.chat.push({ role: 'ai', text: 'Bisa. Buka dengan argumen utama, lalu jadikan data atau tabel sebagai buktinya, dan tutup dengan rekomendasi untuk HR di ' + ind + '. (Jawaban contoh, mode demo.)', at: now });
     return { idea };
   }
   throw new Error('Aksi tidak dikenal');
+}
+
+/** Admin menanggapi penilaian Claude (ide di Bank Ide atau di task). */
+function demoIdeaAsk(s, b, me) {
+  if (me.role !== 'admin') throw new Error('Hanya admin yang bisa menanggapi penilaian Claude di sini.');
+  const d = b.ideaId ? (s.ideas || []).find((x) => x.id === b.ideaId) : s.tasks.find((x) => x.id === b.taskId);
+  if (!d) throw new Error('Ide tidak ditemukan. Muat ulang halaman.');
+  const idea = d.idea = Object.assign({ form: {}, reviews: [], chat: [] }, d.idea || {});
+  idea.chat = (idea.chat || []).slice();
+  const text = String(b.text || '').trim().slice(0, 1500);
+  if (!(idea.reviews || []).length) throw new Error('Ide ini belum pernah dicek Claude.');
+  if (text.length < 3) throw new Error('Tulis pesan dulu.');
+  if (idea.chat.filter((c) => c.admin).length >= 20) throw new Error('Kuota diskusi admin (20×) untuk ide ini sudah habis.');
+  const now = new Date().toISOString();
+  idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name, text, at: now });
+  idea.chat.push({ role: 'ai', toAdmin: true, at: now, text: 'Poin Anda masuk akal: data pembanding itu memperkuat alasan kenapa topik ini penting sekarang, jadi penilaian "data pendukung" saya naikkan. Tapi pasal yang dikutip writer perlu dicek ke naskah aslinya karena saya tidak bisa memastikan nomor dan isinya. Sikap saya: perlu revisi kecil, yaitu cantumkan sumber resmi untuk regulasi dan satu contoh kasus pabrik. (Jawaban contoh, mode demo.)' });
+  if (b.ideaId) { d.updatedAt = now; return { idea, item: d }; }
+  return { idea };
 }
 
 // ---------- Bank Ide (brainstorming topik tanpa task) ----------
@@ -812,6 +830,7 @@ function handle(action, b, session) {
     case 'aiSettings': { if (me.role !== 'admin') throw new Error('Hanya admin'); s.aiCfg = Object.assign({}, s.aiCfg || {}, b.settings || {}); return handle('aiStatus', {}, session); }
     case 'aiCheck': case 'aiFix': case 'aiMark': case 'aiAllow': return demoAi(s, action, b, me);
     case 'ideaSave': case 'ideaReview': case 'ideaReply': if (b.ideaId) return demoBank(s, action, b, me); return demoIdea(s, action, b, me);
+    case 'ideaAsk': return demoIdeaAsk(s, b, me);
     case 'ideaFinal': case 'ideaSkip': return demoIdea(s, action, b, me);
     case 'ideas': return { ideas: s.ideas || [] };
     case 'bankList': case 'bankSave': case 'bankSubmit': case 'bankDecide': case 'bankDelete': case 'bankUse': return demoBank(s, action, b, me);

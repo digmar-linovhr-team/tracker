@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.44.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.45.0"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1851,3 +1851,15 @@ nav .nav-more { display: none; }
 /* angka: tanpa tombol naik-turun bawaan browser */
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* Ide: ringkasan Claude di atas & diskusi admin */
+.idea-top { border-radius: 14px; padding: 12px 14px; margin: 0 0 14px; background: var(--surface-2); border-left: 4px solid var(--muted); }
+.idea-top.good { background: var(--good-soft); border-left-color: var(--good); } .idea-top.warn { background: var(--warn-soft); border-left-color: var(--warn); } .idea-top.bad { background: var(--bad-soft); border-left-color: var(--bad); }
+.idea-top-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.idea-top p { margin: 6px 0 0; line-height: 1.5; }
+.idea-top ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; font-size: 13px; } .idea-top li { margin: 2px 0; }
+.idea-top-a { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 8px; }
+.idea-msg.adm { background: color-mix(in srgb, var(--review) 14%, var(--surface)); justify-self: end; border: 1px solid color-mix(in srgb, var(--review) 30%, transparent); }
+.idea-msg.adm small { color: var(--review); }
+.idea-ask { margin-top: 14px; padding: 12px 14px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--review) 45%, var(--border)); }
+.idea-ask .idea-sh { margin-top: 0; }
+.idea-ask .idea-reply textarea { min-height: 72px; }

@@ -176,7 +176,7 @@ function menuResetPassword() {
 // ===================== HTTP =====================
 function doGet() {
   resetMemo_();
-  return json_({ ok: true, app: 'project-tracker', version: 35 });
+  return json_({ ok: true, app: 'project-tracker', version: 36 });
 }
 
 function doPost(e) {
@@ -3303,6 +3303,7 @@ function fbRoute_(a, b) {
     case 'ideaSave': return ideaSave_(me, b);
     case 'ideaReview': return ideaReview_(me, b);
     case 'ideaReply': return ideaReply_(me, b);
+    case 'ideaAsk': return ideaAsk_(me, b);
     case 'ideaFinal': return ideaFinal_(me, b);
     case 'ideaSkip': return ideaSkip_(me, b);
     case 'bankList': return bankList_();
@@ -4550,7 +4551,7 @@ function aiContext_(stage, t) {
   return ctx;
 }
 // ---------- Tahap Ide untuk Artikel TL industri (review & diskusi ide sebelum brief) ----------
-var IDEA_MAX_REVIEW = 5, IDEA_MAX_REPLY = 10;
+var IDEA_MAX_REVIEW = 5, IDEA_MAX_REPLY = 10, IDEA_MAX_ADMIN = 20;
 var IDEA_PT_LABEL = { fit: 'Kecocokan dengan industri', logic: 'Konsistensi alasan', unique: 'Pembeda', data: 'Data & regulasi', aio: 'Peluang AI Overview' };
 var IDEA_CASE_LABEL = { story: 'Kekuatan cerita', proof: 'Bukti hasil', fit: 'Relevansi industri', role: 'Peran LinovHR', publish: 'Kesiapan publikasi' };
 var IDEA_OPT_LABEL = { diagnose: 'Ketepatan diagnosis', intent: 'Kecocokan maksud pencarian', plan: 'Dampak rencana perubahan', gap: 'Celah kompetitor', aio: 'Peluang AI Overview' };
@@ -4746,14 +4747,14 @@ function ideaReply_(me, b) {
   var text = String(b.text || '').trim().slice(0, 800);
   if (!idea.reviews.length) throw new Error('Diskusikan ide dengan AI dulu.');
   if (text.length < 3) throw new Error('Tulis pesan dulu.');
-  if (idea.chat.filter(function (m) { return m.role === 'user'; }).length >= IDEA_MAX_REPLY) throw new Error('Kuota balasan (' + IDEA_MAX_REPLY + '×) untuk task ini sudah habis.');
+  if (idea.chat.filter(function (m) { return m.role === 'user' && !m.admin; }).length >= IDEA_MAX_REPLY) throw new Error('Kuota balasan (' + IDEA_MAX_REPLY + '×) untuk task ini sudah habis.');
   if (b.form) idea.form = ideaClean_(b.form, t.ideaKind);
   var st = aiSettings_(), c = ideaContext_(t), rv = idea.reviews[idea.reviews.length - 1];
   var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com dan rekan brainstorming writer untuk rencana optimasi artikel. Jangan mengarang angka ranking atau volume. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia) dan rekan brainstorming writer. Jangan mengarang angka atau fakta klien. Gunakan bahasa Indonesia yang ringkas, sapaan "Anda".' : ideaSystem_(c.ind)) + '\n\nSekarang Anda berdiskusi dengan writer tentang ide ini. Jawab pesan terakhir writer secara singkat (maksimal 120 kata), tetap kritis, ' +
     (t.ideaKind === 'opt' ? 'beri contoh konkret untuk artikel ini' : 'beri contoh konkret untuk industri ' + c.ind) + '. Bila writer memberi informasi baru yang mengubah penilaian, katakan apa yang berubah. Jawab HANYA JSON {"reply": "..."}.';
   var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE TERBARU\n' + ideaText_(t, idea.form) +
     '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ' — ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
-    '\n\nRIWAYAT DISKUSI\n' + (idea.chat.slice(-10).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : 'Writer: ') + m.text; }).join('\n') || '(belum ada)') +
+    '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
     '\n\nPESAN BARU WRITER: ' + text;
   var r = aiCall_(st.models.idea || st.models.brief, sys, user, 800, st, 'idea', IDEA_REPLY_SCHEMA);
   var reply = r.json && r.json.reply ? String(r.json.reply) : String(r.text || '').trim();
@@ -4762,6 +4763,35 @@ function ideaReply_(me, b) {
   idea.chat.push({ role: 'user', by: me.username, text: text, at: now });
   idea.chat.push({ role: 'ai', text: reply.slice(0, 1500), at: now, model: r.model });
   return ideaPut_(me, t, idea, 'reply');
+}
+function ideaHistory_(idea) {
+  return idea.chat.slice(-14).map(function (m) { return (m.role === 'ai' ? 'Claude: ' : m.admin ? 'Admin: ' : 'Writer: ') + m.text; }).join('\n') || '(belum ada)';
+}
+/** Admin berdiskusi dengan Claude tentang ide writer (menyanggah, memberi data pembanding, bertanya). Isi ide tidak berubah. */
+function ideaAsk_(me, b) {
+  if (me.role !== 'admin') throw new Error('Hanya admin yang bisa menanggapi penilaian Claude di sini.');
+  var t = ideaTarget_(me, b), idea = ideaObj_(t);
+  var text = String(b.text || '').trim().slice(0, 1500);
+  if (!idea.reviews.length) throw new Error('Ide ini belum pernah dicek Claude.');
+  if (text.length < 3) throw new Error('Tulis pesan dulu.');
+  if (idea.chat.filter(function (m) { return m.admin; }).length >= IDEA_MAX_ADMIN) throw new Error('Kuota diskusi admin (' + IDEA_MAX_ADMIN + '×) untuk ide ini sudah habis.');
+  var st = aiSettings_(), c = ideaContext_(t), rv = idea.reviews[idea.reviews.length - 1];
+  var sys = (t.ideaKind === 'opt' ? 'Anda SEO editor senior untuk blog linovhr.com. Jangan mengarang angka ranking atau volume.' : t.ideaKind === 'case' ? 'Anda editor senior studi kasus pelanggan untuk blog linovhr.com (software HRIS & payroll Indonesia). Jangan mengarang angka atau fakta klien.' : ideaSystem_(c.ind)) +
+    '\n\nSekarang Anda berdiskusi dengan ADMIN, yaitu lead konten yang menilai ide writer (bukan penulis ide). Admin bisa menyanggah penilaian Anda, memberi data pembanding, atau bertanya. ' +
+    'Tanggapi dengan jujur: bila sanggahan atau datanya masuk akal, akui dan jelaskan apa yang berubah pada penilaian Anda; bila tidak, pertahankan pendapat Anda dengan alasan yang jelas. Jangan sekadar setuju agar menyenangkan. ' +
+    'Anda tidak bisa membuka internet: bila admin mengutip data, regulasi, pasal, atau angka, nilai kewajarannya dari pengetahuan Anda dan sebutkan apa yang perlu dicek ke sumber aslinya. ' +
+    'Gunakan bahasa Indonesia yang lugas tanpa basa-basi, sapaan "Anda", maksimal 180 kata, tanpa em dash. Tutup dengan satu kalimat sikap yang jelas: layak disetujui, perlu revisi (sebutkan revisinya), atau sebaiknya ditolak. Jawab HANYA JSON {"reply": "..."}.';
+  var user = 'INDUSTRI: ' + c.ind + '\n\nUSULAN IDE WRITER\n' + ideaText_(t, idea.form) +
+    '\n\nREVIEW TERAKHIR ANDA: ' + rv.verdict + ': ' + rv.summary + '\n' + rv.points.map(function (p) { return '- ' + p.label + ' (' + p.status + '): ' + p.note; }).join('\n') +
+    '\n\nRIWAYAT DISKUSI\n' + ideaHistory_(idea) +
+    '\n\nPESAN BARU ADMIN: ' + text;
+  var r = aiCall_(st.models.idea || st.models.brief, sys, user, 1000, st, 'idea', IDEA_REPLY_SCHEMA);
+  var reply = r.json && r.json.reply ? String(r.json.reply) : String(r.text || '').trim();
+  if (!reply) throw aiUnreadable_(r);
+  var now = new Date().toISOString();
+  idea.chat.push({ role: 'user', admin: true, by: me.username, byName: me.name || me.username, text: text, at: now });
+  idea.chat.push({ role: 'ai', text: reply.slice(0, 2000), at: now, model: r.model, toAdmin: true });
+  return ideaPut_(me, t, idea, 'ask');
 }
 // ---------- Bank Ide: brainstorming topik tanpa task (koleksi ideas/) ----------
 // Status: Draft → Diajukan → Disetujui / Revisi / Ditolak → Dipakai (jadi task). Review & diskusi Claude memakai fungsi tahap ide yang sama.

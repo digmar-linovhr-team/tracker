@@ -73,6 +73,7 @@ function ideaTaskSrc(t) {
   return { key: t.id, kind: ideaKind(t), idea, locked, ids: { taskId: t.id }, form: () => (locked ? (idea.form || {}) : ideaForm(t)),
     apply: (r) => patchTask(t.id, { idea: r.idea }), rerender: () => { if (typeof dpRefresh === 'function') dpRefresh(); },
     pre: locked ? '' : ideaBankPick(t),
+    adminAsk: admin && t.owner !== S.user.username, summaryTop: admin && t.owner !== S.user.username && locked,
     head: idea.final ? `<span class="chip good">Ide final${idea.finalBy ? ' · ' + esc(idea.finalBy) : ''}</span>` : idea.skipped ? `<span class="chip">Dilewati admin</span>` : `<span class="chip warn">Belum final</span>`,
     industry: ideaKind(t) === 'opt' ? '' : t.industry ? `<p class="muted small" style="margin:0 0 8px">Industri: <b>${esc(t.industry)}</b></p>` : '<p class="error small" style="margin:0 0 8px">Industri task ini belum diisi. Minta admin mengisinya lewat Edit task supaya Claude bisa menilai dengan tepat.</p>',
     footer: (rv, busy) => locked ? (admin && (idea.final || idea.skipped) && !briefOf(t.id) ? `<div class="idea-act"><button class="btn ghost" data-ideaundo="${id}">Buka lagi ide</button></div>` : '')
@@ -101,7 +102,7 @@ function ideaCoreHtml(src) {
   const idea = src.idea || {}, locked = src.locked, id = esc(src.key);
   const f = src.form(), busy = IDEA.busy[src.key];
   const reviews = idea.reviews || [], rv = reviews[reviews.length - 1], chat = idea.chat || [];
-  const nRev = reviews.length, nRep = chat.filter((c) => c.role === 'user').length;
+  const nRev = reviews.length, nRep = chat.filter((c) => c.role === 'user' && !c.admin).length, nAsk = chat.filter((c) => c.admin).length;
   const form = locked
     ? `<div class="idea-ro">${IDEA_FIELDS.filter(([k]) => f[k]).map(([k, l]) => `<div><span>${esc(l)}</span><p>${esc(f[k])}</p></div>`).join('') || '<p class="muted small">Ide belum diisi.</p>'}</div>`
     : `<div class="idea-form">${IDEA_FIELDS.map(([k, l, h, rows]) => `<label class="field"><span>${esc(l)}</span>
@@ -119,12 +120,26 @@ function ideaCoreHtml(src) {
       ${(rv.questions || []).length ? `<div class="idea-sh">${esc(K.qTitle)}</div><ul class="idea-q">${rv.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
       ${(rv.prompts || []).length ? `<div class="idea-sh">Pertanyaan di AI Overview yang bisa dijawab artikel ini</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
     </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi idenya, lalu klik <b>Cek ke Claude</b>. ${esc(K.hint)}</p>`);
-  const thread = chat.length ? `<div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : 'me'}"><small>${esc(c.role === 'ai' ? 'Claude' : (c.by || ''))}</small>${esc(c.text)}</div>`).join('')}</div>` : '';
+  const who = (c) => c.role === 'ai' ? (c.toAdmin ? 'Claude, menjawab admin' : 'Claude') : c.admin ? `${c.byName || c.by || 'Admin'} (admin)` : (c.byName || (typeof personName === 'function' && c.by ? personName(c.by) : c.by) || 'Writer');
+  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}</small>${esc(c.text)}</div>`).join('')}</div>` : '';
+  // admin: menanggapi / menyanggah penilaian Claude dengan data pembanding (isi ide tidak berubah)
+  const askBox = rv && src.adminAsk ? `<div class="idea-ask" id="${id}-ask"><div class="idea-sh">Tanggapi penilaian Claude</div>
+      <p class="muted small" style="margin:0 0 6px">Sanggah, beri data pembanding, atau tanya alasannya. Claude akan menimbang ulang dan menyebut sikapnya. Isi ide writer tidak berubah, dan writer bisa membaca diskusi ini.</p>
+      <div class="idea-reply"><textarea data-ideaask rows="3" maxlength="1500" placeholder="Contoh: Saya tidak setuju datanya lemah. Survei Apindo 2026 menyebut 6 dari 10 pabrik masih menghitung lembur manual. Apakah itu cukup?">${esc(IDEA.reply['ask:' + src.key] || '')}</textarea>
+      <button class="btn primary" data-ideaasksend="${id}" ${busy || nAsk >= 20 ? 'disabled' : ''}>${busy === 'ask' ? 'Claude sedang menimbang…' : 'Kirim'}</button></div>
+      <div class="idea-quota muted small">Sisa ${20 - nAsk} pesan</div></div>` : '';
+  // ringkasan Claude di atas (untuk admin yang menilai ide)
+  const top = rv && src.summaryTop ? (() => { const V = IDEA_VERDICT[rv.verdict] || IDEA_VERDICT.pertajam, pp = rv.points || [];
+    const weak = pp.filter((p) => p.status !== 'kuat');
+    return `<div class="idea-top ${V[1]}"><div class="idea-top-h"><b>Penilaian Claude: ${esc(V[0])}</b><span class="muted small">cek ke-${nRev} · ${esc(cmWhen(rv.at))}${chat.length ? ` · ${chat.filter((c) => c.role !== 'ai').length} pesan diskusi` : ''}</span></div>
+      <p>${esc(rv.summary || '')}</p>
+      ${weak.length ? `<ul>${weak.slice(0, 3).map((p) => `<li><b>${esc(p.label)}:</b> ${esc(p.note)}</li>`).join('')}</ul>` : ''}
+      <div class="idea-top-a">${chat.length ? `<button type="button" class="linkbtn small" data-ideajump="${id}-chat">Lihat diskusi</button>` : ''}${src.adminAsk ? `<button type="button" class="btn sm" data-ideajump="${id}-ask">Tanggapi Claude</button>` : ''}</div></div>`; })() : '';
   const replyBox = rv && !locked ? `<div class="idea-reply"><textarea data-ideareply rows="2" maxlength="800" placeholder="Balas atau tanya ke Claude">${esc(IDEA.reply[src.key] || '')}</textarea>
       <button class="btn" data-ideasend="${id}" ${busy || nRep >= IDEA_MAX_REPLY ? 'disabled' : ''}>${busy === 'reply' ? 'Menunggu…' : 'Kirim'}</button></div>
       <div class="idea-quota muted small">Sisa ${IDEA_MAX_REVIEW - nRev} kali cek dan ${IDEA_MAX_REPLY - nRep} kali balas</div>` : '';
   return `<section class="dp-sec" id="${src.wrapId || 'idea-sec'}"><h3>${esc(src.title || K.name)} ${src.head || ''}</h3>
-    ${src.pre || ''}${src.industry || ''}${form}${review}${thread}${replyBox}${src.footer(rv, busy)}</section>`;
+    ${top}${src.pre || ''}${src.industry || ''}${form}${review}${thread}${replyBox}${askBox}${src.footer(rv, busy)}</section>`;
 }
 
 /** Tombol inti tahap ide: simpan draf, review, balas, pakai sudut. */
@@ -132,6 +147,8 @@ function ideaCoreBind(root, src) {
   const K = IDEA_KINDS[src.kind], IDEA_VERDICT = K.verdict, key = src.key;
   $$('[data-idea]', root).forEach((el) => el.oninput = () => { src.form()[el.dataset.idea] = el.value; });
   const rep = $('[data-ideareply]', root); if (rep) rep.oninput = () => { IDEA.reply[key] = rep.value; };
+  const ask = $('[data-ideaask]', root); if (ask) ask.oninput = () => { IDEA.reply['ask:' + key] = ask.value; };
+  $$('[data-ideajump]', root).forEach((b) => b.onclick = () => { const el = document.getElementById(b.dataset.ideajump); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); const ta = el.querySelector('textarea'); if (ta) setTimeout(() => ta.focus({ preventScroll: true }), 350); } });
   const run = async (kind, action, extra, okMsg) => {
     if (IDEA.busy[key]) return;
     IDEA.busy[key] = kind; src.rerender();
@@ -158,6 +175,12 @@ function ideaCoreBind(root, src) {
     if (text.length < 3) { toast('Tulis pesan dulu.', true); return; }
     const r = await run('reply', 'ideaReply', { text, form: form() });
     if (r) { IDEA.reply[key] = ''; src.rerender(); }
+  });
+  $$('[data-ideaasksend]', root).forEach((b) => b.onclick = async () => {
+    const text = String(IDEA.reply['ask:' + key] || '').trim();
+    if (text.length < 3) { toast('Tulis pesan dulu.', true); return; }
+    const r = await run('ask', 'ideaAsk', { text });
+    if (r) { IDEA.reply['ask:' + key] = ''; src.rerender(); setTimeout(() => { const el = document.getElementById(key + '-chat'); const last = el && el.nextElementSibling && el.nextElementSibling.lastElementChild; if (last) last.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 60); }
   });
   $$('[data-ideaalt]', root).forEach((b) => b.onclick = () => {
     const rv = ((src.idea || {}).reviews || []).slice(-1)[0], a = rv && rv.alts[Number(b.dataset.ideaalt)]; if (!a) return;

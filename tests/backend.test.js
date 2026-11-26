@@ -1334,7 +1334,7 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   sandbox.UrlFetchApp.fetch = (url, opt) => {
     if (/api\.anthropic\.com/.test(url)) {
       const body = JSON.parse(opt.payload); sent.push(body);
-      const out = /berdiskusi dengan writer/.test(body.system) ? { reply: 'Fokus ke garmen boleh, tapi sebut alasannya.' }
+      const out = /berdiskusi dengan ADMIN/.test(body.system) ? { reply: 'Data Anda masuk akal. Sikap: perlu revisi kecil.' } : /berdiskusi dengan writer/.test(body.system) ? { reply: 'Fokus ke garmen boleh, tapi sebut alasannya.' }
         : { verdict: 'pertajam', summary: 'Arah benar, perlu data.', points: [{ key: 'fit', status: 'kuat', note: 'Khas pabrik.' }, { key: 'data', status: 'lemah', note: 'Belum ada data.' }],
           alts: [{ title: 'Lembur sebagai masalah data', desc: 'Mulai dari sumber absensi.' }], questions: ['Berapa pabrik 3 shift?'], prompts: [] };
       return resp(200, { content: [{ type: 'text', text: JSON.stringify(out) }], usage: { input_tokens: 1200, output_tokens: 300 }, stop_reason: 'end_turn' });
@@ -1402,6 +1402,15 @@ if (process.env.FB_EMU) it('Bank Ide: usul → diskusi Claude → ajukan → kep
   sandbox.ideaFinal_(fahmi, { taskId: 'TBK3', form: Object.assign({}, f2, { title: 'Jadwal jaga perawat yang adil' }) });
   assert.strictEqual(sandbox.bankList_().ideas.filter((x) => x.taskId === 'TBK3').length, 1, 'tidak dobel');
   assert.strictEqual(sandbox.fsGet_('ideas/' + mid).title, 'Jadwal jaga perawat yang adil');
+  // admin menanggapi penilaian Claude pada ide yang sudah dikunci; anggota tidak bisa; isi ide tidak berubah
+  const before = JSON.stringify(sandbox.fsGet_('ideas/' + mid).idea.form);
+  assert.throws(() => sandbox.ideaAsk_(fahmi, { ideaId: mid, text: 'Saya tidak setuju.' }), /Hanya admin/);
+  r = sandbox.ideaAsk_(adm, { ideaId: mid, text: 'Saya tidak setuju datanya lemah: survei asosiasi 2026 menyebut 6 dari 10 klinik masih manual.' });
+  const ch = r.idea.chat.slice(-2);
+  assert.ok(ch[0].admin && ch[0].by === 'admin' && ch[1].role === 'ai' && /revisi/.test(ch[1].text));
+  assert.ok(/PESAN BARU ADMIN/.test(sent[sent.length - 1].messages[0].content), 'prompt memakai pesan admin');
+  assert.strictEqual(JSON.stringify(sandbox.fsGet_('ideas/' + mid).idea.form), before, 'isi ide tidak berubah');
+  assert.strictEqual(sandbox.fsGet_('ideas/' + mid).idea.chat.filter((m) => m.admin).length, 1);
   sandbox.UrlFetchApp.fetch = realFetch; delete props.ANTHROPIC_API_KEY;
 });
 
