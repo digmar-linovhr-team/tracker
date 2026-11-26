@@ -106,6 +106,23 @@ const IDEA_QUICK = [
 ];
 const ideaQuickHtml = (target) => `<div class="idea-quick">${IDEA_QUICK.map(([l], i) => `<button type="button" class="chip-btn" data-ideaquick="${i}" data-target="${target}">${esc(l)}</button>`).join('')}</div>`;
 
+/** Teks pesan: aman (di-escape), tautan jadi link pendek yang bisa diklik. */
+function ideaMsgHtml(text) {
+  return esc(text).replace(/https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?]/g, (u) => {
+    const raw = u.replace(/&amp;/g, '&'), m = /^https?:\/\/(?:www\.)?([^/]+)(\/[^?#]*)?/.exec(raw) || [];
+    return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer" title="${esc(raw)}">${esc(ideaLinkLabel(raw))}</a>`;
+  });
+}
+/** Label tautan yang mudah dibaca: domain › bagian akhir alamat (mis. bps.go.id › keadaan pekerja di indonesia agustus 2025). */
+function ideaLinkLabel(url) {
+  const m = /^https?:\/\/(?:www\.)?([^/?#]+)([^?#]*)/.exec(String(url)) || [];
+  const seg = (m[2] || '').split('/').filter(Boolean).pop() || '';
+  let name = decodeURIComponent(seg.replace(/\.(html?|php|aspx?|pdf)$/i, '')).replace(/[-_+]+/g, ' ').trim();
+  if (/^[A-Za-z0-9=]{6,}$/.test(name) && !/\s/.test(name)) name = '';
+  if (name.length > 60) name = name.slice(0, 57).trim() + '…';
+  return (m[1] || url) + (name ? ' › ' + name : '');
+}
+
 /** HTML inti tahap ide. src: { key, kind, idea, locked, form(), head, industry, footer(rv, busy), wrapId? } */
 function ideaCoreHtml(src) {
   const K = IDEA_KINDS[src.kind], IDEA_FIELDS = K.fields, IDEA_VERDICT = K.verdict, IDEA_PT = K.pt;
@@ -131,7 +148,7 @@ function ideaCoreHtml(src) {
       ${(rv.prompts || []).length ? `<div class="idea-sh">Pertanyaan di AI Overview yang bisa dijawab artikel ini</div><ul class="idea-q">${rv.prompts.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>` : ''}
     </div>` : (locked ? '' : `<p class="muted small idea-hint">Isi idenya, lalu klik <b>Cek ke Claude</b>. ${esc(K.hint)}</p>`);
   const who = (c) => c.role === 'ai' ? (c.toAdmin ? 'Claude, menjawab admin' : 'Claude') : c.admin ? `${c.byName || c.by || 'Admin'} (admin)` : (c.byName || (typeof personName === 'function' && c.by ? personName(c.by) : c.by) || 'Writer');
-  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}${c.web && (c.web.fetched || c.web.searched) ? ` · ${[c.web.fetched ? `membuka ${c.web.fetched} sumber` : '', c.web.searched ? `mencari ${c.web.searched}×` : ''].filter(Boolean).join(', ')}` : ''}</small>${esc(c.text)}${(c.sources || []).length ? `<div class="idea-src"><span>Sumber yang dibuka Claude</span>${c.sources.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || x.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 70))}</a>`).join('')}</div>` : ''}</div>`).join('')}</div>` : '';
+  const thread = chat.length ? `<div class="idea-sh" id="${id}-chat">Diskusi dengan Claude</div><div class="idea-chat">${chat.map((c) => `<div class="idea-msg ${c.role === 'ai' ? 'ai' : c.admin ? 'adm' : 'me'}"><small>${esc(who(c))}${c.web && (c.web.fetched || c.web.searched) ? ` · ${[c.web.fetched ? `membuka ${c.web.fetched} sumber` : '', c.web.searched ? `mencari ${c.web.searched}×` : ''].filter(Boolean).join(', ')}` : ''}</small>${ideaMsgHtml(c.text)}${(c.sources || []).length ? `<div class="idea-src"><span>Sumber yang dibuka Claude</span>${c.sources.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || ideaLinkLabel(x.url))}</a>`).join('')}</div>` : ''}</div>`).join('')}</div>` : '';
   // admin: menanggapi / menyanggah penilaian Claude dengan data pembanding (isi ide tidak berubah)
   const askBox = rv && src.adminAsk ? `<div class="idea-ask" id="${id}-ask"><div class="idea-sh">Tanggapi penilaian Claude</div>
       <p class="muted small" style="margin:0 0 6px">Sanggah, beri data pembanding, atau tanya alasannya. Tempel tautan sumber (mis. JDIH, BPS) supaya Claude membukanya; Claude juga bisa mencari sendiri di web. Isi ide writer tidak berubah, dan writer bisa membaca diskusi ini. Jawaban bisa makan waktu sampai 1 menit.</p>

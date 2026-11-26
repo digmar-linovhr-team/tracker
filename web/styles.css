@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.45.3"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.45.4"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -1870,3 +1870,9 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .chip-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 12.5px; padding: 5px 11px; border-radius: 999px; cursor: pointer; }
 .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
 .idea-msg.ai { white-space: pre-wrap; }
+/* pesan diskusi: tautan/teks panjang tidak boleh melebarkan jendela */
+.idea-chat { min-width: 0; }
+.idea-msg { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.idea-msg a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.idea-src a { display: block; max-width: 100%; }
+#bk-ed, .modal .dp-sec { min-width: 0; overflow-wrap: anywhere; }
