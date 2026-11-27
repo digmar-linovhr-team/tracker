@@ -160,8 +160,29 @@
   document.addEventListener('invalid', (e) => e.preventDefault(), true);
 
   // ---------- pasang otomatis ----------
+  /* Textarea ikut memanjang sesuai isi, supaya teks tidak tenggelam di kotak kecil.
+     Batas tinggi 60% layar, sesudah itu baru muncul scroll. Lewati dengan data-nogrow. */
+  function grow(ta) {
+    if (!ta || ta.dataset.nogrow != null || !ta.isConnected) return;
+    const max = Math.max(160, Math.round(window.innerHeight * 0.6));
+    ta.style.height = 'auto';
+    const h = ta.scrollHeight;
+    if (!h) { ta.style.height = ''; return; }          // belum tampil (modal tertutup): coba lagi saat fokus
+    const b = ta.offsetHeight - ta.clientHeight;      // border atas + bawah
+    ta.style.height = Math.min(h + b, max) + 'px';
+    ta.style.overflowY = h + b > max ? 'auto' : 'hidden';
+  }
+  document.addEventListener('input', (e) => { if (e.target && e.target.tagName === 'TEXTAREA') grow(e.target); }, true);
+  document.addEventListener('focusin', (e) => { if (e.target && e.target.tagName === 'TEXTAREA') grow(e.target); }, true);
+  // Textarea satu baris (data-oneline): Enter tidak membuat baris baru, teks tetap dibungkus.
+  document.addEventListener('keydown', (e) => { const t = e.target; if (e.key === 'Enter' && t && t.tagName === 'TEXTAREA' && t.dataset.oneline != null && !e.isComposing) e.preventDefault(); }, true);
+  document.addEventListener('input', (e) => { const t = e.target; if (t && t.tagName === 'TEXTAREA' && t.dataset.oneline != null && /\n/.test(t.value)) { const p = t.selectionStart; t.value = t.value.replace(/\s*\n\s*/g, ' '); try { t.setSelectionRange(p, p); } catch (_) { /* abaikan */ } grow(t); } }, true);
+  window.addEventListener('resize', () => document.querySelectorAll('textarea').forEach(grow));
   function scan(root) {
     if (!root || !root.querySelectorAll) return;
+    if (root.tagName === 'TEXTAREA') grow(root);
+    const tas = root.querySelectorAll('textarea');
+    if (tas.length) requestAnimationFrame(() => tas.forEach(grow));
     if (root.matches && root.matches('form')) root.noValidate = true;
     root.querySelectorAll('form').forEach((f) => { f.noValidate = true; });
     root.querySelectorAll('input[type="date"]').forEach(enhanceDate);
@@ -170,5 +191,5 @@
   const mo = new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) scan(n.parentElement || n); })));
   const start = () => { scan(document.body); mo.observe(document.body, { childList: true, subtree: true }); };
   if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
-  window.PTPickers = { scan, normTime };
+  window.PTPickers = { scan, normTime, grow };
 })();

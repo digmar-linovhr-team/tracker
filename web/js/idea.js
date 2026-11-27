@@ -157,7 +157,7 @@ function ideaCoreHtml(src) {
   const form = locked
     ? `<div class="idea-ro">${IDEA_FIELDS.filter(([k]) => f[k]).map(([k, l]) => `<div><span>${esc(l)}</span><p>${esc(f[k])}</p></div>`).join('') || '<p class="muted small">Ide belum diisi.</p>'}</div>`
     : `<div class="idea-form">${IDEA_FIELDS.map(([k, l, h, rows]) => `<label class="field"><span>${esc(l)}</span>
-        ${rows > 1 ? `<textarea data-idea="${k}" rows="${rows}" maxlength="1200">${esc(f[k] || '')}</textarea>` : `<input data-idea="${k}" maxlength="200" value="${esc(f[k] || '')}">`}
+        ${rows > 1 ? `<textarea data-idea="${k}" rows="${rows}" maxlength="1200">${esc(f[k] || '')}</textarea>` : `<textarea data-idea="${k}" data-oneline rows="1" maxlength="200">${esc(f[k] || '')}</textarea>`}
         ${h ? `<small class="muted">${esc(h)}</small>` : ''}</label>`).join('')}
         <div class="idea-act"><button class="btn" data-ideasave="${id}" ${busy ? 'disabled' : ''}>Simpan draf</button>
         <button class="btn primary" data-idearev="${id}" ${busy || nRev >= IDEA_MAX_REVIEW ? 'disabled' : ''}>${busy === 'review' ? 'Claude sedang membaca…' : nRev ? 'Cek lagi ke Claude' : 'Cek ke Claude'}</button></div></div>`;

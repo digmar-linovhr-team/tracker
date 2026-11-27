@@ -1,5 +1,5 @@
 :root {
-  --pt-css: "2.47.0"; /* harus sama dengan CSS_VERSION di js/app.js */
+  --pt-css: "2.47.1"; /* harus sama dengan CSS_VERSION di js/app.js */
   color-scheme: light;
   --bg: #f5f7f9;
   --surface: #ffffff;
@@ -2042,3 +2042,10 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
   .isrc-row { grid-template-columns: 30px minmax(0, 1fr); }
   .isrc-row > .btn, .isrc-row > .isrc-in { grid-column: 2; justify-self: start; }
 }
+
+/* v2.47.1 · teks ide tidak tenggelam */
+textarea[data-oneline] { min-height: 0; resize: none; overflow: hidden; line-height: 1.45; }
+.idea-form textarea { line-height: 1.5; }
+.idea-verdict { flex-direction: column; align-items: flex-start; gap: 4px; }
+.idea-verdict b { white-space: normal; }
+.idea-verdict span { line-height: 1.55; }

@@ -178,7 +178,7 @@ function bankOpen(id) {
         if (d.status === 'Diajukan' && mineIdea) btn.push('<button class="btn" data-bk="withdraw">Tarik lagi</button>');
         if (d.status === 'Dipakai' && d.taskId) btn.push('<button class="btn" data-bk="task">Buka task</button>');
         const decide = admin && ['Diajukan', 'Disetujui', 'Revisi', 'Ditolak'].includes(d.status) ? `<div class="bk-decide">
-            <label class="field" style="margin:0"><span>Catatan untuk ${esc(firstNameOf(d.authorName) || 'penulis')} <small class="muted">(wajib kalau minta revisi atau tolak)</small></span><textarea id="bk-dnote" rows="7" maxlength="4000" placeholder="Contoh: sudutnya oke, tapi sumber datanya belum ada.">${esc((S.bkNote || {})[id] || '')}</textarea><small class="muted bk-dcount"></small></label>
+            <label class="field" style="margin:0"><span>Catatan untuk ${esc(firstNameOf(d.authorName) || 'penulis')} <small class="muted">(wajib kalau minta revisi atau tolak)</small></span><textarea id="bk-dnote" data-nogrow rows="7" maxlength="4000" placeholder="Contoh: sudutnya oke, tapi sumber datanya belum ada.">${esc((S.bkNote || {})[id] || '')}</textarea><small class="muted bk-dcount"></small></label>
             <div class="idea-act">${d.status !== 'Ditolak' ? '<button class="btn" data-bk="reject">Tolak</button>' : ''}${d.status !== 'Revisi' ? '<button class="btn" data-bk="revise">Minta revisi</button>' : ''}${d.status !== 'Disetujui' ? '<button class="btn ok" data-bk="approve">Setujui</button>' : ''}
             ${d.status === 'Disetujui' ? '<button class="btn primary" data-bk="use">Jadikan task</button>' : ''}</div></div>` : '';
         return `${decide}${btn.length ? `<div class="idea-act">${btn.join('')}</div>` : ''}`;
